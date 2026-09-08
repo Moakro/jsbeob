@@ -1,0 +1,48 @@
+---
+import Base from "../../layouts/Base.astro";
+import { BOARDS } from "../../lib/api";
+
+// 커뮤니티에 노출할 보드 (자료실 boards 는 경전·자료 섹션에서 다룸)
+const GROUPS = [
+  { label: "소식", keys: ["notice", "jsnews"] },
+  { label: "사진", keys: ["sns", "album"] },
+  { label: "참여", keys: ["help"] },
+];
+---
+
+<Base title="소식·커뮤니티" description="증산법종교 소식과 도생 커뮤니티">
+  <header class="page-head">
+    <span class="kicker">소식·커뮤니티</span>
+    <h1>소식과 커뮤니티</h1>
+    <p>공지와 소식, 도생들의 사진과 글을 나누는 공간입니다.</p>
+  </header>
+
+  {
+    GROUPS.map((g) => (
+      <section class="block">
+        <div class="section-head"><h2>{g.label}</h2></div>
+        <div class="wz-grid cols-3">
+          {g.keys.map((k) => {
+            const b = BOARDS[k];
+            return (
+              <a class="wz-card board-card" href={`/community/${k}/`}>
+                <div class="body">
+                  <h3>{b.label}</h3>
+                  <p>{b.desc}</p>
+                </div>
+              </a>
+            );
+          })}
+        </div>
+      </section>
+    ))
+  }
+</Base>
+
+<style>
+  .page-head { margin-bottom: 32px; }
+  .page-head h1 { font-size: 2.2rem; margin: 8px 0 10px; }
+  .page-head p { color: var(--color-muted); margin: 0; }
+  .block { margin-bottom: 40px; }
+  .board-card .body { padding: 20px; }
+</style>

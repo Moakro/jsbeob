@@ -1,0 +1,12 @@
+# 로컬 wrangler dev 용 시크릿 (이 파일을 .dev.vars 로 복사 후 채움)
+# .dev.vars 는 gitignore 됨.
+
+AUTH_SECRET="여기에-32자-이상-랜덤-문자열"
+
+# 카카오 (메인)
+KAKAO_REST_API_KEY=""
+KAKAO_CLIENT_SECRET=""   # 보안 강화 사용 시에만
+
+# 구글 (보조)
+GOOGLE_CLIENT_ID=""
+GOOGLE_CLIENT_SECRET=""

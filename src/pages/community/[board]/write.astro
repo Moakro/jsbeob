@@ -1,0 +1,14 @@
+---
+import Base from "../../../layouts/Base.astro";
+import PostEditor from "../../../components/board/PostEditor.svelte";
+import { BOARDS } from "../../../lib/api";
+export const prerender = false;
+
+const { board } = Astro.params;
+const meta = BOARDS[board as string];
+if (!meta) return Astro.redirect("/community/");
+---
+
+<Base title={`${meta.label} 글쓰기`}>
+  <PostEditor client:load board={board as string} />
+</Base>

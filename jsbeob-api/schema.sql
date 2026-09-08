@@ -1,0 +1,214 @@
+-- jsbeob (증산법종교) D1 schema (SQLite)
+-- All timestamps are ISO-8601 strings stored in UTC.
+
+-- ──────────────── users ────────────────
+-- 멀티 프로바이더(카카오 메인 + 구글). google_id / kakao_id 중 하나 이상 채워짐.
+-- google_name (프로바이더가 준 실명/닉네임)은 감사 목적으로 1회 저장하되
+-- 클라이언트 응답에는 절대 노출하지 않는다(노출용은 display_name).
+CREATE TABLE IF NOT EXISTS users (
+  id            TEXT PRIMARY KEY,                 -- internal UUID
+  provider      TEXT,                             -- 'kakao' | 'google' (마지막 로그인 수단)
+  google_id     TEXT UNIQUE,                      -- google "sub" claim (nullable)
+  kakao_id      TEXT UNIQUE,                      -- kakao user id (nullable)
+  email         TEXT,                             -- 이메일 (프로바이더가 줄 때만, 비공개)
+  google_name   TEXT,                             -- 프로바이더 제공 실명/닉네임 (NEVER expose)
+  display_name  TEXT,                             -- nickname, NULL until set
+  avatar_url    TEXT,
+  affiliation   TEXT,                             -- 단체 자가 표시 (선택)
+  level         INTEGER NOT NULL DEFAULT 0,       -- 0=대기, 1=일반, 2=검증, 3=큐레이터, 4=운영자
+  is_seed       INTEGER NOT NULL DEFAULT 0,       -- 1=운영자 시드 계정 (콘텐츠 누적용 가짜 회원)
+  created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at    TEXT NOT NULL DEFAULT (datetime('now')),
+  last_seen_at  TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+CREATE INDEX IF NOT EXISTS idx_users_display_name ON users(display_name);
+
+-- 닉네임 변경 이력 — 도주 방지
+CREATE TABLE IF NOT EXISTS display_name_history (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id     TEXT NOT NULL REFERENCES users(id),
+  old_name    TEXT,
+  new_name    TEXT NOT NULL,
+  changed_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_dnh_user ON display_name_history(user_id);
+
+-- ──────────────── posts (게시판/SNS 게시글) ────────────────
+-- jsbeob 핵심: 회원이 직접 작성하는 독립 게시판.
+--   board: notice|jsnews|sns(사진피드)|album|book|mantra|ritual|etc|help
+--   attachments: JSON [{type:'image',url,w,h} | {type:'video',url(youtube)}]
+CREATE TABLE IF NOT EXISTS posts (
+  id            TEXT PRIMARY KEY,                  -- UUID
+  board         TEXT NOT NULL,
+  category      TEXT,                              -- 보드 내 세부 분류 (선택)
+  title         TEXT NOT NULL,
+  body_md       TEXT NOT NULL,                     -- 마크다운 원본
+  body_html     TEXT NOT NULL,                     -- 서버 sanitized HTML 캐시
+  author_id     TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  attachments   TEXT,                              -- JSON 첨부 (이미지/유튜브)
+  cover_image   TEXT,                              -- 갤러리 썸네일 (attachments 첫 이미지 캐시)
+  view_count    INTEGER NOT NULL DEFAULT 0,
+  comment_count INTEGER NOT NULL DEFAULT 0,
+  is_pinned     INTEGER NOT NULL DEFAULT 0,        -- 공지 상단 고정 (L≥4)
+  status        TEXT NOT NULL DEFAULT 'published', -- published|hidden|deleted
+  created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_posts_board ON posts(board, status, is_pinned DESC, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_posts_author ON posts(author_id, created_at DESC);
+
+-- ──────────────── comments ────────────────
+-- target_type / target_id 형태. jsbeob 는 게시글 댓글이 핵심:
+--   target_type='post'    → target_id = posts.id
+CREATE INDEX IF NOT EXISTS idx_posts_cover ON posts(status, cover_image, created_at DESC);
+CREATE TABLE IF NOT EXISTS comments (
+  id                  TEXT PRIMARY KEY,                  -- UUID
+  target_type         TEXT NOT NULL,
+  target_id           TEXT NOT NULL,
+  user_id             TEXT NOT NULL REFERENCES users(id),
+  parent_id           TEXT REFERENCES comments(id),      -- 답글 (NULL 이면 루트)
+  body                TEXT NOT NULL,                     -- 마크다운 원본
+  body_html           TEXT NOT NULL,                     -- 서버 sanitized HTML
+  type                TEXT NOT NULL,                     -- memo|question|cross|cite
+  status              TEXT NOT NULL DEFAULT 'published', -- published|hidden|deleted
+  attachments         TEXT,                              -- JSON: [{type:'image',url,width?,height?},{type:'map',lat,lng,zoom?,label?}]
+  is_pinned           INTEGER NOT NULL DEFAULT 0,        -- 운영자 고정 (L≥4)
+  promoted_to_note_id TEXT,                              -- footnote id (`uc-YYYY-MM-DD-N`) when 운영자가 자료 주석으로 승격함
+  created_at          TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at          TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_comments_target ON comments(target_type, target_id, status, created_at);
+CREATE INDEX IF NOT EXISTS idx_comments_user ON comments(user_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_comments_parent ON comments(parent_id);
+CREATE INDEX IF NOT EXISTS idx_comments_pinned ON comments(target_type, target_id, is_pinned, created_at);
+CREATE INDEX IF NOT EXISTS idx_comments_promoted ON comments(promoted_to_note_id);
+
+-- 사용자별 사진 dedup. 동일 사용자가 같은 sha256 재업로드 시
+-- 기존 url 반환하고 새 업로드를 막는다. orphan cleanup은 별도 트랙.
+CREATE TABLE IF NOT EXISTS user_uploaded_photos (
+  user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  hash         TEXT NOT NULL,
+  url          TEXT NOT NULL,
+  r2_key       TEXT NOT NULL,
+  width        INTEGER NOT NULL,
+  height       INTEGER NOT NULL,
+  size_bytes   INTEGER NOT NULL,
+  content_type TEXT NOT NULL,
+  created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (user_id, hash)
+);
+
+-- ──────────────── reactions (도움됨) ────────────────
+CREATE TABLE IF NOT EXISTS reactions (
+  comment_id  TEXT NOT NULL REFERENCES comments(id) ON DELETE CASCADE,
+  user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  type        TEXT NOT NULL,                     -- helpful (확장 여지)
+  created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (comment_id, user_id, type)
+);
+CREATE INDEX IF NOT EXISTS idx_reactions_comment ON reactions(comment_id, type);
+
+-- ──────────────── flags (신고) ────────────────
+CREATE TABLE IF NOT EXISTS flags (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  comment_id  TEXT NOT NULL REFERENCES comments(id) ON DELETE CASCADE,
+  user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  reason      TEXT NOT NULL,
+  status      TEXT NOT NULL DEFAULT 'open',      -- open|reviewing|resolved|rejected
+  resolved_by TEXT REFERENCES users(id),
+  resolved_at TEXT,
+  created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_flags_comment ON flags(comment_id);
+CREATE INDEX IF NOT EXISTS idx_flags_status ON flags(status);
+
+-- ──────────────── nickname review queue (Phase 2 hook) ────────────────
+CREATE TABLE IF NOT EXISTS nickname_review_queue (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id        TEXT NOT NULL REFERENCES users(id),
+  nickname       TEXT NOT NULL,
+  ai_risk_score  INTEGER,                        -- 0..10 (Phase 2)
+  ai_reason      TEXT,
+  status         TEXT NOT NULL DEFAULT 'pending', -- pending|approved|rejected
+  decided_by     TEXT REFERENCES users(id),
+  decided_at     TEXT,
+  created_at     TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_nickname_queue_status ON nickname_review_queue(status, created_at);
+
+-- ──────────────── user_visits ────────────────
+-- 회원별 (경전, 장) 마지막 방문 시각. "새 댓글 수" 계산에 사용.
+-- 비로그인 사용자는 클라이언트 localStorage로 동일 형식 fallback.
+CREATE TABLE IF NOT EXISTS user_visits (
+  user_id        TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  scripture_slug TEXT NOT NULL,
+  chapter_anchor TEXT NOT NULL,   -- "vol-chap" (예: "2-3") · 평면 경전은 "0"
+  last_visited   TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (user_id, scripture_slug, chapter_anchor)
+);
+CREATE INDEX IF NOT EXISTS idx_user_visits_user
+  ON user_visits(user_id, scripture_slug);
+
+-- ──────────────── events (사용자 개인 일정) ────────────────
+-- 달력 사이드바 "N월 일정" 섹션 데이터 소스 + 사이트 전체 공개 일정.
+-- start_date / end_date 는 ISO 'YYYY-MM-DD'.
+--   is_lunar=0 → 양력 / is_lunar=1 → 음력 (start_date 자체가 음력)
+--   end_date NULL 이면 단일 일자
+-- category enum: 기념일·일정·기타
+-- is_annual: 매년 반복(기념일+연례). 양력/음력 기준은 is_lunar 가 결정.
+-- is_public: 사이트 전체 공개(일정/기타+공개). 작성자만 수정·삭제.
+-- all_day: 호환 컬럼 — 폼에서 제거되어 신규 row 는 사용 안 함.
+CREATE TABLE IF NOT EXISTS events (
+  id          TEXT PRIMARY KEY,
+  user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  title       TEXT NOT NULL,
+  start_date  TEXT NOT NULL,                        -- 'YYYY-MM-DD' (양력 or 음력, is_lunar 기준)
+  end_date    TEXT,                                 -- NULL → 단일 일자
+  all_day     INTEGER NOT NULL DEFAULT 1,           -- (deprecated, kept for compat)
+  category    TEXT,                                 -- 기념일·일정·기타
+  is_annual   INTEGER NOT NULL DEFAULT 0,           -- 매년 반복
+  is_lunar    INTEGER NOT NULL DEFAULT 0,           -- 음력 기준
+  is_public   INTEGER NOT NULL DEFAULT 0,           -- 사이트 전체 공개
+  memo        TEXT,
+  created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_events_user_month ON events(user_id, start_date);
+CREATE INDEX IF NOT EXISTS idx_events_public_month ON events(is_public, start_date) WHERE is_public = 1;
+CREATE INDEX IF NOT EXISTS idx_events_user_annual ON events(user_id, is_annual) WHERE is_annual = 1;
+
+-- ──────────────── news ────────────────
+-- 사이트 공지/업데이트/릴리스/로드맵. 운영자(level>=4) 가 CMS UI 에서 작성·수정·발행.
+-- 일반 회원·비회원은 발행된(draft=0) 글만 조회.
+-- body_md = 마크다운 원문 (편집 시 원본 유지).
+-- body_html = 워커 inline renderer 가 생성·수정 시 갱신하는 캐시 (출력 즉시 사용).
+CREATE TABLE IF NOT EXISTS news (
+  id           TEXT PRIMARY KEY,
+  slug         TEXT NOT NULL UNIQUE,
+  title        TEXT NOT NULL,
+  category     TEXT NOT NULL,                              -- notice|update|release|roadmap
+  body_md      TEXT NOT NULL,
+  body_html    TEXT NOT NULL DEFAULT '',
+  summary      TEXT,
+  draft        INTEGER NOT NULL DEFAULT 0,                 -- 0=published, 1=draft
+  pinned       INTEGER NOT NULL DEFAULT 0,                 -- 1=리스트 상단 고정
+  published_at TEXT,                                       -- ISO 'YYYY-MM-DDTHH:MM:SSZ' (draft 면 NULL)
+  author_id    TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_news_published ON news(draft, published_at DESC);
+CREATE INDEX IF NOT EXISTS idx_news_category ON news(category, published_at DESC);
+CREATE INDEX IF NOT EXISTS idx_news_pinned ON news(pinned DESC, published_at DESC);
+
+-- ──────────────── sessions ────────────────
+-- Auth.js 세션 (JWT 사용 시엔 비워둠. DB 세션 모드 대비)
+CREATE TABLE IF NOT EXISTS sessions (
+  id          TEXT PRIMARY KEY,
+  user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  expires_at  TEXT NOT NULL,
+  created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);

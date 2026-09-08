@@ -1,0 +1,119 @@
+---
+import Base from "../../../layouts/Base.astro";
+import { getHwaeundang, chapterSlug, chapterLabel } from "../../../lib/hwaeundang";
+import { parseChapter } from "../../../lib/scripture";
+
+export async function getStaticPaths() {
+  const chapters = await getHwaeundang();
+  return chapters.map((entry, i) => ({
+    params: { chap: chapterSlug(entry) },
+    props: {
+      entry,
+      prev: chapters[i - 1] ?? null,
+      next: chapters[i + 1] ?? null,
+    },
+  }));
+}
+
+const { entry, prev, next } = Astro.props;
+const verses = parseChapter(entry.body ?? "");
+const label = chapterLabel(entry);
+const heading = entry.data.장_이름 ? `${label} ${entry.data.장_이름}` : label;
+---
+
+<Base title={`화은당실기 — ${heading}`} description={`화은당실기 ${heading}`}>
+  <article class="scripture">
+    <nav class="crumbs">
+      <a href="/archive/hwaeundang-silgi/">화은당실기</a>
+      <span>/</span><span>{label}</span>
+    </nav>
+    <header class="ch-head">
+      <h1>{heading}</h1>
+    </header>
+
+    <div class="verses">
+      {
+        verses.map((v) => (
+          <section class="verse" id={v.anchor ?? undefined}>
+            {v.label && <h2 class="vlabel">{v.label}</h2>}
+            {v.paragraphs.map((p) => (
+              <p set:html={p} />
+            ))}
+          </section>
+        ))
+      }
+    </div>
+
+    <nav class="pager">
+      {
+        prev ? (
+          <a href={`/archive/hwaeundang-silgi/${chapterSlug(prev)}/`}>← {chapterLabel(prev)}</a>
+        ) : (
+          <span />
+        )
+      }
+      {
+        next && (
+          <a class="next" href={`/archive/hwaeundang-silgi/${chapterSlug(next)}/`}>
+            {chapterLabel(next)} →
+          </a>
+        )
+      }
+    </nav>
+  </article>
+</Base>
+
+<style>
+  .scripture {
+    max-width: 720px;
+    margin-inline: auto;
+  }
+  .crumbs {
+    font-size: 0.88rem;
+    color: var(--color-muted);
+    display: flex;
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+  .ch-head {
+    padding-bottom: 18px;
+    margin-bottom: 24px;
+    border-bottom: 2px solid var(--color-ink);
+  }
+  .ch-head h1 {
+    font-size: 2rem;
+    margin: 0;
+  }
+  .verse {
+    margin-bottom: 28px;
+    scroll-margin-top: calc(var(--header-h) + 16px);
+  }
+  .vlabel {
+    font-size: 1.05rem;
+    color: var(--color-primary);
+    margin: 0 0 10px;
+  }
+  .verse :global(p) {
+    margin: 0 0 0.9em;
+    font-size: 1.05rem;
+    line-height: 1.95;
+  }
+  .verse :global(.wikiref) {
+    color: var(--color-secondary);
+    font-weight: 500;
+  }
+  .pager {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    margin-top: 40px;
+    padding-top: 20px;
+    border-top: 1px solid var(--color-rule);
+  }
+  .pager a {
+    font-weight: 600;
+  }
+  .pager .next {
+    margin-left: auto;
+  }
+</style>

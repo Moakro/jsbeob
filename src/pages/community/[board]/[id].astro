@@ -1,0 +1,14 @@
+---
+import Base from "../../../layouts/Base.astro";
+import PostView from "../../../components/board/PostView.svelte";
+import { BOARDS } from "../../../lib/api";
+export const prerender = false;
+
+const { board, id } = Astro.params;
+const meta = BOARDS[board as string];
+if (!meta) return Astro.redirect("/community/");
+---
+
+<Base title={meta.label}>
+  <PostView client:load board={board as string} id={id as string} />
+</Base>

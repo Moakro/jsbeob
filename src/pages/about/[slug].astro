@@ -1,0 +1,51 @@
+---
+import Base from "../../layouts/Base.astro";
+import DetailHero from "../../components/DetailHero.astro";
+import { getCollection, render } from "astro:content";
+
+export async function getStaticPaths() {
+  const all = await getCollection("about");
+  return all.map((entry) => ({ params: { slug: entry.id }, props: { entry } }));
+}
+
+const { entry } = Astro.props;
+const { Content } = await render(entry);
+const { title, title_hanja, summary, hero_image } = entry.data;
+---
+
+<Base title={title} description={summary} bleed>
+  <DetailHero
+    title={title}
+    hanja={title_hanja}
+    summary={summary}
+    image={hero_image}
+    glyph={title_hanja}
+    seed={entry.id}
+    back={{ href: "/about/", label: "소개" }}
+  />
+  <article class="container doc">
+    <div class="prose">
+      <Content />
+    </div>
+  </article>
+</Base>
+
+<style>
+  .doc {
+    max-width: 760px;
+  }
+  .prose :global(h1) {
+    display: none; /* 본문 첫 h1은 히어로와 중복 → 숨김 */
+  }
+  .prose :global(blockquote) {
+    border-left: 3px solid var(--color-gold-soft);
+    background: var(--color-surface-2);
+    margin: 0;
+    padding: 12px 18px;
+    border-radius: var(--radius-sm);
+    color: var(--color-muted);
+  }
+  .prose :global(p) {
+    margin: 0 0 1.1em;
+  }
+</style>

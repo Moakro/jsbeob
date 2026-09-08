@@ -1,0 +1,133 @@
+---
+/**
+ * 상세 페이지 히어로 배너 (인물·전각 등).
+ * hero_image 가 있으면 사진 배너 + 어둡게, 없으면 듀오톤 + 한자 워터마크.
+ * 제목·한자·요약을 배너 위에 얹는다.
+ */
+interface Props {
+  kicker?: string;
+  title: string;
+  hanja?: string | null;
+  summary?: string | null;
+  image?: string | null;
+  glyph?: string | null; // 워터마크 글자 (보통 한자)
+  seed?: string;
+  back?: { href: string; label: string };
+}
+const { kicker, title, hanja, summary, image, glyph, seed = "", back } = Astro.props;
+
+const PALETTES = [
+  ["#a8352a", "#7e241c"],
+  ["#1e6e6e", "#15504f"],
+  ["#b8860b", "#8a6508"],
+  ["#5a4636", "#3a2c22"],
+];
+let h = 0;
+for (const ch of seed) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+const [c1, c2] = PALETTES[h % PALETTES.length];
+const mark = (glyph ?? hanja ?? "").trim().slice(0, 4);
+---
+
+<header
+  class:list={["hero-banner", { "has-img": !!image }]}
+  style={image ? "" : `--c1:${c1};--c2:${c2}`}
+>
+  {image && <img class="hero-img" src={image} alt="" />}
+  {!image && mark && <span class="watermark" aria-hidden="true">{mark}</span>}
+
+  <div class="hero-content container">
+    {back && <a class="back" href={back.href}>← {back.label}</a>}
+    {kicker && <span class="hero-kicker">{kicker}</span>}
+    <h1>{title}{hanja && <span class="hanja"> {hanja}</span>}</h1>
+    {summary && <p class="hero-summary">{summary}</p>}
+  </div>
+</header>
+
+<style>
+  .hero-banner {
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    align-items: flex-end;
+    min-height: 260px;
+    margin: 0 0 40px; /* bleed Base 안에서 전체폭 배너 */
+    background: linear-gradient(150deg, var(--c1), var(--c2));
+  }
+  .hero-banner.has-img {
+    background: #2a2622;
+  }
+  .hero-img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    opacity: 0.92;
+  }
+  .hero-banner::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(transparent 35%, rgba(20, 14, 12, 0.62));
+    z-index: 1;
+  }
+  .watermark {
+    position: absolute;
+    right: 2%;
+    top: 50%;
+    transform: translateY(-50%);
+    font-family: var(--font-display);
+    font-weight: 900;
+    font-size: clamp(5rem, 16vw, 11rem);
+    line-height: 1;
+    color: rgba(255, 255, 255, 0.13);
+    letter-spacing: 0.05em;
+    white-space: nowrap;
+    pointer-events: none;
+  }
+  .hero-content {
+    position: relative;
+    z-index: 2;
+    padding-block: 26px;
+    color: #fff;
+  }
+  .back {
+    display: inline-block;
+    color: rgba(255, 255, 255, 0.82);
+    font-size: 0.88rem;
+    margin-bottom: 10px;
+  }
+  .back:hover {
+    color: #fff;
+  }
+  .hero-kicker {
+    display: inline-block;
+    font-family: var(--font-body);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    background: rgba(255, 255, 255, 0.16);
+    color: #fff;
+    padding: 3px 10px;
+    border-radius: 999px;
+    margin-bottom: 12px;
+  }
+  .hero-content h1 {
+    color: #fff;
+    font-size: clamp(1.9rem, 4vw, 2.8rem);
+    margin: 0;
+    text-shadow: 0 2px 12px rgba(0, 0, 0, 0.25);
+  }
+  .hero-content .hanja {
+    color: rgba(255, 255, 255, 0.72);
+    font-weight: 500;
+    font-size: 0.6em;
+  }
+  .hero-summary {
+    margin: 10px 0 0;
+    color: rgba(255, 255, 255, 0.9);
+    font-size: 1.05rem;
+    max-width: 60ch;
+  }
+</style>

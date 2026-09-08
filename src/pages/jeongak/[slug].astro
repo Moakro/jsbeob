@@ -1,0 +1,110 @@
+---
+import Base from "../../layouts/Base.astro";
+import DetailHero from "../../components/DetailHero.astro";
+import { getCollection, render } from "astro:content";
+
+export async function getStaticPaths() {
+  const all = await getCollection("jeongak");
+  return all.map((entry) => ({ params: { slug: entry.id }, props: { entry } }));
+}
+
+const { entry } = Astro.props;
+const { Content } = await render(entry);
+const { name, name_hanja, summary, built, coord, photos, hero_image } = entry.data;
+const hasCoord = Array.isArray(coord);
+---
+
+<Base title={name} description={summary} bleed>
+  <DetailHero
+    title={name}
+    hanja={name_hanja}
+    summary={summary}
+    image={hero_image ?? photos?.[0]?.src}
+    glyph={name_hanja}
+    seed={entry.id}
+    back={{ href: "/jeongak/", label: "전각 안내" }}
+  />
+
+  <article class="container doc">
+    {built && <p class="meta">건립: {built}</p>}
+
+    {
+      photos && photos.length > 0 && (
+        <div class="gallery">
+          {photos.map((p) => (
+            <figure>
+              <img src={p.src} alt={p.caption ?? name} loading="lazy" />
+              {p.caption && <figcaption>{p.caption}</figcaption>}
+            </figure>
+          ))}
+        </div>
+      )
+    }
+
+    <div class="prose">
+      <Content />
+    </div>
+
+    <section class="map-area">
+      <h2>위치</h2>
+      {
+        hasCoord ? (
+          <p class="map-note">🗺️ 지도 (좌표 {(coord as number[]).join(", ")}) — 카카오맵 연결 예정</p>
+        ) : (
+          <p class="map-note">위치 정보가 준비되면 지도가 표시됩니다.</p>
+        )
+      }
+    </section>
+  </article>
+</Base>
+
+<style>
+  .doc {
+    max-width: 820px;
+  }
+  .meta {
+    color: var(--color-muted);
+    font-size: 0.88rem;
+    margin: 0 0 20px;
+  }
+  .gallery {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 12px;
+    margin: 0 0 28px;
+  }
+  .gallery img {
+    border-radius: var(--radius-md);
+    aspect-ratio: 4 / 3;
+    object-fit: cover;
+  }
+  .gallery figcaption {
+    font-size: 0.82rem;
+    color: var(--color-muted);
+    margin-top: 4px;
+  }
+  .prose :global(h1) {
+    display: none;
+  }
+  .prose :global(blockquote) {
+    border-left: 3px solid var(--color-gold-soft);
+    background: var(--color-surface-2);
+    margin: 0;
+    padding: 12px 18px;
+    border-radius: var(--radius-sm);
+    color: var(--color-muted);
+  }
+  .map-area {
+    margin-top: 36px;
+  }
+  .map-area h2 {
+    font-size: 1.25rem;
+  }
+  .map-note {
+    color: var(--color-muted);
+    background: var(--color-surface-2);
+    border: 1px dashed var(--color-rule);
+    border-radius: var(--radius-md);
+    padding: 16px;
+  }
+</style>

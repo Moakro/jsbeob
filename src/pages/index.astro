@@ -1,0 +1,227 @@
+---
+import Base from "../layouts/Base.astro";
+import Thumb from "../components/Thumb.astro";
+import { getCollection } from "astro:content";
+
+const jeongak = (await getCollection("jeongak")).sort(
+  (a, b) => (a.data.order ?? 0) - (b.data.order ?? 0),
+);
+const persons = (await getCollection("about"))
+  .filter((e) => e.data.kind === "person")
+  .sort((a, b) => (a.data.order ?? 0) - (b.data.order ?? 0));
+---
+
+<Base bleed>
+  <!-- ── 히어로 ── -->
+  <section class="hero">
+    <div class="container hero-inner">
+      <p class="hero-kicker">甑山法宗敎 · 華恩堂</p>
+      <h1>증산상제님의 대도,<br />화은당의 일심으로 잇다</h1>
+      <p class="hero-lead">
+        증산법종교 공식 홈페이지입니다. 신앙과 역사, 성지 전각, 경전과 자료, 그리고
+        도생들의 소식을 한곳에서 만나보십시오.
+      </p>
+      <div class="hero-cta">
+        <a class="btn btn-primary" href="/about/">법종교 소개</a>
+        <a class="btn btn-ghost" href="/jeongak/">성지 전각 둘러보기</a>
+      </div>
+    </div>
+  </section>
+
+  <div class="container home-body">
+    <!-- ── 섹션 바로가기 ── -->
+    <section class="quicknav">
+      <a href="/about/" class="quick"><span>소개</span><small>신앙·역사·인물·교리</small></a>
+      <a href="/jeongak/" class="quick"><span>전각</span><small>성지 안내·지도</small></a>
+      <a href="/archive/" class="quick"><span>경전·자료</span><small>화은당실기·자료실</small></a>
+      <a href="/community/" class="quick"><span>소식·커뮤니티</span><small>공지·게시판·갤러리</small></a>
+      <a href="/calendar/" class="quick"><span>달력</span><small>절기·기념일</small></a>
+    </section>
+
+    <!-- ── 인물 ── -->
+    <section class="block">
+      <div class="section-head">
+        <span class="kicker">인물</span>
+        <h2>법종교를 이루신 분들</h2>
+        <a class="more" href="/about/">전체 소개 →</a>
+      </div>
+      <div class="wz-grid cols-3">
+        {
+          persons.map((p) => (
+            <a class="wz-card" href={`/about/${p.id}/`}>
+              <Thumb src={p.data.hero_image} glyph={p.data.title_hanja ?? p.data.title} alt={p.data.title} seed={p.id} />
+              <div class="body">
+                <h3>{p.data.title}{p.data.title_hanja && <span class="hanja"> {p.data.title_hanja}</span>}</h3>
+                <p>{p.data.summary}</p>
+              </div>
+            </a>
+          ))
+        }
+      </div>
+    </section>
+
+    <!-- ── 전각 미리보기 ── -->
+    <section class="block">
+      <div class="section-head">
+        <span class="kicker">성지</span>
+        <h2>전각 안내</h2>
+        <a class="more" href="/jeongak/">전각 13곳 →</a>
+      </div>
+      <div class="wz-grid cols-4">
+        {
+          jeongak.slice(0, 8).map((j) => (
+            <a class="wz-card" href={`/jeongak/${j.id}/`}>
+              <Thumb src={j.data.hero_image} glyph={j.data.name_hanja ?? j.data.name} alt={j.data.name} seed={j.id} ratio="4 / 3" />
+              <div class="body">
+                <h3>{j.data.name}{j.data.name_hanja && <span class="hanja"> {j.data.name_hanja}</span>}</h3>
+              </div>
+            </a>
+          ))
+        }
+      </div>
+    </section>
+
+    <!-- ── 소식 + 사진 갤러리 (Phase 2~3 동적 연결 예정) ── -->
+    <div class="two-col">
+      <section class="block">
+        <div class="section-head">
+          <span class="kicker">소식</span>
+          <h2>법종교 소식</h2>
+          <a class="more" href="/community/">더보기 →</a>
+        </div>
+        <div class="placeholder-list">
+          <p class="placeholder">📰 게시판·공지가 연결되면 최근 소식이 이곳에 표시됩니다. (Phase 2)</p>
+        </div>
+      </section>
+
+      <aside class="block">
+        <div class="section-head">
+          <span class="kicker">갤러리</span>
+          <h2>도생 사진</h2>
+        </div>
+        <div class="photo-grid">
+          {Array.from({ length: 6 }).map(() => <div class="photo-cell" />)}
+        </div>
+        <p class="placeholder">📷 교인들이 올린 최근 사진 썸네일이 이곳에 표시됩니다. (Phase 3)</p>
+      </aside>
+    </div>
+  </div>
+</Base>
+
+<style>
+  .hero {
+    background:
+      radial-gradient(120% 140% at 80% 0%, rgba(168, 53, 42, 0.14), transparent 60%),
+      linear-gradient(160deg, var(--color-surface), var(--color-primary-bg));
+    border-bottom: 1px solid var(--color-rule);
+  }
+  .hero-inner {
+    padding-block: 64px 72px;
+    max-width: 760px;
+  }
+  .hero-kicker {
+    font-family: var(--font-display);
+    color: var(--color-primary);
+    letter-spacing: 0.18em;
+    font-weight: 700;
+    margin: 0 0 14px;
+  }
+  .hero h1 {
+    font-size: clamp(2rem, 5vw, 3.2rem);
+    font-weight: 900;
+    line-height: 1.18;
+    margin: 0 0 18px;
+  }
+  .hero-lead {
+    font-size: 1.08rem;
+    color: var(--color-fg);
+    max-width: 56ch;
+    margin: 0 0 26px;
+  }
+  .hero-cta {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+
+  .home-body {
+    padding-block: 36px 24px;
+  }
+  .block {
+    margin-bottom: 48px;
+  }
+
+  /* 섹션 바로가기 */
+  .quicknav {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 12px;
+    margin-bottom: 48px;
+  }
+  .quick {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 18px;
+    background: var(--color-surface);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-md);
+    color: var(--color-ink);
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+  .quick:hover {
+    border-color: var(--color-primary);
+    box-shadow: var(--shadow-sm);
+    text-decoration: none;
+  }
+  .quick span {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 1.06rem;
+  }
+  .quick small {
+    color: var(--color-muted);
+    font-size: 0.8rem;
+  }
+
+  .hanja {
+    color: var(--color-muted);
+    font-weight: 500;
+    font-size: 0.82em;
+  }
+
+  .two-col {
+    display: grid;
+    grid-template-columns: 1.6fr 1fr;
+    gap: 32px;
+  }
+  .photo-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+  .photo-cell {
+    aspect-ratio: 1;
+    border-radius: var(--radius-sm);
+    background: linear-gradient(135deg, var(--color-surface-2), var(--color-secondary-bg));
+    border: 1px solid var(--color-rule);
+  }
+  .placeholder {
+    color: var(--color-muted);
+    font-size: 0.9rem;
+    background: var(--color-surface-2);
+    border: 1px dashed var(--color-rule);
+    border-radius: var(--radius-md);
+    padding: 16px;
+  }
+
+  @media (max-width: 860px) {
+    .quicknav {
+      grid-template-columns: repeat(2, 1fr);
+    }
+    .two-col {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>

@@ -1,0 +1,135 @@
+---
+import Base from "../../layouts/Base.astro";
+import { getCollection } from "astro:content";
+
+const hwaeundang = (await getCollection("scripture")).filter((e) =>
+  e.id.startsWith("hwaeundang-silgi/"),
+);
+const chapterCount = hwaeundang.filter((e) => !e.data.section).length;
+
+const RESOURCES = [
+  { label: "경전 및 도서", desc: "증산법종교의 경전과 간행 도서" },
+  { label: "주문과 수행", desc: "주문과 수행법 안내" },
+  { label: "의식과 예법", desc: "법종교의 의식·예법" },
+  { label: "기타 자료실", desc: "그 밖의 자료" },
+];
+---
+
+<Base title="경전·자료" description="화은당실기 경전과 법종교 자료실">
+  <header class="page-head">
+    <span class="kicker">경전·자료</span>
+    <h1>경전과 자료</h1>
+    <p>증산법종교의 경전과 수행·의식 자료를 살펴보십시오.</p>
+  </header>
+
+  <section class="block">
+    <div class="section-head"><h2>경전</h2></div>
+    <a class="feature" href="/archive/hwaeundang-silgi/">
+      <div class="feature-thumb">華恩堂實記</div>
+      <div class="feature-body">
+        <h3>화은당실기 <span class="hanja">華恩堂實記</span></h3>
+        <p>화은당 선사님의 생애와 법종교 연혁을 기록한 경전. 전 {chapterCount}장 + 서문·부록.</p>
+        <span class="read">읽기 →</span>
+      </div>
+    </a>
+  </section>
+
+  <section class="block">
+    <div class="section-head"><h2>자료실</h2></div>
+    <div class="wz-grid cols-4">
+      {
+        RESOURCES.map((r) => (
+          <div class="wz-card disabled">
+            <div class="body">
+              <h3>{r.label}</h3>
+              <p>{r.desc}</p>
+              <span class="soon">준비 중</span>
+            </div>
+          </div>
+        ))
+      }
+    </div>
+  </section>
+</Base>
+
+<style>
+  .page-head {
+    margin-bottom: 32px;
+  }
+  .page-head h1 {
+    font-size: 2.2rem;
+    margin: 8px 0 10px;
+  }
+  .page-head p {
+    color: var(--color-muted);
+    margin: 0;
+  }
+  .block {
+    margin-bottom: 44px;
+  }
+  .hanja {
+    color: var(--color-muted);
+    font-weight: 500;
+    font-size: 0.78em;
+  }
+  .feature {
+    display: grid;
+    grid-template-columns: 200px 1fr;
+    background: var(--color-surface);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    box-shadow: var(--shadow-sm);
+    color: var(--color-ink);
+  }
+  .feature:hover {
+    box-shadow: var(--shadow-md);
+    text-decoration: none;
+  }
+  .feature-thumb {
+    background: linear-gradient(150deg, var(--color-primary), var(--color-primary-deep));
+    color: #fff;
+    font-family: var(--font-display);
+    font-weight: 900;
+    font-size: 1.6rem;
+    display: grid;
+    place-items: center;
+    writing-mode: vertical-rl;
+    letter-spacing: 0.1em;
+  }
+  .feature-body {
+    padding: 22px 24px;
+  }
+  .feature-body h3 {
+    font-size: 1.4rem;
+    margin: 0 0 8px;
+  }
+  .feature-body p {
+    color: var(--color-muted);
+    margin: 0 0 12px;
+  }
+  .read {
+    color: var(--color-primary);
+    font-weight: 700;
+  }
+  .wz-card.disabled {
+    opacity: 0.7;
+  }
+  .soon {
+    font-size: 0.78rem;
+    color: var(--color-muted);
+    background: var(--color-surface-2);
+    border-radius: 999px;
+    padding: 2px 10px;
+    align-self: flex-start;
+  }
+  @media (max-width: 560px) {
+    .feature {
+      grid-template-columns: 1fr;
+    }
+    .feature-thumb {
+      writing-mode: horizontal-tb;
+      padding: 24px;
+    }
+  }
+</style>

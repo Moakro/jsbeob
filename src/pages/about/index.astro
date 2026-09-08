@@ -1,0 +1,80 @@
+---
+import Base from "../../layouts/Base.astro";
+import Thumb from "../../components/Thumb.astro";
+import { getCollection } from "astro:content";
+
+const all = (await getCollection("about")).sort(
+  (a, b) => (a.data.order ?? 0) - (b.data.order ?? 0),
+);
+
+const GROUPS: { key: string; label: string; kinds: string[] }[] = [
+  { key: "person", label: "인물", kinds: ["person"] },
+  { key: "doctrine", label: "교리·신앙", kinds: ["doctrine", "anthem"] },
+  {
+    key: "org",
+    label: "연혁·조직",
+    kinds: ["history", "org", "branches", "directions", "overview"],
+  },
+];
+---
+
+<Base title="소개" description="증산법종교의 신앙·역사·인물·교리 소개">
+  <header class="page-head">
+    <span class="kicker">소개</span>
+    <h1>증산법종교</h1>
+    <p>증산상제님의 대도를 받든 화은당 선사님의 일심으로 세워진 증산법종교를 소개합니다.</p>
+  </header>
+
+  {
+    GROUPS.map((g) => {
+      const items = all.filter((e) => g.kinds.includes(e.data.kind));
+      if (!items.length) return null;
+      return (
+        <section class="block">
+          <div class="section-head">
+            <h2>{g.label}</h2>
+          </div>
+          <div class="wz-grid cols-3">
+            {items.map((e) => (
+              <a class="wz-card" href={`/about/${e.id}/`}>
+                {g.key === "person" && (
+                  <Thumb src={e.data.hero_image} glyph={e.data.title_hanja ?? e.data.title} alt={e.data.title} seed={e.id} />
+                )}
+                <div class="body">
+                  <h3>
+                    {e.data.title}
+                    {e.data.title_hanja && <span class="hanja"> {e.data.title_hanja}</span>}
+                  </h3>
+                  {e.data.summary && <p>{e.data.summary}</p>}
+                </div>
+              </a>
+            ))}
+          </div>
+        </section>
+      );
+    })
+  }
+</Base>
+
+<style>
+  .page-head {
+    margin-bottom: 36px;
+  }
+  .page-head h1 {
+    font-size: 2.2rem;
+    margin: 8px 0 10px;
+  }
+  .page-head p {
+    color: var(--color-muted);
+    max-width: 60ch;
+    margin: 0;
+  }
+  .block {
+    margin-bottom: 40px;
+  }
+  .hanja {
+    color: var(--color-muted);
+    font-weight: 500;
+    font-size: 0.82em;
+  }
+</style>

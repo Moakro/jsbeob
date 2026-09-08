@@ -1,0 +1,23 @@
+---
+import Base from "../../layouts/Base.astro";
+import AccountPanel from "../../components/AccountPanel.svelte";
+export const prerender = false;
+---
+
+<Base title="내 계정">
+  <div class="wrap">
+    <h1>내 계정</h1>
+    <AccountPanel client:load />
+  </div>
+</Base>
+
+<style>
+  .wrap {
+    max-width: 560px;
+    margin-inline: auto;
+  }
+  h1 {
+    font-size: 1.8rem;
+    margin-bottom: 20px;
+  }
+</style>

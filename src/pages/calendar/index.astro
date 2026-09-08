@@ -1,0 +1,76 @@
+---
+import Base from "../../layouts/Base.astro";
+
+const MEMORIALS = [
+  { name: "고수부 탄신일", date: "음력 5월 12일" },
+  { name: "화은당 선사님 선화일", date: "음력 5월 17일" },
+  { name: "증산미륵부처님 오신날", date: "음력 5월 24일" },
+];
+---
+
+<Base title="달력" description="증산법종교 절기와 종교 기념일">
+  <header class="page-head">
+    <span class="kicker">달력</span>
+    <h1>절기와 기념일</h1>
+    <p>24절기와 음력, 법종교의 주요 기념일을 안내합니다. 음력 달력은 곧 추가됩니다.</p>
+  </header>
+
+  <section class="block">
+    <div class="section-head"><h2>주요 기념일</h2></div>
+    <ul class="memorials">
+      {
+        MEMORIALS.map((m) => (
+          <li>
+            <span class="m-name">{m.name}</span>
+            <span class="m-date">{m.date}</span>
+          </li>
+        ))
+      }
+    </ul>
+    <p class="placeholder">📅 음력 달력 위젯이 이곳에 표시됩니다. (Phase 4)</p>
+  </section>
+</Base>
+
+<style>
+  .page-head {
+    margin-bottom: 32px;
+  }
+  .page-head h1 {
+    font-size: 2.2rem;
+    margin: 8px 0 10px;
+  }
+  .page-head p {
+    color: var(--color-muted);
+    margin: 0;
+  }
+  .memorials {
+    list-style: none;
+    margin: 0 0 18px;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .memorials li {
+    display: flex;
+    justify-content: space-between;
+    padding: 14px 16px;
+    background: var(--color-surface);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-md);
+  }
+  .m-name {
+    font-weight: 600;
+  }
+  .m-date {
+    color: var(--color-primary);
+    font-weight: 600;
+  }
+  .placeholder {
+    color: var(--color-muted);
+    background: var(--color-surface-2);
+    border: 1px dashed var(--color-rule);
+    border-radius: var(--radius-md);
+    padding: 16px;
+  }
+</style>

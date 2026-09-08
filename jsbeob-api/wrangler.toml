@@ -1,0 +1,59 @@
+name = "jsbeob-api"
+main = "index.ts"
+compatibility_date = "2026-04-01"
+compatibility_flags = ["nodejs_compat"]
+
+# D1: `wrangler d1 create jsbeob-db` 실행 후 출력된 database_id 를 아래에 채운다.
+[[d1_databases]]
+binding = "DB"
+database_name = "jsbeob-db"
+database_id = "PLACEHOLDER_RUN_wrangler_d1_create"
+
+# 회원 업로드 사진용 R2. `wrangler r2 bucket create jsbeob-uploads`.
+# 공개 커스텀 도메인(예: img.jsbeob.com) → UPLOADS_PUBLIC_BASE.
+[[r2_buckets]]
+binding = "UPLOADS"
+bucket_name = "jsbeob-uploads"
+
+# jsbeob.com zone 에 attach. 와일드카드로 Pages 라우팅보다 우선.
+[[routes]]
+pattern = "jsbeob.com/api/auth/*"
+zone_name = "jsbeob.com"
+
+[[routes]]
+pattern = "jsbeob.com/api/posts*"
+zone_name = "jsbeob.com"
+
+[[routes]]
+pattern = "jsbeob.com/api/comments*"
+zone_name = "jsbeob.com"
+
+[[routes]]
+pattern = "jsbeob.com/api/me*"
+zone_name = "jsbeob.com"
+
+[[routes]]
+pattern = "jsbeob.com/api/admin/*"
+zone_name = "jsbeob.com"
+
+[[routes]]
+pattern = "jsbeob.com/api/upload/*"
+zone_name = "jsbeob.com"
+
+[[routes]]
+pattern = "jsbeob.com/api/events*"
+zone_name = "jsbeob.com"
+
+[[routes]]
+pattern = "jsbeob.com/api/news*"
+zone_name = "jsbeob.com"
+
+[observability]
+enabled = true
+
+# 공개(비밀 아님) 변수. 시크릿은 `wrangler secret put` 으로 별도 설정:
+#   GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, KAKAO_REST_API_KEY,
+#   KAKAO_CLIENT_SECRET(선택), AUTH_SECRET(32자 이상 랜덤)
+[vars]
+SITE_ORIGIN = "https://jsbeob.com"
+UPLOADS_PUBLIC_BASE = "https://img.jsbeob.com"

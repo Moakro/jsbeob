@@ -1,0 +1,91 @@
+---
+import Base from "../../../layouts/Base.astro";
+import { getHwaeundang, chapterSlug, chapterLabel } from "../../../lib/hwaeundang";
+
+const chapters = await getHwaeundang();
+---
+
+<Base title="화은당실기" description="화은당실기(華恩堂實記) — 화은당 선사님의 생애와 법종교 연혁">
+  <article class="doc">
+    <a class="back" href="/archive/">← 경전·자료</a>
+    <header class="doc-head">
+      <h1>화은당실기 <span class="hanja">華恩堂實記</span></h1>
+      <p class="lead">
+        화은당 선사님의 생애와 증산법종교의 연혁을 기록한 경전입니다.
+      </p>
+    </header>
+
+    <ol class="toc">
+      {
+        chapters.map((c) => (
+          <li>
+            <a href={`/archive/hwaeundang-silgi/${chapterSlug(c)}/`}>
+              <span class="label">{chapterLabel(c)}</span>
+              {c.data.장_이름 && <span class="name">{c.data.장_이름}</span>}
+            </a>
+          </li>
+        ))
+      }
+    </ol>
+  </article>
+</Base>
+
+<style>
+  .doc {
+    max-width: 720px;
+    margin-inline: auto;
+  }
+  .back {
+    font-size: 0.9rem;
+    color: var(--color-muted);
+  }
+  .doc-head {
+    margin: 12px 0 28px;
+    padding-bottom: 18px;
+    border-bottom: 2px solid var(--color-ink);
+  }
+  .doc-head h1 {
+    font-size: 2.2rem;
+    margin: 0 0 8px;
+  }
+  .hanja {
+    color: var(--color-muted);
+    font-weight: 500;
+    font-size: 0.7em;
+  }
+  .lead {
+    color: var(--color-muted);
+    margin: 0;
+  }
+  .toc {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .toc a {
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    padding: 14px 16px;
+    border-radius: var(--radius-md);
+    color: var(--color-ink);
+    border: 1px solid transparent;
+  }
+  .toc a:hover {
+    background: var(--color-surface);
+    border-color: var(--color-rule);
+    text-decoration: none;
+  }
+  .toc .label {
+    font-family: var(--font-display);
+    font-weight: 700;
+    color: var(--color-primary);
+    min-width: 4em;
+  }
+  .toc .name {
+    font-size: 1.05rem;
+  }
+</style>
