@@ -16,16 +16,16 @@ const MEMORIALS = [
   </header>
 
   <section class="block">
-    <div class="section-head"><h2>주요 기념일</h2></div>
+    <div class="section-head">
+      <h2>주요 기념일</h2>
+    </div>
     <ul class="memorials">
-      {
-        MEMORIALS.map((m) => (
-          <li>
-            <span class="m-name">{m.name}</span>
-            <span class="m-date">{m.date}</span>
-          </li>
-        ))
-      }
+      {MEMORIALS.map((m) => (
+        <li>
+          <span class="m-name">{m.name}</span>
+          <span class="m-date">{m.date}</span>
+        </li>
+      ))}
     </ul>
     <p class="placeholder">📅 음력 달력 위젯이 이곳에 표시됩니다. (Phase 4)</p>
   </section>

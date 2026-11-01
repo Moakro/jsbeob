@@ -1,0 +1,30 @@
+---
+import Base from "../../../layouts/Base.astro";
+import { LIBRARY_BOARD, catHref, listLibraryCategories } from "../../../lib/content";
+import PostEditor from "../../../components/board/PostEditor.svelte";
+import ArchiveTabs from "../../../components/content/ArchiveTabs.astro";
+export const prerender = false;
+const key = Astro.params.cat;
+if (key === "p") return Astro.redirect(`${catHref(LIBRARY_BOARD)}write/`, 301);
+const categories = await listLibraryCategories(Astro.request);
+const cat = categories.find((c) => c.key === key && c.type === "post");
+if (!cat)
+  return new Response("페이지를 찾을 수 없습니다.", {
+    status: 404,
+    headers: { "Content-Type": "text/plain; charset=utf-8" },
+  });
+---
+
+<Base title={`${cat.label} 글쓰기`} tight>
+  {" "}
+  <ArchiveTabs current={cat.key} categories={categories} />
+  <div class="wrap">
+    <PostEditor client:load board={LIBRARY_BOARD} category={cat.key} />
+  </div>
+</Base>
+
+<style>
+  .wrap {
+    margin-top: 20px;
+  }
+</style>

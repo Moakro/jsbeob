@@ -1,0 +1,149 @@
+---
+const { prev = null, next = null } = Astro.props;
+---
+
+<div class="dp-spacer" aria-hidden="true"></div>
+<nav class="dp" aria-label="이전·다음" data-doc-pager>
+  {prev ? (
+    <a class="dp-side prev" href={prev.href}>
+      {" "}
+      <span class="arr" aria-hidden="true">
+        ←
+      </span>{" "}
+      <span class="lbl">{prev.label}</span>{" "}
+    </a>
+  ) : (
+    <span class="dp-side prev"></span>
+  )}{" "}
+  <button type="button" class="dp-list" data-doc-pager-list>
+    <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+      <line x1="5" y1="7" x2="19" y2="7" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line>
+      <line
+        x1="5"
+        y1="12"
+        x2="19"
+        y2="12"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+      ></line>
+      <line
+        x1="5"
+        y1="17"
+        x2="19"
+        y2="17"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+      ></line>
+    </svg>
+    목록
+  </button>{" "}
+  {next ? (
+    <a class="dp-side next" href={next.href}>
+      {" "}
+      <span class="lbl">{next.label}</span>{" "}
+      <span class="arr" aria-hidden="true">
+        →
+      </span>{" "}
+    </a>
+  ) : (
+    <span class="dp-side next"></span>
+  )}
+</nav>
+<script>
+  // 복원: 배포본 번들(압축)에서 되살린 스크립트 — 변수 이름은 압축 결과 그대로다.
+  {
+    const s = document.querySelector("[data-doc-pager]");
+    if (s) {
+      s.querySelector("[data-doc-pager-list]")?.addEventListener("click", () => {
+        window.dispatchEvent(new CustomEvent("jb:drawer-list"));
+      });
+      let n = window.scrollY;
+      const t = () => {
+        const e = window.scrollY;
+        (window.innerHeight + e >= document.documentElement.scrollHeight - 80 || e < 40 || e < n - 4
+          ? s.classList.remove("is-hidden")
+          : e > n + 4 && s.classList.add("is-hidden"),
+          (n = e));
+      };
+      window.addEventListener("scroll", t, { passive: !0 });
+    }
+  }
+</script>
+
+<style>
+  .dp,
+  .dp-spacer {
+    display: none;
+  }
+  @media (max-width: 860px) {
+    .dp-spacer {
+      display: block;
+      height: calc(56px + env(safe-area-inset-bottom, 0px));
+    }
+    .dp {
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 70;
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      align-items: center;
+      gap: 8px;
+      height: calc(56px + env(safe-area-inset-bottom, 0px));
+      padding: 0 12px env(safe-area-inset-bottom, 0px);
+      background: var(--color-surface);
+      border-top: 1px solid var(--color-rule);
+      box-shadow: 0 -4px 14px #28190f14;
+      transition: transform 0.22s ease;
+    }
+    .dp.is-hidden {
+      transform: translateY(100%);
+    }
+  }
+  .dp-side {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    min-height: 44px;
+    color: var(--color-ink);
+    font-size: 0.92rem;
+  }
+  .dp-side.next {
+    justify-content: flex-end;
+    text-align: right;
+  }
+  .lbl {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .arr {
+    flex: none;
+    color: var(--color-primary);
+  }
+  .dp-list {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 38px;
+    padding: 0 16px;
+    border: 1px solid var(--color-rule);
+    border-radius: 999px;
+    background: var(--color-bg);
+    color: var(--color-ink);
+    font: inherit;
+    font-size: 0.92rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .dp {
+      transition: none;
+    }
+  }
+</style>

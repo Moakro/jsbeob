@@ -1,50 +1,51 @@
 ---
 import Base from "../../layouts/Base.astro";
+import { listPlaces } from "../../lib/content";
 import Thumb from "../../components/Thumb.astro";
-import { getCollection } from "astro:content";
-
-const jeongak = (await getCollection("jeongak")).sort(
-  (a, b) => (a.data.order ?? 0) - (b.data.order ?? 0),
-);
+import DraftBadge from "../../components/content/DraftBadge.astro";
+export const prerender = false;
+const jeongak = await listPlaces(Astro.request, "jeongak");
 ---
 
-<Base title="전각 안내" description="증산법종교 성지의 전각 안내">
-  <header class="page-head">
-    <span class="kicker">성지</span>
-    <h1>전각 안내</h1>
-    <p>증산법종교 성지에 자리한 전각들을 소개합니다. 각 전각의 유래와 의미, 위치를 안내합니다.</p>
-  </header>
-
+<Base title="전각 안내" description="증산법종교 성지에 자리한 전각들의 유래와 의미, 위치를 안내합니다." tight>
+  <h1 class="sr-only">전각 안내</h1>
   <div class="wz-grid cols-3">
-    {
-      jeongak.map((j) => (
-        <a class="wz-card" href={`/jeongak/${j.id}/`}>
-          <Thumb src={j.data.hero_image} glyph={j.data.name_hanja ?? j.data.name} alt={j.data.name} seed={j.id} ratio="4 / 3" />
-          <div class="body">
-            <h3>
-              {j.data.name}
-              {j.data.name_hanja && <span class="hanja"> {j.data.name_hanja}</span>}
-            </h3>
-            {j.data.summary && <p>{j.data.summary}</p>}
-          </div>
-        </a>
-      ))
-    }
+    {jeongak.map((j) => (
+      <a class="wz-card" href={`/jeongak/${j.slug}/`}>
+        {" "}
+        <Thumb
+          src={j.thumb?.url}
+          glyph={j.name_hanja ?? j.name}
+          alt={j.thumb?.alt ?? j.name}
+          seed={j.slug}
+          ratio="4 / 3"
+          crop={j.thumb?.crop}
+        />{" "}
+        <div class="body">
+          {" "}
+          <h3>
+            {" "}
+            {j.name} {j.name_hanja && <span class="hanja"> {j.name_hanja}</span>}{" "}
+            {j.status === "draft" && <DraftBadge />}{" "}
+          </h3>{" "}
+          {j.summary && <p>{j.summary}</p>}{" "}
+        </div>{" "}
+      </a>
+    ))}
   </div>
 </Base>
 
 <style>
-  .page-head {
-    margin-bottom: 32px;
-  }
-  .page-head h1 {
-    font-size: 2.2rem;
-    margin: 8px 0 10px;
-  }
-  .page-head p {
-    color: var(--color-muted);
-    max-width: 60ch;
-    margin: 0;
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
   }
   .hanja {
     color: var(--color-muted);

@@ -1,0 +1,11 @@
+---
+import { DEFAULT_LIBRARY_CATEGORIES, catHref } from "../../lib/content";
+import SubTabs from "./SubTabs.astro";
+const { current, categories = DEFAULT_LIBRARY_CATEGORIES } = Astro.props;
+const items = [
+  { label: "전체", href: "/archive/", on: current === "all" },
+  ...categories.map((c) => ({ label: c.label, href: catHref(c.key), on: c.key === current })),
+];
+---
+
+<SubTabs label="자료실 분류" items={items} />

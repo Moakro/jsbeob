@@ -1,14 +1,22 @@
 ---
 import Base from "../../../layouts/Base.astro";
+import { BOARDS, boardBase } from "../../../lib/api";
 import PostEditor from "../../../components/board/PostEditor.svelte";
-import { BOARDS } from "../../../lib/api";
 export const prerender = false;
-
 const { board } = Astro.params;
-const meta = BOARDS[board as string];
+const meta = BOARDS[board];
 if (!meta) return Astro.redirect("/community/");
+if (meta.base) return Astro.redirect(`${boardBase(board)}/write/`, 301);
 ---
 
-<Base title={`${meta.label} 글쓰기`}>
-  <PostEditor client:load board={board as string} />
+<Base title={`${meta.label} 글쓰기`} tight>
+  <div class="board-wrap">
+    <PostEditor client:load board={board} />
+  </div>
 </Base>
+
+<style>
+  :global(.subtabs) + .board-wrap {
+    margin-top: 16px;
+  }
+</style>

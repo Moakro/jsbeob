@@ -1,14 +1,32 @@
 ---
 import Base from "../../../layouts/Base.astro";
+import { BOARDS, postHref } from "../../../lib/api";
 import PostView from "../../../components/board/PostView.svelte";
-import { BOARDS } from "../../../lib/api";
+import CommunityHome from "../../../components/community/CommunityHome.astro";
 export const prerender = false;
-
 const { board, id } = Astro.params;
-const meta = BOARDS[board as string];
+const meta = BOARDS[board];
 if (!meta) return Astro.redirect("/community/");
+if (meta.base) return Astro.redirect(postHref(board, id), 301);
+const asModal = board === "orialter" || board === "news";
 ---
 
-<Base title={meta.label}>
-  <PostView client:load board={board as string} id={id as string} />
-</Base>
+{asModal ? (
+  board === "news" ? (
+    <CommunityHome newsOpenId={id} title="소식 · 도생광장" />
+  ) : (
+    <CommunityHome openId={id} title="오리알터 · 도생광장" />
+  )
+) : (
+  <Base title={meta.label} tight>
+    <div class="board-wrap">
+      <PostView client:load board={board} id={id} crumbs={false} />
+    </div>
+  </Base>
+)}
+
+<style>
+  .board-wrap {
+    margin-top: 0;
+  }
+</style>

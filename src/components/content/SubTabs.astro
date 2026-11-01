@@ -1,0 +1,55 @@
+---
+const { items, label } = Astro.props;
+---
+
+<nav class="subtabs" aria-label={label}>
+  {items.map((t) => (
+    <a href={t.href} class:list={[{ on: t.on }]} aria-current={t.on ? "page" : void 0}>
+      {" "}
+      {t.label} {t.count != null && <span class="n">{t.count}</span>}{" "}
+    </a>
+  ))}
+</nav>
+
+<style>
+  .subtabs {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .subtabs::-webkit-scrollbar {
+    display: none;
+  }
+  .subtabs a {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 14px;
+    border: 1px solid var(--color-rule);
+    border-radius: 999px;
+    background: var(--color-surface);
+    color: var(--color-fg);
+    font-size: 0.9rem;
+    white-space: nowrap;
+  }
+  .subtabs a:hover {
+    border-color: var(--color-primary);
+  }
+  .subtabs a.on {
+    background: var(--color-primary);
+    border-color: var(--color-primary);
+    color: #fff;
+  }
+  .n {
+    font-size: 0.75rem;
+    opacity: 0.7;
+  }
+  @media (max-width: 760px) {
+    .subtabs {
+      margin-inline: calc(-1 * var(--gutter));
+      padding-inline: var(--gutter);
+    }
+  }
+</style>

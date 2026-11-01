@@ -1,0 +1,148 @@
+---
+import { fullTime, postHref, snsTime } from "../../lib/api";
+const { posts } = Astro.props;
+const now = /* @__PURE__ */ new Date();
+const plain = (md = "") =>
+  md
+    .replace(/<사진>/g, " ")
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, " ")
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/^[#>\-*\s]+/gm, "")
+    .replace(/[*_`~]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+const photoCount = (p) => p.attachments.filter((a) => a.type === "image" && a.url).length;
+---
+
+<ul class="feed">
+  {posts.map((p) => {
+    const text = plain(p.excerpt);
+    const n = photoCount(p);
+    const name = p.author.display_name ?? "회원";
+    return (
+      <li>
+        {" "}
+        <a href={postHref(p.board, p.id)} data-feed-id={p.id}>
+          {" "}
+          <span class="top">
+            {" "}
+            {p.author.avatar_url ? (
+              <img class="avatar" src={p.author.avatar_url} alt="" loading="lazy" />
+            ) : (
+              <span class="avatar initial" aria-hidden="true">
+                {name.slice(0, 1)}
+              </span>
+            )}{" "}
+            <strong class="name">{name}</strong>{" "}
+            <time datetime={p.created_at} title={fullTime(p.created_at)}>
+              {snsTime(p.created_at, now)}
+            </time>{" "}
+          </span>{" "}
+          <span class="bottom">
+            {" "}
+            {text && <span class="text">{text}</span>}{" "}
+            {n > 0 && (
+              <span class="photo" aria-label={`사진 ${n}장`}>
+                {" "}
+                <svg viewBox="0 -960 960 960" aria-hidden="true">
+                  <path d="M480-260q75 0 127.5-52.5T660-440q0-75-52.5-127.5T480-620q-75 0-127.5 52.5T300-440q0 75 52.5 127.5T480-260Zm0-80q-42 0-71-29t-29-71q0-42 29-71t71-29q42 0 71 29t29 71q0 42-29 71t-71 29ZM160-120q-33 0-56.5-23.5T80-200v-480q0-33 23.5-56.5T160-760h126l74-80h240l74 80h126q33 0 56.5 23.5T880-680v480q0 33-23.5 56.5T800-120H160Zm0-80h640v-480H638l-73-80H395l-73 80H160v480Zm320-240Z"></path>
+                </svg>{" "}
+                {n > 1 && <span>{n}</span>}{" "}
+              </span>
+            )}{" "}
+          </span>{" "}
+        </a>{" "}
+      </li>
+    );
+  })}
+</ul>
+
+<style>
+  .feed {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  li + li {
+    border-top: 1px solid var(--color-rule);
+  }
+  a {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    gap: 4px;
+    padding: 10px 0;
+    color: var(--color-ink);
+  }
+  li:first-child a {
+    padding-top: 0;
+  }
+  li:last-child a {
+    padding-bottom: 0;
+  }
+  .top {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+  }
+  .avatar {
+    flex: none;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    object-fit: cover;
+  }
+  .initial {
+    display: grid;
+    place-items: center;
+    background: var(--color-secondary-bg);
+    color: var(--color-secondary);
+    font-size: 0.8rem;
+    font-weight: 700;
+  }
+  .name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.95rem;
+  }
+  time {
+    flex: none;
+    margin-left: auto;
+    color: var(--color-muted);
+    font-size: 0.85rem;
+  }
+  .bottom {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    padding-left: 34px;
+  }
+  .text {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.95rem;
+  }
+  a:hover .text {
+    color: var(--color-primary);
+  }
+  .photo {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    color: var(--color-muted);
+    font-size: 0.85rem;
+  }
+  .photo svg {
+    width: 17px;
+    height: 17px;
+    fill: currentColor;
+  }
+</style>

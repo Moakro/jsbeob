@@ -1,0 +1,62 @@
+---
+const { href, label = "편집" } = Astro.props;
+---
+
+<div class="admin-edit-row" data-admin-edit hidden>
+  <a class="admin-edit" href={href}>
+    {" "}
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M4 20h4L19 9l-4-4L4 16v4zM14 6l4 4"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linejoin="round"
+      ></path>
+    </svg>{" "}
+    {label}{" "}
+  </a>
+</div>
+<script>
+  // 복원: 배포본 번들(압축)에서 되살린 스크립트 — 변수 이름은 압축 결과 그대로다.
+  const l = document.querySelectorAll("[data-admin-edit]");
+  l.length &&
+    fetch("/api/me", { credentials: "same-origin" })
+      .then((e) => (e.ok ? e.json() : null))
+      .then((e) => {
+        (e?.user?.level ?? 0) >= 4 && l.forEach((s) => (s.hidden = !1));
+      })
+      .catch(() => {});
+</script>
+
+<style>
+  .admin-edit-row {
+    display: flex;
+    justify-content: flex-end;
+    margin: 0 0 12px;
+  }
+  .admin-edit-row[hidden] {
+    display: none;
+  }
+  .admin-edit {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 5px 12px;
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-md);
+    background: #fff;
+    color: var(--color-ink);
+    font-size: 0.85rem;
+    font-weight: 600;
+  }
+  .admin-edit:hover {
+    border-color: var(--color-primary);
+    color: var(--color-primary);
+    text-decoration: none;
+  }
+  .admin-edit svg {
+    width: 15px;
+    height: 15px;
+  }
+</style>

@@ -1,0 +1,140 @@
+---
+const { video: v, size = "sm" } = Astro.props;
+const d = new Date(v.published);
+const date = Number.isNaN(d.getTime())
+  ? ""
+  : `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, "0")}.${String(d.getDate()).padStart(2, "0")}`;
+const meta = [date, v.views != null ? `조회 ${v.views.toLocaleString("ko-KR")}` : ""]
+  .filter(Boolean)
+  .join(" · ");
+const desc =
+  size === "lg"
+    ? (v.description
+        .split(/\n+/)
+        .find((l) => l.trim())
+        ?.trim() ?? "")
+    : "";
+---
+
+<a
+  class={`vc vc-${size}`}
+  href={`/media/${v.id}/`}
+  data-video-id={v.id}
+  data-video-title={v.title}
+  data-video-date={date}
+>
+  {" "}
+  <span class="vc-thumb">
+    {" "}
+    <img
+      src={size === "lg" ? v.thumb_lg : v.thumb}
+      alt=""
+      loading={size === "lg" ? "eager" : "lazy"}
+      onerror={`this.onerror=null;this.src='https://i.ytimg.com/vi/${v.id}/hqdefault.jpg'`}
+    />{" "}
+    <span class="vc-play" aria-hidden="true">
+      {" "}
+      <svg viewBox="0 0 24 24">
+        <path d="M8 5.5v13l11-6.5z" fill="currentColor"></path>
+      </svg>{" "}
+    </span>{" "}
+  </span>{" "}
+  <span class="vc-body">
+    {" "}
+    <strong class="vc-title">{v.title}</strong> {desc && <span class="vc-desc">{desc}</span>}{" "}
+    {meta && <small class="vc-meta">{meta}</small>}{" "}
+  </span>{" "}
+</a>
+
+<style>
+  .vc {
+    display: grid;
+    gap: 10px;
+    align-content: start;
+    color: inherit;
+    text-decoration: none;
+  }
+  .vc-thumb {
+    position: relative;
+    display: block;
+    aspect-ratio: 16 / 9;
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    background: #1b1714;
+  }
+  .vc-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+    transition: transform 0.35s ease;
+  }
+  .vc:hover .vc-thumb img {
+    transform: scale(1.04);
+  }
+  .vc-play {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    width: 56px;
+    height: 56px;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    background: #0e0b098c;
+    color: #fff;
+    -webkit-backdrop-filter: blur(6px);
+    backdrop-filter: blur(6px);
+    transition: background 0.2s;
+  }
+  .vc-play svg {
+    width: 28px;
+    height: 28px;
+    margin-left: 3px;
+  }
+  .vc:hover .vc-play {
+    background: var(--color-primary);
+  }
+  .vc-sm .vc-play {
+    width: 40px;
+    height: 40px;
+  }
+  .vc-sm .vc-play svg {
+    width: 20px;
+    height: 20px;
+  }
+  .vc-body {
+    display: grid;
+    gap: 4px;
+  }
+  .vc-title {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    line-height: 1.45;
+    color: var(--color-fg);
+  }
+  .vc-lg .vc-title {
+    font-size: 1.2rem;
+  }
+  .vc-sm .vc-title {
+    font-size: 0.92rem;
+  }
+  .vc:hover .vc-title {
+    color: var(--color-primary);
+  }
+  .vc-desc {
+    color: var(--color-muted);
+    font-size: 0.9rem;
+    display: -webkit-box;
+    -webkit-line-clamp: 1;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .vc-meta {
+    color: var(--color-muted);
+    font-size: 0.8rem;
+  }
+</style>

@@ -1,227 +1,984 @@
 ---
 import Base from "../layouts/Base.astro";
+import {
+  getHomeHero,
+  listHomeTiles,
+  listMapPoints,
+  listRecentNews,
+  listRecentOrialter,
+  listVideos,
+} from "../lib/content";
+import HeroSearch from "../components/HeroSearch.svelte";
 import Thumb from "../components/Thumb.astro";
-import { getCollection } from "astro:content";
-
-const jeongak = (await getCollection("jeongak")).sort(
-  (a, b) => (a.data.order ?? 0) - (b.data.order ?? 0),
+import NewsModal from "../components/board/NewsModal.svelte";
+import NewsRows from "../components/board/NewsRows.astro";
+import FeedRows from "../components/home/FeedRows.astro";
+import HomeMiniMap from "../components/home/HomeMiniMap.svelte";
+import UpcomingDays from "../components/home/UpcomingDays.svelte";
+import VideoCard from "../components/media/VideoCard.astro";
+const HERO_VIDEOS = [
+  {
+    id: "vATQ6bAp2Xw",
+    title: "오리알터 드론영상 — 옛날 천하전",
+    caption: "2019.05.11 촬영",
+  },
+];
+export const prerender = false;
+const [{ videos }, tiles, news, feed, map, heroPhoto] = await Promise.all([
+  listVideos(Astro.request),
+  listHomeTiles(Astro.request),
+  listRecentNews(Astro.request, 4),
+  listRecentOrialter(Astro.request, 5),
+  listMapPoints(Astro.request).catch(() => ({ points: [], tags: [] })),
+  getHomeHero(Astro.request),
+]);
+const firstTag = map.tags[0] ?? null;
+const mapPoints = (firstTag ? map.points.filter((p) => firstTag.members.includes(p.id)) : map.points).map(
+  (p) => ({ lat: p.lat, lng: p.lng }),
 );
-const persons = (await getCollection("about"))
-  .filter((e) => e.data.kind === "person")
-  .sort((a, b) => (a.data.order ?? 0) - (b.data.order ?? 0));
+const mapHref = firstTag ? `/map/?tag=${encodeURIComponent(firstTag.slug)}` : "/map/";
+const mapLabel = firstTag ? `${firstTag.name} ${mapPoints.length}곳` : `장소 ${mapPoints.length}곳`;
+const firstVideo = HERO_VIDEOS[0];
+const posterSm = heroPhoto ? `url(${JSON.stringify(heroPhoto.url)})` : `url(/hero/${firstVideo.id}-960.webp)`;
 ---
 
-<Base bleed>
-  <!-- ── 히어로 ── -->
-  <section class="hero">
-    <div class="container hero-inner">
-      <p class="hero-kicker">甑山法宗敎 · 華恩堂</p>
-      <h1>증산상제님의 대도,<br />화은당의 일심으로 잇다</h1>
-      <p class="hero-lead">
-        증산법종교 공식 홈페이지입니다. 신앙과 역사, 성지 전각, 경전과 자료, 그리고
-        도생들의 소식을 한곳에서 만나보십시오.
+<Base bleed overlayHeader>
+  <section class:list={["hero", [{ "has-photo": !!heroPhoto }]]} data-hero>
+    <div
+      class="hero-media"
+      data-videos={JSON.stringify(HERO_VIDEOS)}
+      style={`--poster:url(/hero/${firstVideo.id}.webp);--poster-sm:${posterSm}`}
+      aria-hidden="true"
+    ></div>
+    <div class="hero-shade" aria-hidden="true"></div>
+    <!-- 화면엔 안 보이지만 검색엔진·스크린리더용 페이지 제목은 유지 -->
+    <h1 class="sr-only">증산법종교 공식 홈페이지</h1>
+    <!-- ── 히어로 중앙 검색 (Pagefind 결과 패널 · 모바일 음성 입력) + AI 대화 버튼(우측 드로어) ── -->
+    <div class="hero-search-wrap">
+      <div class="hero-search-row">
+        <!-- 검색폼 + 결과 패널(jsbooks 방식) — src/components/HeroSearch.svelte -->{" "}
+        <HeroSearch client:load />{" "}
+        <!-- AI 대화 — 검색폼 바깥 우측, solomad 트리거와 같은 원형 아이콘 버튼. 클릭하면 우측 드로어(AiChatDrawer) -->{" "}
+        <button
+          type="button"
+          class="hero-ai"
+          data-ai-open
+          aria-haspopup="dialog"
+          aria-expanded="false"
+          aria-label="AI 대화 열기"
+          title="AI 대화"
+        >
+          <!-- Material Symbols Outlined "auto_awesome" (구글 공식 SVG) -->{" "}
+          <svg viewBox="0 -960 960 960" aria-hidden="true">
+            <path d="m760-600-50-110-110-50 110-50 50-110 50 110 110 50-110 50-50 110Zm0 560-50-110-110-50 110-50 50-110 50 110 110 50-110 50-50 110ZM360-160 260-380 40-480l220-100 100-220 100 220 220 100-220 100-100 220Zm0-194 40-86 86-40-86-40-40-86-40 86-86 40 86 40 40 86Zm0-126Z"></path>
+          </svg>
+        </button>
+      </div>
+    </div>
+    <div class="container hero-foot">
+      <p class="hero-title" aria-live="polite">
+        <span class="hero-title-kicker">영상</span> <strong data-hero-title>{firstVideo.title}</strong>{" "}
+        <small data-hero-caption hidden={!firstVideo.caption}>
+          {firstVideo.caption}
+        </small>
       </p>
-      <div class="hero-cta">
-        <a class="btn btn-primary" href="/about/">법종교 소개</a>
-        <a class="btn btn-ghost" href="/jeongak/">성지 전각 둘러보기</a>
+      {heroPhoto?.caption && (
+        <p class="hero-title hero-photo-title">
+          {" "}
+          <strong>{heroPhoto.caption}</strong>{" "}
+        </p>
+      )}
+      <div class="hero-ctrl">
+        <!-- 멈춤 직후 뜨는 확인 말풍선: 이번 방문(탭) 동안 계속 멈춰둘지 -->
+        <div class="hero-ask" data-hero-ask role="dialog" aria-label="배경 영상 멈춤 유지" hidden>
+          <p>사이트를 보는 동안 계속 멈춰둘까요?</p>
+          <div class="hero-ask-btns">
+            <button type="button" data-ask-choice="keep">
+              계속 멈춤
+            </button>{" "}
+            <button type="button" data-ask-choice="once">
+              이번만
+            </button>
+          </div>
+        </div>
+        <button type="button" class="hero-toggle" data-hero-toggle hidden aria-label="배경 영상 일시정지">
+          <span class="ico-pause" aria-hidden="true"></span>
+        </button>
       </div>
     </div>
   </section>
-
   <div class="container home-body">
-    <!-- ── 섹션 바로가기 ── -->
-    <section class="quicknav">
-      <a href="/about/" class="quick"><span>소개</span><small>신앙·역사·인물·교리</small></a>
-      <a href="/jeongak/" class="quick"><span>전각</span><small>성지 안내·지도</small></a>
-      <a href="/archive/" class="quick"><span>경전·자료</span><small>화은당실기·자료실</small></a>
-      <a href="/community/" class="quick"><span>소식·커뮤니티</span><small>공지·게시판·갤러리</small></a>
-      <a href="/calendar/" class="quick"><span>달력</span><small>절기·기념일</small></a>
-    </section>
-
-    <!-- ── 인물 ── -->
-    <section class="block">
-      <div class="section-head">
-        <span class="kicker">인물</span>
-        <h2>법종교를 이루신 분들</h2>
-        <a class="more" href="/about/">전체 소개 →</a>
-      </div>
-      <div class="wz-grid cols-3">
-        {
-          persons.map((p) => (
-            <a class="wz-card" href={`/about/${p.id}/`}>
-              <Thumb src={p.data.hero_image} glyph={p.data.title_hanja ?? p.data.title} alt={p.data.title} seed={p.id} />
-              <div class="body">
-                <h3>{p.data.title}{p.data.title_hanja && <span class="hanja"> {p.data.title_hanja}</span>}</h3>
-                <p>{p.data.summary}</p>
+    <div class="home-split">
+      <div class="home-main">
+        <!-- 법종교 미디어(가칭) — 유튜브 채널 최신 영상. 누르면 미리보기 모달(VideoPreview) -->{" "}
+        {videos.length > 0 && (
+          <section class="block">
+            {" "}
+            <div class="section-head">
+              {" "}
+              <span class="kicker">미디어</span> <h2>법종교 미디어</h2>{" "}
+              <a class="more" href="/media/">
+                전체 보기 →
+              </a>{" "}
+            </div>{" "}
+            <VideoCard video={videos[0]} size="lg" />{" "}
+            {videos.length > 1 && (
+              <div class="media-row">
+                {" "}
+                {videos.slice(1, 4).map((v) => (
+                  <VideoCard video={v} />
+                ))}{" "}
               </div>
-            </a>
-          ))
-        }
-      </div>
-    </section>
-
-    <!-- ── 전각 미리보기 ── -->
-    <section class="block">
-      <div class="section-head">
-        <span class="kicker">성지</span>
-        <h2>전각 안내</h2>
-        <a class="more" href="/jeongak/">전각 13곳 →</a>
-      </div>
-      <div class="wz-grid cols-4">
-        {
-          jeongak.slice(0, 8).map((j) => (
-            <a class="wz-card" href={`/jeongak/${j.id}/`}>
-              <Thumb src={j.data.hero_image} glyph={j.data.name_hanja ?? j.data.name} alt={j.data.name} seed={j.id} ratio="4 / 3" />
-              <div class="body">
-                <h3>{j.data.name}{j.data.name_hanja && <span class="hanja"> {j.data.name_hanja}</span>}</h3>
+            )}{" "}
+            {videos.length > 2 && (
+              <div class="media-dots">
+                {" "}
+                {videos.slice(1, 4).map((v, i) => (
+                  <button
+                    type="button"
+                    class:list={[{ on: i === 0 }]}
+                    aria-label={`${i + 1}번째 영상: ${v.title}`}
+                    data-dot={i}
+                  ></button>
+                ))}{" "}
               </div>
-            </a>
-          ))
-        }
+            )}{" "}
+          </section>
+        )}{" "}
+        <!-- 둘러보기 — 섹션 내용 목록 대신 테마 입구 카드만(사장 결정). 카드 목록은 사이트 관리 → 홈 편성 -->{" "}
+        {tiles.length > 0 && (
+          <section class="block">
+            {" "}
+            <div class="section-head">
+              {" "}
+              <span class="kicker">둘러보기</span> <h2>증산법종교 둘러보기</h2>{" "}
+            </div>{" "}
+            <div class="tiles">
+              {" "}
+              {tiles.map((t) => (
+                <a class="tile" href={t.href}>
+                  {" "}
+                  <Thumb
+                    src={t.image?.url}
+                    glyph={t.glyph ?? t.title}
+                    alt={t.image?.alt ?? t.title}
+                    seed={t.id}
+                    ratio="16 / 9"
+                  />{" "}
+                  <span class="tile-body">
+                    {" "}
+                    <strong>{t.title}</strong> {t.subtitle && <small>{t.subtitle}</small>}{" "}
+                  </span>{" "}
+                  {t.count != null && t.count > 0 && (
+                    <span class="tile-count">
+                      {" "}
+                      {t.count} {t.count_unit ?? ""}{" "}
+                    </span>
+                  )}{" "}
+                </a>
+              ))}{" "}
+            </div>{" "}
+          </section>
+        )}
       </div>
-    </section>
-
-    <!-- ── 소식 + 사진 갤러리 (Phase 2~3 동적 연결 예정) ── -->
-    <div class="two-col">
-      <section class="block">
-        <div class="section-head">
-          <span class="kicker">소식</span>
-          <h2>법종교 소식</h2>
-          <a class="more" href="/community/">더보기 →</a>
+      <aside class="home-side" aria-label="소식과 안내">
+        <div class="side-slot side-upcoming">
+          <UpcomingDays client:visible />
         </div>
-        <div class="placeholder-list">
-          <p class="placeholder">📰 게시판·공지가 연결되면 최근 소식이 이곳에 표시됩니다. (Phase 2)</p>
-        </div>
-      </section>
-
-      <aside class="block">
-        <div class="section-head">
-          <span class="kicker">갤러리</span>
-          <h2>도생 사진</h2>
-        </div>
-        <div class="photo-grid">
-          {Array.from({ length: 6 }).map(() => <div class="photo-cell" />)}
-        </div>
-        <p class="placeholder">📷 교인들이 올린 최근 사진 썸네일이 이곳에 표시됩니다. (Phase 3)</p>
+        {news.length > 0 && (
+          <section class="side-box">
+            {" "}
+            <div class="side-head">
+              {" "}
+              <h3>공지·일정·소식</h3>{" "}
+              <a href="/community/#news" data-news-all>
+                전체 보기 →
+              </a>{" "}
+            </div>{" "}
+            <NewsRows news={news} />{" "}
+          </section>
+        )}{" "}
+        {feed.length > 0 && (
+          <section class="side-box side-feed">
+            {" "}
+            <div class="side-head">
+              {" "}
+              <h3>도생광장</h3>{" "}
+              <a class="box-link" href="/community/">
+                이동하기 →
+              </a>{" "}
+            </div>{" "}
+            <FeedRows posts={feed} />{" "}
+          </section>
+        )}{" "}
+        {mapPoints.length > 0 && (
+          <div class="side-slot">
+            {" "}
+            <HomeMiniMap
+              client:visible
+              points={mapPoints}
+              href={mapHref}
+              label={mapLabel}
+              color={firstTag?.color ?? void 0}
+            />{" "}
+          </div>
+        )}
       </aside>
     </div>
   </div>
-</Base>
-
+  {news.length > 0 && <NewsModal client:load />}
+</Base>{" "}
+<script>
+  // 복원: 배포본 번들(압축)에서 되살린 스크립트 — 변수 이름은 압축 결과 그대로다.
+  import { confirmDialog as J } from "./confirm.BS53EbfV.js";
+  globalThis.process ??= {};
+  globalThis.process.env ??= {};
+  document.querySelectorAll("[data-feed-id]").forEach((e) =>
+    e.addEventListener("click", async (t) => {
+      t.metaKey ||
+        t.ctrlKey ||
+        t.shiftKey ||
+        t.button !== 0 ||
+        (t.preventDefault(),
+        (await J({
+          title: "페이지 이동",
+          message: "도생광장으로 이동해 이 글을 볼까요?",
+          confirmText: "이동",
+        })) && (location.href = e.href));
+    }),
+  );
+  document.querySelectorAll("[data-news-id]").forEach((e) =>
+    e.addEventListener("click", (t) => {
+      t.metaKey ||
+        t.ctrlKey ||
+        t.shiftKey ||
+        t.button !== 0 ||
+        (t.preventDefault(),
+        window.dispatchEvent(new CustomEvent("jb:news-open", { detail: { id: e.dataset.newsId } })));
+    }),
+  );
+  document.querySelectorAll("[data-news-all]").forEach((e) =>
+    e.addEventListener("click", (t) => {
+      t.metaKey ||
+        t.ctrlKey ||
+        t.shiftKey ||
+        t.button !== 0 ||
+        (t.preventDefault(), window.dispatchEvent(new CustomEvent("jb:news-open", { detail: {} })));
+    }),
+  );
+  {
+    const e = document.querySelector(".media-row"),
+      t = [...document.querySelectorAll(".media-dots button")];
+    if (e && t.length) {
+      const l = () => [...e.children],
+        f = () => {
+          const s = l();
+          if (e.scrollLeft + e.clientWidth >= e.scrollWidth - 4) return s.length - 1;
+          let a = 0,
+            i = 1 / 0;
+          return (
+            s.forEach((r, m) => {
+              const c = Math.abs(r.offsetLeft - s[0].offsetLeft - e.scrollLeft);
+              c < i && ((i = c), (a = m));
+            }),
+            a
+          );
+        };
+      let d = 0;
+      (e.addEventListener(
+        "scroll",
+        () => {
+          d ||
+            (d = requestAnimationFrame(() => {
+              d = 0;
+              const s = f();
+              t.forEach((a, i) => a.classList.toggle("on", i === s));
+            }));
+        },
+        { passive: !0 },
+      ),
+        t.forEach((s, a) =>
+          s.addEventListener("click", () => {
+            const i = l();
+            e.scrollTo({
+              left: i[a].offsetLeft - i[0].offsetLeft,
+              behavior: "smooth",
+            });
+          }),
+        ));
+    }
+  }
+  const h = document.querySelector(".hero-media[data-videos]"),
+    K = document.querySelector("[data-hero-title]"),
+    E = document.querySelector("[data-hero-caption]"),
+    o = document.querySelector("[data-hero-toggle]"),
+    w = h ? JSON.parse(h.dataset.videos || "[]") : [],
+    I = window.matchMedia("(min-width: 861px) and (prefers-reduced-motion: no-preference)"),
+    g = "https://www.youtube-nocookie.com";
+  let n = null,
+    D = !1;
+  const M = "jb-hero-pos";
+  let p = "",
+    v = 0,
+    O = 0;
+  function _() {
+    try {
+      const e = JSON.parse(sessionStorage.getItem(M) || "null");
+      if (e && typeof e.t == "number" && w.some((t) => t.id === e.id)) return e;
+    } catch {}
+    return null;
+  }
+  function T(e = !1) {
+    if (!p) return;
+    const t = Date.now();
+    if (!(!e && t - O < 1e3)) {
+      O = t;
+      try {
+        sessionStorage.setItem(M, JSON.stringify({ id: p, t: v }));
+      } catch {}
+    }
+  }
+  window.addEventListener("pagehide", () => T(!0));
+  document.addEventListener("visibilitychange", () => {
+    document.visibilityState === "hidden" && T(!0);
+  });
+  function x(e) {
+    const t = w.find((l) => l.id === e);
+    !t ||
+      !K ||
+      ((K.textContent = t.title), E && ((E.textContent = t.caption ?? ""), (E.hidden = !t.caption)));
+  }
+  function A(e) {
+    n?.contentWindow?.postMessage(JSON.stringify({ event: "command", func: e, args: [] }), g);
+  }
+  function C() {
+    !n || n.classList.contains("is-playing") || (n.classList.add("is-playing"), o && (o.hidden = !1));
+  }
+  function q() {
+    if (!h || !w.length || !I.matches || n) return;
+    const e = w.map((r) => r.id),
+      t = _(),
+      l = t ? Math.max(0, e.indexOf(t.id)) : 0,
+      f = [...e.slice(l), ...e.slice(0, l)],
+      d = t ? Math.max(0, Math.floor(t.t) - 1) : 0;
+    ((p = f[0]), (v = d), x(f[0]), h.classList.toggle("is-resuming", d > 0));
+    const s = new URLSearchParams({
+      autoplay: "1",
+      mute: "1",
+      loop: "1",
+      playlist: f.join(","),
+      start: String(d),
+      controls: "0",
+      playsinline: "1",
+      rel: "0",
+      disablekb: "1",
+      iv_load_policy: "3",
+      enablejsapi: "1",
+      origin: location.origin,
+    });
+    ((n = document.createElement("iframe")),
+      (n.src = `${g}/embed/${f[0]}?${s}`),
+      (n.title = "증산법종교 배경 영상"),
+      (n.allow = "autoplay; encrypted-media; picture-in-picture"),
+      (n.tabIndex = -1),
+      n.setAttribute("aria-hidden", "true"));
+    let a = 0;
+    const i = window.setInterval(() => {
+      (n?.contentWindow?.postMessage(
+        JSON.stringify({ event: "listening", id: "hero", channel: "widget" }),
+        g,
+      ),
+        ++a > 40 && window.clearInterval(i));
+    }, 250);
+    (window.addEventListener("message", (r) => {
+      if (r.origin !== g || r.source !== n?.contentWindow) return;
+      let m;
+      try {
+        m = typeof r.data == "string" ? JSON.parse(r.data) : r.data;
+      } catch {
+        return;
+      }
+      window.clearInterval(i);
+      const c = m?.info;
+      (m?.event === "onStateChange" ? c : c?.playerState) === 1 && C();
+      const y = c?.videoData?.video_id;
+      (y && y !== p && ((p = y), (v = 0), x(y)),
+        typeof c?.currentTime == "number" && ((v = c.currentTime), T()));
+    }),
+      window.setTimeout(C, 8e3),
+      h.appendChild(n));
+  }
+  const b = "jb-hero-paused",
+    u = document.querySelector("[data-hero-ask]");
+  let L = 0;
+  function N() {
+    try {
+      return sessionStorage.getItem(b) === "1";
+    } catch {
+      return !1;
+    }
+  }
+  function j(e) {
+    try {
+      e ? sessionStorage.setItem(b, "1") : sessionStorage.removeItem(b);
+    } catch {}
+  }
+  function k(e) {
+    ((D = e),
+      o &&
+        (o.classList.toggle("is-paused", e),
+        o.setAttribute("aria-label", e ? "배경 영상 재생" : "배경 영상 일시정지")));
+  }
+  function S() {
+    (window.clearTimeout(L), u && (u.hidden = !0));
+  }
+  function P() {
+    u &&
+      ((u.hidden = !1),
+      u.querySelector('[data-ask-choice="keep"]')?.focus({ preventScroll: !0 }),
+      window.clearTimeout(L),
+      (L = window.setTimeout(S, 8e3)));
+  }
+  u?.addEventListener("click", (e) => {
+    const t = e.target.closest("[data-ask-choice]")?.dataset.askChoice;
+    t && (j(t === "keep"), S(), o?.focus({ preventScroll: !0 }));
+  });
+  u?.addEventListener("keydown", (e) => {
+    e.key === "Escape" && (S(), o?.focus({ preventScroll: !0 }));
+  });
+  o?.addEventListener("click", () => {
+    if (!D) {
+      (A("pauseVideo"), k(!0), P());
+      return;
+    }
+    (j(!1), S(), k(!1), n ? A("playVideo") : q());
+  });
+  N() && I.matches && w.length ? (k(!0), o && (o.hidden = !1)) : q();
+  I.addEventListener("change", () => {
+    N() || q();
+  });
+</script>
 <style>
   .hero {
-    background:
-      radial-gradient(120% 140% at 80% 0%, rgba(168, 53, 42, 0.14), transparent 60%),
-      linear-gradient(160deg, var(--color-surface), var(--color-primary-bg));
-    border-bottom: 1px solid var(--color-rule);
-  }
-  .hero-inner {
-    padding-block: 64px 72px;
-    max-width: 760px;
-  }
-  .hero-kicker {
-    font-family: var(--font-display);
-    color: var(--color-primary);
-    letter-spacing: 0.18em;
-    font-weight: 700;
-    margin: 0 0 14px;
-  }
-  .hero h1 {
-    font-size: clamp(2rem, 5vw, 3.2rem);
-    font-weight: 900;
-    line-height: 1.18;
-    margin: 0 0 18px;
-  }
-  .hero-lead {
-    font-size: 1.08rem;
-    color: var(--color-fg);
-    max-width: 56ch;
-    margin: 0 0 26px;
-  }
-  .hero-cta {
+    position: relative;
+    z-index: 2;
+    isolation: isolate;
+    margin-top: calc(-1 * var(--header-h));
+    height: clamp(300px, 70vw, 460px);
     display: flex;
-    gap: 12px;
-    flex-wrap: wrap;
+    align-items: flex-end;
+    background: #1b1714;
   }
-
+  .hero-media {
+    position: absolute;
+    inset: 0;
+    z-index: -2;
+    overflow: hidden;
+    container-type: size;
+    background: #1b1714 var(--poster-sm) center / cover no-repeat;
+  }
+  .hero-shade {
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    background: linear-gradient(180deg, #0e0b098c, #0e0b0900 26% 58%, #0e0b099e);
+  }
+  .hero-media :global(iframe) {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: max(100cqw, 177.78cqh);
+    height: max(100cqh, 56.25cqw);
+    transform: translate(-50%, -50%);
+    border: 0;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.6s ease;
+  }
+  .hero-media :global(iframe.is-playing) {
+    opacity: 1;
+  }
+  .hero-search-wrap {
+    position: absolute;
+    inset: var(--header-h) 0 56px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    place-items: center;
+    padding-inline: 20px;
+    pointer-events: none;
+  }
+  .hero-search-row {
+    pointer-events: auto;
+    width: min(812px, 100%);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .hero-ai {
+    flex: none;
+    width: 60px;
+    height: 60px;
+    padding: 0;
+    display: grid;
+    place-items: center;
+    border: 0;
+    border-radius: 50%;
+    cursor: pointer;
+    color: #fff;
+    background-image: linear-gradient(
+      135deg,
+      var(--color-primary-deep) 0%,
+      var(--color-primary) 38%,
+      var(--color-primary-soft) 68%,
+      var(--color-primary-deep) 100%
+    );
+    background-size: 220% 220%;
+    background-position: 0% 50%;
+    box-shadow:
+      0 10px 26px -8px #7e241ca6,
+      0 6px 18px -6px #a8352a73,
+      inset 0 0 0 1px #ffffff24;
+    animation: hero-ai-shift 6s ease-in-out infinite;
+    transition:
+      filter 0.18s ease,
+      transform 0.12s ease;
+  }
+  .hero-ai:hover {
+    filter: brightness(1.14);
+  }
+  .hero-ai:active {
+    transform: scale(0.94);
+  }
+  .hero-ai svg {
+    width: 30px;
+    height: 30px;
+    fill: currentColor;
+    transition: transform 0.18s ease;
+  }
+  .hero-ai:hover svg {
+    transform: scale(1.14);
+  }
+  .hero-ai:focus-visible {
+    outline: 2px solid #f5c84c;
+    outline-offset: 2px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .hero-ai {
+      animation: none;
+    }
+  }
+  @media (max-width: 760px) {
+    .hero-search-wrap {
+      inset: var(--header-h) 0 64px;
+      padding-inline: 16px;
+    }
+    .hero-search-row {
+      gap: 8px;
+    }
+    .hero-ai {
+      width: 54px;
+      height: 54px;
+    }
+    .hero-ai svg {
+      width: 27px;
+      height: 27px;
+    }
+  }
+  .hero-foot {
+    width: 100%;
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 16px;
+    padding-bottom: 22px;
+  }
+  .hero-title {
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    color: #fff;
+    text-shadow: 0 1px 8px rgba(0, 0, 0, 0.45);
+  }
+  .hero-title-kicker {
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.2em;
+    color: #f5c84c;
+  }
+  .hero-title strong {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: clamp(1rem, 2vw, 1.4rem);
+  }
+  .hero-title small {
+    font-size: 0.82rem;
+    color: #ffffffc7;
+  }
+  .hero-title small[hidden] {
+    display: none;
+  }
+  .hero-toggle {
+    flex: none;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    border: 1px solid rgba(255, 255, 255, 0.55);
+    background: #0e0b0959;
+    backdrop-filter: blur(6px);
+    display: grid;
+    place-items: center;
+    cursor: pointer;
+    transition:
+      background 0.15s,
+      border-color 0.15s;
+  }
+  .hero-toggle:hover {
+    background: #0e0b098c;
+    border-color: #fff;
+  }
+  .hero-toggle[hidden] {
+    display: none;
+  }
+  .hero-ctrl {
+    position: relative;
+    flex: none;
+  }
+  .hero-ask {
+    position: absolute;
+    right: 0;
+    bottom: calc(100% + 10px);
+    width: max-content;
+    max-width: 260px;
+    padding: 12px 14px;
+    border-radius: var(--radius-md);
+    background: #0e0b09d1;
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    color: #fff;
+    box-shadow: 0 6px 20px #00000059;
+  }
+  .hero-ask[hidden] {
+    display: none;
+  }
+  .hero-ask p {
+    margin: 0 0 10px;
+    font-size: 0.86rem;
+  }
+  .hero-ask-btns {
+    display: flex;
+    gap: 6px;
+    justify-content: flex-end;
+  }
+  .hero-ask-btns button {
+    padding: 6px 12px;
+    border-radius: 999px;
+    font-size: 0.82rem;
+    font-weight: 600;
+    cursor: pointer;
+    border: 1px solid rgba(255, 255, 255, 0.5);
+    background: transparent;
+    color: #fff;
+  }
+  .hero-ask-btns button[data-ask-choice="keep"] {
+    background: #f5c84c;
+    border-color: #f5c84c;
+    color: #1f1c1a;
+  }
+  .hero-ask-btns button:hover {
+    filter: brightness(1.08);
+  }
+  .ico-pause {
+    box-sizing: border-box;
+    width: 12px;
+    height: 14px;
+    border-left: 4px solid #fff;
+    border-right: 4px solid #fff;
+  }
+  .hero-toggle.is-paused .ico-pause {
+    width: 0;
+    height: 0;
+    margin-left: 3px;
+    border-right: 0;
+    border-left: 12px solid #fff;
+    border-top: 7px solid transparent;
+    border-bottom: 7px solid transparent;
+  }
+  .hero-media.is-resuming {
+    background-image: none !important;
+  }
+  .hero-photo-title {
+    display: none;
+  }
+  @media (max-width: 860px) {
+    .hero.has-photo .hero-title:not(.hero-photo-title) {
+      display: none;
+    }
+    .hero.has-photo .hero-photo-title {
+      display: flex;
+    }
+  }
+  @media (min-width: 861px) {
+    .hero {
+      height: clamp(400px, 56vh, 600px);
+    }
+    .hero-media {
+      background-image: var(--poster);
+    }
+    .hero-foot {
+      padding-bottom: 30px;
+    }
+  }
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
+  }
   .home-body {
     padding-block: 36px 24px;
   }
   .block {
     margin-bottom: 48px;
   }
-
-  /* 섹션 바로가기 */
-  .quicknav {
-    display: grid;
-    grid-template-columns: repeat(5, 1fr);
-    gap: 12px;
-    margin-bottom: 48px;
-  }
-  .quick {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    padding: 18px;
-    background: var(--color-surface);
-    border: 1px solid var(--color-rule);
-    border-radius: var(--radius-md);
-    color: var(--color-ink);
-    transition: border-color 0.15s, box-shadow 0.15s;
-  }
-  .quick:hover {
-    border-color: var(--color-primary);
-    box-shadow: var(--shadow-sm);
-    text-decoration: none;
-  }
-  .quick span {
-    font-family: var(--font-display);
-    font-weight: 700;
-    font-size: 1.06rem;
-  }
-  .quick small {
-    color: var(--color-muted);
-    font-size: 0.8rem;
-  }
-
   .hanja {
     color: var(--color-muted);
     font-weight: 500;
     font-size: 0.82em;
   }
-
-  .two-col {
+  .home-split {
     display: grid;
-    grid-template-columns: 1.6fr 1fr;
+    grid-template-columns: 6.5fr 3.5fr;
     gap: 32px;
+    align-items: start;
   }
-  .photo-grid {
+  .home-main {
+    min-width: 0;
+  }
+  .home-side {
+    display: grid;
+    gap: 18px;
+    min-width: 0;
+  }
+  .media-row {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
-    gap: 8px;
-    margin-bottom: 10px;
+    gap: 16px;
+    margin-top: 22px;
   }
-  .photo-cell {
-    aspect-ratio: 1;
-    border-radius: var(--radius-sm);
-    background: linear-gradient(135deg, var(--color-surface-2), var(--color-secondary-bg));
+  .media-dots {
+    display: none;
+  }
+  .tiles {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 18px;
+  }
+  .tile {
+    position: relative;
+    display: grid;
     border: 1px solid var(--color-rule);
-  }
-  .placeholder {
-    color: var(--color-muted);
-    font-size: 0.9rem;
-    background: var(--color-surface-2);
-    border: 1px dashed var(--color-rule);
     border-radius: var(--radius-md);
-    padding: 16px;
+    overflow: hidden;
+    background: var(--color-surface);
+    color: var(--color-ink);
+    transition: border-color 0.15s;
   }
-
-  @media (max-width: 860px) {
-    .quicknav {
-      grid-template-columns: repeat(2, 1fr);
+  .tile:hover {
+    border-color: var(--color-primary);
+    text-decoration: none;
+  }
+  .tile-body {
+    display: grid;
+    gap: 2px;
+    padding: 12px 14px 14px;
+  }
+  .tile-body strong {
+    font-family: var(--font-display);
+    font-size: 1.08rem;
+  }
+  .tile-body small {
+    color: var(--color-muted);
+    font-size: 0.84rem;
+  }
+  .tile-count {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    padding: 3px 10px;
+    border-radius: 999px;
+    background: #0e0b0999;
+    color: #fff;
+    font-size: 0.8rem;
+    font-weight: 600;
+  }
+  .side-feed {
+    position: relative;
+    cursor: pointer;
+  }
+  .side-feed :global(a) {
+    -webkit-tap-highlight-color: transparent;
+  }
+  .side-feed .box-link:after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+  }
+  .side-feed:hover {
+    border-color: var(--color-primary);
+  }
+  .side-feed .box-link:hover {
+    color: var(--color-primary);
+  }
+  @media (max-width: 1024px) {
+    .home-split {
+      grid-template-columns: 6fr 4fr;
+      gap: 24px;
     }
-    .two-col {
+  }
+  @media (max-width: 860px) {
+    .home-split {
       grid-template-columns: 1fr;
+    }
+    .home-side {
+      display: contents;
+    }
+    .side-upcoming {
+      order: -1;
+      margin-bottom: 28px;
+    }
+    .home-side > :not(.side-upcoming) {
+      margin-bottom: 18px;
+    }
+    .media-row {
+      grid-template-columns: repeat(3, minmax(200px, 1fr));
+      overflow-x: auto;
+      scroll-snap-type: x mandatory;
+      padding-bottom: 6px;
+    }
+    .media-row > * {
+      scroll-snap-align: start;
+    }
+  }
+  @media (max-width: 760px) {
+    .home-body {
+      padding-block: 8px 0;
+      background: #ebe3d7;
+    }
+    .home-split {
+      gap: 0;
+    }
+    .block,
+    .home-side :global(.side-box) {
+      margin: 0 calc(-1 * var(--gutter)) 8px;
+      padding: 20px var(--gutter) 22px;
+      background: var(--color-surface);
+      border: 0;
+      border-radius: 0;
+    }
+    .home-side > .side-slot {
+      margin-bottom: 0;
+    }
+    .home-side > :not(.side-upcoming):not(.side-slot) {
+      margin-bottom: 8px;
+    }
+    .block :global(.vc-lg) :global(.vc-thumb) {
+      margin-inline: calc(-1 * var(--gutter));
+      border-radius: 0;
+    }
+    .media-row {
+      display: grid;
+      grid-auto-flow: column;
+      grid-template-columns: none;
+      grid-auto-columns: 68%;
+      gap: 12px;
+      margin: 20px calc(-1 * var(--gutter)) 0;
+      padding: 0 var(--gutter) 4px;
+      overflow-x: auto;
+      scroll-snap-type: x mandatory;
+      scroll-padding-inline: var(--gutter);
+      scrollbar-width: none;
+    }
+    .media-row::-webkit-scrollbar {
+      display: none;
+    }
+    .media-dots {
+      display: flex;
+      justify-content: center;
+      gap: 6px;
+      margin-top: 14px;
+    }
+    .media-dots button {
+      width: 6px;
+      height: 6px;
+      padding: 0;
+      border: 0;
+      border-radius: 999px;
+      background: #d9d0c4;
+      cursor: pointer;
+      transition:
+        width 0.2s ease,
+        background 0.2s ease;
+    }
+    .media-dots button.on {
+      width: 18px;
+      background: #2a2622;
+    }
+    .tiles {
+      grid-template-columns: repeat(2, 1fr);
+      gap: 2px;
+      margin-inline: calc(-1 * var(--gutter));
+    }
+    .tile {
+      border: 0;
+      border-radius: 0;
+    }
+    .tile:hover {
+      transform: none;
+      box-shadow: none;
+    }
+    .tile > :global(:first-child) {
+      aspect-ratio: 1 / 1 !important;
+    }
+    .tile-body {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      padding: 28px 12px 12px;
+      background: linear-gradient(to top, #0e0b09b8, #0e0b0900);
+      color: #fff;
+    }
+    .tile-body strong {
+      font-size: 1rem;
+      color: #fff;
+    }
+    .tile-body small {
+      color: #ffffffd1;
+      font-size: 0.78rem;
+      display: -webkit-box;
+      -webkit-line-clamp: 1;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+    .home-side :global(.mm) {
+      margin-inline: calc(-1 * var(--gutter));
+      border-radius: 0;
+    }
+  }
+  @keyframes hero-ai-shift {
+    0%,
+    to {
+      background-position: 0% 50%;
+    }
+    50% {
+      background-position: 100% 50%;
     }
   }
 </style>

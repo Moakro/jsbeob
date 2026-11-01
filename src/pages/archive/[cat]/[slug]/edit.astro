@@ -1,0 +1,38 @@
+---
+import Base from "../../../../layouts/Base.astro";
+import {
+  LIBRARY_BOARD,
+  getLibraryPostMeta,
+  libPostHref,
+  listLibraryCategories,
+} from "../../../../lib/content";
+import PostEditor from "../../../../components/board/PostEditor.svelte";
+import ArchiveTabs from "../../../../components/content/ArchiveTabs.astro";
+export const prerender = false;
+const key = Astro.params.cat;
+const id = Astro.params.slug;
+const m = /^[0-9a-f-]{36}$/.test(id) ? await getLibraryPostMeta(Astro.request, id) : null;
+if (!m || m.board !== LIBRARY_BOARD) {
+  return new Response("페이지를 찾을 수 없습니다.", {
+    status: 404,
+    headers: { "Content-Type": "text/plain; charset=utf-8" },
+  });
+}
+const category = m.category ?? LIBRARY_BOARD;
+if (category !== key) return Astro.redirect(`${libPostHref(category, id)}edit/`, 301);
+const categories = await listLibraryCategories(Astro.request);
+---
+
+<Base title="글 수정" tight>
+  {" "}
+  <ArchiveTabs current={category} categories={categories} />
+  <div class="wrap">
+    <PostEditor client:load board={LIBRARY_BOARD} postId={id} category={category} />
+  </div>
+</Base>
+
+<style>
+  .wrap {
+    margin-top: 20px;
+  }
+</style>

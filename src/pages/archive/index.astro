@@ -1,135 +1,204 @@
 ---
 import Base from "../../layouts/Base.astro";
-import { getCollection } from "astro:content";
-
-const hwaeundang = (await getCollection("scripture")).filter((e) =>
-  e.id.startsWith("hwaeundang-silgi/"),
+import { catHref, listArticles, listLibraryCategories } from "../../lib/content";
+import { articleRows, postRows } from "../../lib/library-rows";
+import AdminEditLink from "../../components/content/AdminEditLink.astro";
+import ArchiveFeatured from "../../components/content/ArchiveFeatured.astro";
+import ArchiveTabs from "../../components/content/ArchiveTabs.astro";
+import LibPager from "../../components/content/LibPager.astro";
+import LibRows from "../../components/content/LibRows.astro";
+import SeriesBadge from "../../components/content/SeriesBadge.astro";
+export const prerender = false;
+const PAGE_SIZE = 5;
+const POST_RECENT = 5;
+const SERIES_MAX = 6;
+const POST_SCAN = 30;
+const want = Astro.url.searchParams.get("cat");
+if (want) return Astro.redirect(catHref(want), 301);
+const categories = await listLibraryCategories(Astro.request);
+const library = await listArticles(Astro.request, "library");
+const sections = await Promise.all(
+  categories.map(async (c) => {
+    if (c.type === "article") {
+      const rows2 = await articleRows(Astro.request, c, library);
+      return { cat: c, rows: rows2, series: [], featured: rows2.filter((r) => r.featured) };
+    }
+    const { rows } = await postRows(Astro.request, c, { limit: POST_SCAN });
+    const recent = rows.filter((r) => !r.series).slice(0, POST_RECENT);
+    const series = rows.filter((r) => r.series).slice(0, SERIES_MAX);
+    return { cat: c, rows: recent, series, featured: [] };
+  }),
 );
-const chapterCount = hwaeundang.filter((e) => !e.data.section).length;
-
-const RESOURCES = [
-  { label: "경전 및 도서", desc: "증산법종교의 경전과 간행 도서" },
-  { label: "주문과 수행", desc: "주문과 수행법 안내" },
-  { label: "의식과 예법", desc: "법종교의 의식·예법" },
-  { label: "기타 자료실", desc: "그 밖의 자료" },
-];
+const isSide = (s) => s.cat.place === "side";
+const mains = sections.filter((s) => !isSide(s) && (s.rows.length > 0 || s.series.length > 0));
+const sides = sections.filter(isSide);
+const featured = sections.flatMap((s) => s.featured);
 ---
 
-<Base title="경전·자료" description="화은당실기 경전과 법종교 자료실">
-  <header class="page-head">
-    <span class="kicker">경전·자료</span>
-    <h1>경전과 자료</h1>
-    <p>증산법종교의 경전과 수행·의식 자료를 살펴보십시오.</p>
-  </header>
-
-  <section class="block">
-    <div class="section-head"><h2>경전</h2></div>
-    <a class="feature" href="/archive/hwaeundang-silgi/">
-      <div class="feature-thumb">華恩堂實記</div>
-      <div class="feature-body">
-        <h3>화은당실기 <span class="hanja">華恩堂實記</span></h3>
-        <p>화은당 선사님의 생애와 법종교 연혁을 기록한 경전. 전 {chapterCount}장 + 서문·부록.</p>
-        <span class="read">읽기 →</span>
-      </div>
-    </a>
-  </section>
-
-  <section class="block">
-    <div class="section-head"><h2>자료실</h2></div>
-    <div class="wz-grid cols-4">
-      {
-        RESOURCES.map((r) => (
-          <div class="wz-card disabled">
-            <div class="body">
-              <h3>{r.label}</h3>
-              <p>{r.desc}</p>
-              <span class="soon">준비 중</span>
-            </div>
-          </div>
-        ))
-      }
+<Base title="자료실" description="증산법종교 경전·도서·주문과 자료" tight>
+  <h1 class="sr-only">자료실</h1>
+  <ArchiveTabs current="all" categories={categories} />
+  <div class="lib-split lib-split--half">
+    <div class="lib-main">
+      {mains.map((s) => (
+        <section class="lib-sec" aria-labelledby={`sec-${s.cat.key}`}>
+          {" "}
+          <h2 id={`sec-${s.cat.key}`}>
+            {" "}
+            <a href={catHref(s.cat.key)}>{s.cat.label}</a>{" "}
+            {s.cat.type === "article" && <span class="n">{s.rows.length}</span>}{" "}
+            <a class="more" href={catHref(s.cat.key)}>
+              전체 보기 ›
+            </a>{" "}
+          </h2>{" "}
+          {s.cat.type === "article" ? (
+            <LibPager rows={s.rows} size={PAGE_SIZE} label={s.cat.label} />
+          ) : (
+            <LibRows rows={s.rows} />
+          )}{" "}
+        </section>
+      ))}{" "}
+      {mains.length === 0 && <p class="none">아직 올라온 자료가 없습니다.</p>}
     </div>
-  </section>
+    {(sides.length > 0 || featured.length > 0) && (
+      <div class="lib-side">
+        {" "}
+        {sides.map((s) => (
+          <section class="lib-sec lib-guide" aria-labelledby={`sec-${s.cat.key}`}>
+            {" "}
+            <h2 id={`sec-${s.cat.key}`}>
+              {" "}
+              <a href={catHref(s.cat.key)}>{s.cat.label}</a>{" "}
+              <a class="more" href={catHref(s.cat.key)}>
+                전체 보기 ›
+              </a>{" "}
+            </h2>{" "}
+            {s.cat.intro && <p class="intro">{s.cat.intro}</p>}{" "}
+            {s.cat.type === "article" ? (
+              <LibPager rows={s.rows} size={PAGE_SIZE} label={s.cat.label} />
+            ) : (
+              <div class="lib-posts">
+                {" "}
+                {s.rows.length > 0 && <LibRows rows={s.rows} />}{" "}
+                {s.series.length > 0 && (
+                  <div class="lib-series">
+                    {" "}
+                    <h3>시리즈</h3>{" "}
+                    <ul>
+                      {" "}
+                      {s.series.map((r) => (
+                        <li>
+                          {" "}
+                          <a href={r.href} title={`${r.series.title} — 최신 글: ${r.title}`}>
+                            {" "}
+                            <SeriesBadge count={r.series.count} /> <span>{r.series.title}</span>{" "}
+                          </a>{" "}
+                        </li>
+                      ))}{" "}
+                    </ul>{" "}
+                  </div>
+                )}{" "}
+              </div>
+            )}{" "}
+            {s.rows.length === 0 && s.series.length === 0 && (
+              <p class="empty">아직 올라온 자료가 없습니다.</p>
+            )}{" "}
+            {s.cat.type === "post" && (
+              <AdminEditLink href={`${catHref(s.cat.key)}write/`} label="글쓰기" />
+            )}{" "}
+          </section>
+        ))}{" "}
+        {featured.length > 0 && <ArchiveFeatured items={featured} />}{" "}
+      </div>
+    )}
+  </div>
 </Base>
 
 <style>
-  .page-head {
-    margin-bottom: 32px;
-  }
-  .page-head h1 {
-    font-size: 2.2rem;
-    margin: 8px 0 10px;
-  }
-  .page-head p {
-    color: var(--color-muted);
-    margin: 0;
-  }
-  .block {
-    margin-bottom: 44px;
-  }
-  .hanja {
-    color: var(--color-muted);
-    font-weight: 500;
-    font-size: 0.78em;
-  }
-  .feature {
-    display: grid;
-    grid-template-columns: 200px 1fr;
-    background: var(--color-surface);
-    border: 1px solid var(--color-rule);
-    border-radius: var(--radius-lg);
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
     overflow: hidden;
-    box-shadow: var(--shadow-sm);
-    color: var(--color-ink);
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
   }
-  .feature:hover {
-    box-shadow: var(--shadow-md);
-    text-decoration: none;
+  .none {
+    color: var(--color-muted);
   }
-  .feature-thumb {
-    background: linear-gradient(150deg, var(--color-primary), var(--color-primary-deep));
-    color: #fff;
-    font-family: var(--font-display);
-    font-weight: 900;
-    font-size: 1.6rem;
+  .lib-side {
+    min-width: 0;
     display: grid;
-    place-items: center;
-    writing-mode: vertical-rl;
-    letter-spacing: 0.1em;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+    align-content: start;
   }
-  .feature-body {
-    padding: 22px 24px;
+  .lib-side :global(.feat-h) {
+    display: block;
   }
-  .feature-body h3 {
-    font-size: 1.4rem;
+  .intro {
+    margin: 0;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--color-rule);
+    color: var(--color-muted);
+    font-size: 0.88rem;
+    line-height: 1.55;
+  }
+  .empty {
+    margin: 0;
+    padding: 14px 0 10px;
+    color: var(--color-muted);
+    font-size: 0.9rem;
+  }
+  .lib-guide :global(.admin-edit-row) {
+    margin: 0;
+    padding: 8px 0 4px;
+    border-top: 1px solid var(--color-rule);
+  }
+  .lib-series {
+    padding: 10px 0 8px;
+  }
+  .lib-posts > :global(.rows) + .lib-series {
+    border-top: 1px solid var(--color-rule);
+  }
+  .lib-series h3 {
     margin: 0 0 8px;
-  }
-  .feature-body p {
     color: var(--color-muted);
-    margin: 0 0 12px;
+    font-size: 0.8rem;
+    font-weight: 600;
   }
-  .read {
-    color: var(--color-primary);
-    font-weight: 700;
+  .lib-series ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
   }
-  .wz-card.disabled {
-    opacity: 0.7;
-  }
-  .soon {
-    font-size: 0.78rem;
-    color: var(--color-muted);
-    background: var(--color-surface-2);
+  .lib-series a {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    max-width: 100%;
+    min-height: 34px;
+    padding: 4px 12px 4px 10px;
+    border: 1px solid var(--color-rule);
     border-radius: 999px;
-    padding: 2px 10px;
-    align-self: flex-start;
+    background: var(--color-bg);
+    color: var(--color-ink);
+    font-size: 0.88rem;
+    font-weight: 600;
   }
-  @media (max-width: 560px) {
-    .feature {
-      grid-template-columns: 1fr;
-    }
-    .feature-thumb {
-      writing-mode: horizontal-tb;
-      padding: 24px;
-    }
+  .lib-series a span:last-child {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .lib-series a:hover {
+    border-color: var(--color-primary-soft);
+    color: var(--color-primary);
   }
 </style>

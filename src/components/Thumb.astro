@@ -1,26 +1,15 @@
 ---
-/**
- * 카드 썸네일. 이미지가 있으면 이미지, 없으면 한자/글자를 활용한
- * 장식 듀오톤 플레이스홀더(웹진 톤). seed로 색을 분산.
- * crop(초점·확대)이 있으면 이미지를 그 위치로 맞춰 자른다.
- */
-import { cropStyle, type Crop } from "../lib/crop";
-
-interface Props {
-  src?: string | null;
-  glyph?: string | null; // 한자 또는 글자
-  alt?: string;
-  seed?: string; // 색 변형용 (보통 slug/name)
-  ratio?: string; // aspect-ratio (기본 16/10)
-  crop?: Crop | null;
-}
+import { cropStyle } from "../lib/crop";
 const { src, glyph, alt = "", seed = "", ratio = "16 / 10", crop } = Astro.props;
-
 const PALETTES = [
-  ["#a8352a", "#7e241c"], // 단심 주홍
-  ["#1e6e6e", "#15504f"], // 단청 청록
-  ["#b8860b", "#8a6508"], // 금
-  ["#5a4636", "#3a2c22"], // 먹/고동
+  ["#a8352a", "#7e241c"],
+  // 단심 주홍
+  ["#1e6e6e", "#15504f"],
+  // 단청 청록
+  ["#b8860b", "#8a6508"],
+  // 금
+  ["#5a4636", "#3a2c22"],
+  // 먹/고동
 ];
 let h = 0;
 for (const ch of seed) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
@@ -28,21 +17,15 @@ const [c1, c2] = PALETTES[h % PALETTES.length];
 const mark = (glyph ?? alt ?? "").trim().slice(0, 2);
 ---
 
-{
-  src ? (
-    <div class="thumb thumb-img" style={`aspect-ratio:${ratio}`}>
-      <img src={src} alt={alt} loading="lazy" style={cropStyle(crop)} />
-    </div>
-  ) : (
-    <div
-      class="thumb thumb-ph"
-      style={`aspect-ratio:${ratio};--c1:${c1};--c2:${c2}`}
-      aria-hidden="true"
-    >
-      <span class="glyph">{mark}</span>
-    </div>
-  )
-}
+{src ? (
+  <div class="thumb thumb-img" style={`aspect-ratio:${ratio}`}>
+    <img src={src} alt={alt} loading="lazy" style={cropStyle(crop)} />
+  </div>
+) : (
+  <div class="thumb thumb-ph" style={`aspect-ratio:${ratio};--c1:${c1};--c2:${c2}`} aria-hidden="true">
+    <span class="glyph">{mark}</span>
+  </div>
+)}
 
 <style>
   .thumb {
@@ -64,26 +47,20 @@ const mark = (glyph ?? alt ?? "").trim().slice(0, 2);
     position: relative;
     display: grid;
     place-items: center;
-    background:
-      radial-gradient(120% 120% at 75% 15%, color-mix(in srgb, var(--c1) 85%, white 0%), var(--c2));
+    background: radial-gradient(120% 120% at 75% 15%, color-mix(in srgb, var(--c1) 85%, white 0%), var(--c2));
     overflow: hidden;
   }
-  .thumb-ph::after {
-    /* 잔잔한 사선 결 — 한지/단청 질감 암시 */
+  .thumb-ph:after {
     content: "";
     position: absolute;
     inset: 0;
-    background-image: repeating-linear-gradient(
-      135deg,
-      rgba(255, 255, 255, 0.05) 0 2px,
-      transparent 2px 9px
-    );
+    background-image: repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.05) 0 2px, transparent 2px 9px);
   }
   .glyph {
     font-family: var(--font-display);
     font-weight: 900;
     font-size: clamp(2.4rem, 6vw, 3.6rem);
-    color: rgba(255, 255, 255, 0.92);
+    color: #ffffffeb;
     letter-spacing: 0.04em;
     text-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
     z-index: 1;

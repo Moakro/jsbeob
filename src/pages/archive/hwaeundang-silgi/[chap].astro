@@ -25,40 +25,35 @@ const heading = entry.data.장_이름 ? `${label} ${entry.data.장_이름}` : la
   <article class="scripture">
     <nav class="crumbs">
       <a href="/archive/hwaeundang-silgi/">화은당실기</a>
-      <span>/</span><span>{label}</span>
+      <span>/</span>
+      <span>{label}</span>
     </nav>
     <header class="ch-head">
       <h1>{heading}</h1>
     </header>
 
     <div class="verses">
-      {
-        verses.map((v) => (
-          <section class="verse" id={v.anchor ?? undefined}>
-            {v.label && <h2 class="vlabel">{v.label}</h2>}
-            {v.paragraphs.map((p) => (
-              <p set:html={p} />
-            ))}
-          </section>
-        ))
-      }
+      {verses.map((v) => (
+        <section class="verse" id={v.anchor ?? undefined}>
+          {v.label && <h2 class="vlabel">{v.label}</h2>}
+          {v.paragraphs.map((p) => (
+            <p set:html={p} />
+          ))}
+        </section>
+      ))}
     </div>
 
     <nav class="pager">
-      {
-        prev ? (
-          <a href={`/archive/hwaeundang-silgi/${chapterSlug(prev)}/`}>← {chapterLabel(prev)}</a>
-        ) : (
-          <span />
-        )
-      }
-      {
-        next && (
-          <a class="next" href={`/archive/hwaeundang-silgi/${chapterSlug(next)}/`}>
-            {chapterLabel(next)} →
-          </a>
-        )
-      }
+      {prev ? (
+        <a href={`/archive/hwaeundang-silgi/${chapterSlug(prev)}/`}>← {chapterLabel(prev)}</a>
+      ) : (
+        <span />
+      )}
+      {next && (
+        <a class="next" href={`/archive/hwaeundang-silgi/${chapterSlug(next)}/`}>
+          {chapterLabel(next)} →
+        </a>
+      )}
     </nav>
   </article>
 </Base>

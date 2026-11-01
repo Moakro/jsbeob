@@ -1,0 +1,88 @@
+---
+import { getCollection } from "astro:content";
+import Base from "../../../layouts/Base.astro";
+import {
+  LIBRARY_BOARD,
+  articleHref,
+  catHref,
+  getArticle,
+  listLibraryCategories,
+  scriptureHref,
+} from "../../../lib/content";
+import { articleRows, postRows } from "../../../lib/library-rows";
+import AdminEditLink from "../../../components/content/AdminEditLink.astro";
+import ArchiveFeatured from "../../../components/content/ArchiveFeatured.astro";
+import ArchiveTabs from "../../../components/content/ArchiveTabs.astro";
+import LibRows from "../../../components/content/LibRows.astro";
+export const prerender = false;
+const key = Astro.params.cat;
+const categories = await listLibraryCategories(Astro.request);
+const cat = categories.find((c) => c.key === key);
+if (!cat) {
+  if (key === "p") return Astro.redirect(catHref(LIBRARY_BOARD), 301);
+  const books = new Set(
+    (await getCollection("scripture")).filter((e) => e.id.includes("/")).map((e) => e.id.split("/")[0]),
+  );
+  if (books.has(key)) return Astro.redirect(scriptureHref(key), 301);
+  const a = await getArticle(Astro.request, "library", key);
+  if (a) return Astro.redirect(articleHref(a.kind, a.slug), 301);
+  return new Response("페이지를 찾을 수 없습니다.", {
+    status: 404,
+    headers: { "Content-Type": "text/plain; charset=utf-8" },
+  });
+}
+let rows = [];
+let featured = [];
+let next = null;
+if (cat.type === "article") {
+  rows = await articleRows(Astro.request, cat);
+  featured = rows.filter((r) => r.featured);
+} else {
+  const r = await postRows(Astro.request, cat, { before: Astro.url.searchParams.get("before"), limit: 20 });
+  rows = r.rows;
+  next = r.next;
+}
+const paged = !!Astro.url.searchParams.get("before");
+---
+
+<Base title={`${cat.label} · 자료실`} description={`증산법종교 자료실 — ${cat.label}`} tight>
+  <h1 class="sr-only">{cat.label}</h1>
+  <ArchiveTabs current={cat.key} categories={categories} />
+  <div class="lib-split">
+    <div class="lib-main">
+      {cat.type === "post" && <AdminEditLink href={`${catHref(cat.key)}write/`} label="글쓰기" />}{" "}
+      {rows.length ? <LibRows rows={rows} /> : <p class="none">아직 올라온 자료가 없습니다.</p>}{" "}
+      {(next || paged) && (
+        <nav class="pager" aria-label="목록 넘기기">
+          {" "}
+          {paged ? <a href={catHref(cat.key)}>← 처음 목록</a> : <span></span>}{" "}
+          {next && <a href={`${catHref(cat.key)}?before=${encodeURIComponent(next)}`}>다음 목록 →</a>}{" "}
+        </nav>
+      )}
+    </div>
+    {featured.length > 0 && <ArchiveFeatured items={featured} />}
+  </div>
+</Base>
+
+<style>
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
+  }
+  .none {
+    color: var(--color-muted);
+  }
+  .pager {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 18px;
+    font-size: 0.92rem;
+  }
+</style>

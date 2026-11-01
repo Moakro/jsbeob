@@ -1,16 +1,22 @@
 /**
- * 상단 헤더 내비게이션 — 사이트 5개 섹션.
+ * 상단 헤더 내비게이션.
  *
  * 헤더는 `prefixes` 로 활성 섹션을 강조한다: 현재 URL이 prefix 중 하나로
  * 시작하면 해당 탭이 활성화된다. (most-specific → least-specific 순서)
  */
+
+// 복원: 추정 — 배포본 Base 청크에서 HEADER_NAV 바로 앞에 있던 상수. 문의 게시판의 카카오 채널 링크(비어 있으면 숨김).
+export const KAKAO_CHANNEL_URL = "";
+
 export type SectionSlug =
   | "home"
+  | "media" // 미디어
   | "about" // 소개
   | "jeongak" // 전각
-  | "archive" // 경전·자료
-  | "community" // 소식·커뮤니티
+  | "archive" // 자료실
   | "calendar" // 달력
+  | "community" // 도생광장
+  | "map" // 지도
   | "account"
   | "admin";
 
@@ -24,21 +30,24 @@ export interface SectionDef {
 /** ── 헤더 순서 ── */
 export const HEADER_NAV: SectionDef[] = [
   { slug: "home", label: "홈", href: "/", prefixes: [] },
+  // 법종교 미디어(가칭) — 유튜브 채널 본격 운영(사장 결정 2026-09-27: 처음부터 독립 메뉴, 서브탭 없이 · 같은 날 메뉴 맨 앞으로)
+  { slug: "media", label: "미디어", href: "/media/", prefixes: ["/media/"] },
   { slug: "about", label: "소개", href: "/about/", prefixes: ["/about/"] },
   { slug: "jeongak", label: "전각", href: "/jeongak/", prefixes: ["/jeongak/"] },
   {
     slug: "archive",
-    label: "경전·자료",
+    label: "자료실",
     href: "/archive/",
     prefixes: ["/archive/"],
   },
+  { slug: "calendar", label: "달력", href: "/calendar/", prefixes: ["/calendar/"] },
   {
     slug: "community",
-    label: "소식·커뮤니티",
+    label: "도생광장",
     href: "/community/",
     prefixes: ["/community/"],
   },
-  { slug: "calendar", label: "달력", href: "/calendar/", prefixes: ["/calendar/"] },
+  { slug: "map", label: "지도", href: "/map/", prefixes: ["/map/"] },
 ];
 
 export const ACCOUNT_SECTION: SectionDef = {

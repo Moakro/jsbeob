@@ -1,14 +1,23 @@
 ---
 import Base from "../../../../layouts/Base.astro";
+import { BOARDS, postHref } from "../../../../lib/api";
 import PostEditor from "../../../../components/board/PostEditor.svelte";
-import { BOARDS } from "../../../../lib/api";
 export const prerender = false;
-
 const { board, id } = Astro.params;
-const meta = BOARDS[board as string];
+const meta = BOARDS[board];
 if (!meta) return Astro.redirect("/community/");
+if (meta.base) return Astro.redirect(`${postHref(board, id)}edit/`, 301);
+if (board === "orialter") return Astro.redirect(postHref(board, id));
 ---
 
-<Base title={`${meta.label} 글 수정`}>
-  <PostEditor client:load board={board as string} postId={id as string} />
+<Base title={`${meta.label} 글 수정`} tight>
+  <div class="board-wrap">
+    <PostEditor client:load board={board} postId={id} />
+  </div>
 </Base>
+
+<style>
+  :global(.subtabs) + .board-wrap {
+    margin-top: 16px;
+  }
+</style>

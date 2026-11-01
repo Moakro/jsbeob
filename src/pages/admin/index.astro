@@ -1,0 +1,24 @@
+---
+import Base from "../../layouts/Base.astro";
+import AdminApp from "../../components/admin/AdminApp.svelte";
+export const prerender = false;
+Astro.response.headers.set("X-Robots-Tag", "noindex");
+---
+
+<Base title="사이트 관리">
+  <div class="admin">
+    <h1>사이트 관리</h1>
+    <AdminApp client:only="svelte" />
+  </div>
+</Base>
+
+<style>
+  .admin {
+    max-width: 1180px;
+    margin-inline: auto;
+  }
+  h1 {
+    font-size: 1.6rem;
+    margin: 0 0 14px;
+  }
+</style>

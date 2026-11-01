@@ -1,0 +1,107 @@
+---
+import Base from "../../../../layouts/Base.astro";
+import { articleHref, chapterHref, getArticle, listLibraryCategories } from "../../../../lib/content";
+import AdminEditLink from "../../../../components/content/AdminEditLink.astro";
+import ArchiveTabs from "../../../../components/content/ArchiveTabs.astro";
+import DocPager from "../../../../components/content/DocPager.astro";
+import PageTitle from "../../../../components/content/PageTitle.astro";
+import PreviewNotice from "../../../../components/content/PreviewNotice.astro";
+import Prose from "../../../../components/content/Prose.astro";
+import SideList from "../../../../components/content/SideList.astro";
+export const prerender = false;
+const notFound = () =>
+  new Response("페이지를 찾을 수 없습니다.", {
+    status: 404,
+    headers: { "Content-Type": "text/plain; charset=utf-8" },
+  });
+const key = Astro.params.cat;
+const bookSlug = Astro.params.slug;
+const chap = Astro.params.chap;
+const preview = Astro.url.searchParams.get("preview") === "1";
+const q = preview ? "?preview=1" : "";
+const categories = await listLibraryCategories(Astro.request);
+const cat = categories.find((c) => c.key === key);
+if (!cat || cat.type !== "article") return notFound();
+const entry = await getArticle(Astro.request, "library", chap, preview);
+if (!entry || !entry.parent_id || !entry.book) return notFound();
+const book = entry.book;
+if (book.slug !== bookSlug || book.kind !== key)
+  return Astro.redirect(chapterHref(book.kind, book.slug, entry.slug) + q, 301);
+const toc = (entry.chapters ?? []).map((c) => ({
+  key: c.id,
+  title: c.title,
+  hanja: c.title_hanja,
+  href: chapterHref(key, bookSlug, c.slug) + q,
+  on: c.id === entry.id,
+}));
+const at = toc.findIndex((t) => t.on);
+const prev = at > 0 ? { href: toc[at - 1].href, label: toc[at - 1].title } : null;
+const next = at >= 0 && at < toc.length - 1 ? { href: toc[at + 1].href, label: toc[at + 1].title } : null;
+const bookHref = articleHref(key, bookSlug) + q;
+---
+
+<Base
+  title={`${book.title} — ${entry.title}`}
+  description={entry.summary ?? `${book.title} ${entry.title}`}
+  tight
+>
+  {" "}
+  <ArchiveTabs current={cat.key} categories={categories} />
+  <div class="doc-split">
+    <div class="doc-main">
+      <PageTitle
+        title={entry.title}
+        hanja={entry.title_hanja}
+        parent={{ href: bookHref, label: book.title }}
+      />{" "}
+      <PreviewNotice status={entry.status} editHref={`/admin/#article/${entry.id}`} />{" "}
+      {entry.status === "published" && (
+        <div hidden data-page-feed data-kind="article" data-id={entry.id} data-title={entry.title}></div>
+      )}
+      <article class="doc">
+        <AdminEditLink href={`/admin/#article/${entry.id}`} />{" "}
+        {entry.summary && <p class="summary">{entry.summary}</p>} <Prose html={entry.body_html ?? ""} />
+        <nav class="pager" aria-label="이전·다음 장">
+          {prev ? <a href={prev.href}>← {prev.label}</a> : <span></span>}{" "}
+          {next && (
+            <a class="next" href={next.href}>
+              {next.label} →
+            </a>
+          )}
+        </nav>
+      </article>
+    </div>
+    <SideList label={`${book.title} 차례`} items={toc} />
+  </div>
+  <DocPager prev={prev} next={next} />{" "}
+</Base>
+
+<style>
+  .doc {
+    max-width: 760px;
+  }
+  .summary {
+    margin: 0 0 1.4em;
+    color: var(--color-muted);
+  }
+  .pager {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    margin-top: 40px;
+    padding-top: 20px;
+    border-top: 1px solid var(--color-rule);
+  }
+  .pager a {
+    font-weight: 600;
+  }
+  .pager .next {
+    margin-left: auto;
+    text-align: right;
+  }
+  @media (max-width: 860px) {
+    .pager {
+      display: none;
+    }
+  }
+</style>

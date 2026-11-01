@@ -1,0 +1,9 @@
+---
+import { catHref, listLibraryCategories } from "../../../../lib/content";
+export const prerender = false;
+const kind = Astro.params.kind;
+const cats = await listLibraryCategories(Astro.request);
+return Astro.redirect(cats.some((c) => c.key === kind) ? catHref(kind) : "/archive/", 301);
+---
+
+

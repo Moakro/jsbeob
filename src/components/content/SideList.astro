@@ -1,0 +1,134 @@
+---
+import DraftBadge from "./DraftBadge.astro";
+const { label, items } = Astro.props;
+---
+
+<aside class="side" aria-label={label} data-page-list data-list-label={label}>
+  <ul class="list">
+    {items.map((s) => (
+      <li>
+        {" "}
+        <a
+          href={s.href}
+          class:list={[{ on: s.on, "has-draft": s.draft }]}
+          aria-current={s.on ? "page" : void 0}
+          data-title={s.title}
+          data-sub={s.sub ?? s.hanja ?? ""}
+        >
+          {" "}
+          <span class="t">{s.title}</span> {s.hanja && <span class="hanja">{s.hanja}</span>}{" "}
+          {s.draft && <DraftBadge />} {s.sub && <span class="sub">{s.sub}</span>}{" "}
+          <span class="chev" aria-hidden="true">
+            ›
+          </span>{" "}
+        </a>{" "}
+      </li>
+    ))}
+  </ul>
+</aside>
+<script>
+  // 복원: 배포본 번들(압축)에서 되살린 스크립트 — 변수 이름은 압축 결과 그대로다.
+  {
+    const e = document.querySelector(".side[data-page-list]");
+    if (e) {
+      const o = () =>
+          parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--header-h")) || 68,
+        t = () => {
+          const s = Math.min(o() + 16, window.innerHeight - e.offsetHeight - 16);
+          e.style.setProperty("--side-top", `${Math.round(s)}px`);
+        };
+      (t(), window.addEventListener("resize", t), new ResizeObserver(t).observe(e));
+    }
+  }
+</script>
+
+<style>
+  .side {
+    min-width: 0;
+    margin-top: 0;
+  }
+  :global(.subtabs) ~ * .side {
+    margin-top: 22px;
+  }
+  .list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-md);
+    background: var(--color-surface);
+    overflow: hidden;
+  }
+  .list li + li {
+    border-top: 1px solid var(--color-rule);
+  }
+  .list a {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 44px;
+    padding: 0 14px;
+    color: var(--color-ink);
+  }
+  .list a:hover {
+    background: var(--color-surface-2);
+  }
+  .list a:hover .t {
+    color: var(--color-primary);
+  }
+  .list a.on {
+    background: var(--color-primary-bg);
+    box-shadow: inset 3px 0 0 var(--color-primary);
+    color: var(--color-primary);
+  }
+  .list a.on .t {
+    font-weight: 700;
+  }
+  .list a.has-draft .t {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .t {
+    flex: none;
+    font-weight: 600;
+  }
+  .hanja {
+    color: var(--color-muted);
+    font-size: 0.82em;
+  }
+  .sub {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--color-muted);
+    font-size: 0.88em;
+  }
+  .list a.on .sub {
+    color: inherit;
+  }
+  .chev {
+    flex: none;
+    margin-left: auto;
+    color: var(--color-muted);
+    font-size: 1.1rem;
+    line-height: 1;
+  }
+  .list a.on .chev {
+    color: var(--color-primary);
+  }
+  @media (min-width: 861px) {
+    .side {
+      position: sticky;
+      top: var(--side-top, calc(var(--header-h, 68px) + 16px));
+    }
+  }
+  @media (max-width: 860px) {
+    .side {
+      display: none;
+    }
+  }
+</style>

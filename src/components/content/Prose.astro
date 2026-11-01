@@ -1,0 +1,46 @@
+---
+const { html } = Astro.props;
+---
+
+<div class="prose">
+  <Fragment set:html={html} />
+</div>
+
+<style>
+  .prose :global(h1) {
+    display: none;
+  }
+  .prose :global(blockquote) {
+    border-left: 3px solid var(--color-gold-soft);
+    background: var(--color-surface-2);
+    margin: 0 0 1.1em;
+    padding: 12px 18px;
+    border-radius: var(--radius-sm);
+    color: var(--color-muted);
+  }
+  .prose :global(blockquote) :global(p:last-child) {
+    margin-bottom: 0;
+  }
+  .prose :global(p) {
+    margin: 0 0 1.1em;
+  }
+  .prose :global(p.mt-line) {
+    margin-bottom: 1.6em;
+  }
+  .prose :global(img) {
+    max-width: 100%;
+    height: auto;
+    border-radius: var(--radius-md);
+  }
+  .prose :global(table) {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 0 0 1.1em;
+  }
+  .prose :global(th),
+  .prose :global(td) {
+    border: 1px solid var(--color-rule);
+    padding: 6px 10px;
+    text-align: left;
+  }
+</style>

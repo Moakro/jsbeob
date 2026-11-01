@@ -1,0 +1,54 @@
+---
+import KakaoMap from "../KakaoMap.svelte";
+const { place, hrefPrefix = "" } = Astro.props;
+const hasCoord = typeof place.lat === "number" && typeof place.lng === "number";
+const hasKey = Boolean(import.meta.env.PUBLIC_KAKAO_JS_KEY);
+const kakaoLink = hasCoord
+  ? `https://map.kakao.com/link/map/${encodeURIComponent(place.name)},${place.lat},${place.lng}`
+  : null;
+---
+
+<section class="map-area">
+  <h2>위치</h2>
+  {hasCoord ? (
+    <Fragment>
+      {hasKey && (
+        <KakaoMap
+          client:only="svelte"
+          mode="display"
+          height="360px"
+          hrefPrefix={hrefPrefix}
+          places={[{ slug: place.slug, name: place.name, coord: [place.lat, place.lng] }]}
+        />
+      )}
+      <p class="map-links">
+        {" "}
+        <a href={kakaoLink} target="_blank" rel="noopener">
+          카카오맵에서 보기 →
+        </a>{" "}
+      </p>{" "}
+    </Fragment>
+  ) : (
+    <p class="map-note">위치 정보가 준비되면 지도가 표시됩니다.</p>
+  )}
+</section>
+
+<style>
+  .map-area {
+    margin-top: 36px;
+  }
+  .map-area h2 {
+    font-size: 1.25rem;
+  }
+  .map-links {
+    margin: 8px 0 0;
+    font-size: 0.9rem;
+  }
+  .map-note {
+    color: var(--color-muted);
+    background: var(--color-surface-2);
+    border: 1px dashed var(--color-rule);
+    border-radius: var(--radius-md);
+    padding: 16px;
+  }
+</style>

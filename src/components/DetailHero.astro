@@ -28,17 +28,25 @@ const [c1, c2] = PALETTES[h % PALETTES.length];
 const mark = (glyph ?? hanja ?? "").trim().slice(0, 4);
 ---
 
-<header
-  class:list={["hero-banner", { "has-img": !!image }]}
-  style={image ? "" : `--c1:${c1};--c2:${c2}`}
->
+<header class:list={["hero-banner", { "has-img": !!image }]} style={image ? "" : `--c1:${c1};--c2:${c2}`}>
   {image && <img class="hero-img" src={image} alt="" />}
-  {!image && mark && <span class="watermark" aria-hidden="true">{mark}</span>}
+  {!image && mark && (
+    <span class="watermark" aria-hidden="true">
+      {mark}
+    </span>
+  )}
 
   <div class="hero-content container">
-    {back && <a class="back" href={back.href}>← {back.label}</a>}
+    {back && (
+      <a class="back" href={back.href}>
+        ← {back.label}
+      </a>
+    )}
     {kicker && <span class="hero-kicker">{kicker}</span>}
-    <h1>{title}{hanja && <span class="hanja"> {hanja}</span>}</h1>
+    <h1>
+      {title}
+      {hanja && <span class="hanja"> {hanja}</span>}
+    </h1>
     {summary && <p class="hero-summary">{summary}</p>}
   </div>
 </header>

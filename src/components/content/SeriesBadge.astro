@@ -1,0 +1,34 @@
+---
+import { SERIES_ICON_PATH } from "../../lib/content";
+const { count = null } = Astro.props;
+const label = count ? `시리즈 ${count}편` : "시리즈";
+---
+
+<span class="series-badge" title={label} role="img" aria-label={label}>
+  {" "}
+  <svg viewBox="0 -960 960 960" width="1.15em" height="1.15em" aria-hidden="true" focusable="false">
+    <path fill="currentColor" d={SERIES_ICON_PATH}></path>
+  </svg>{" "}
+  {count ? (
+    <span class="n" aria-hidden="true">
+      {count}
+    </span>
+  ) : null}{" "}
+</span>
+
+<style>
+  .series-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    flex: none;
+    color: var(--color-primary);
+    font-size: 0.85rem;
+    line-height: 1;
+    vertical-align: middle;
+  }
+  .n {
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+</style>

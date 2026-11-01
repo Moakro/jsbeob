@@ -1,0 +1,82 @@
+---
+import { fmtPeriodFull, postHref } from "../../lib/api";
+const { news } = Astro.props;
+const ymd = (s) => String(s).slice(0, 10).replace(/-/g, ".");
+---
+
+<ul class="news">
+  {news.map((n) => (
+    <li>
+      {" "}
+      <a href={postHref(n.board, n.id)} data-news-id={n.id}>
+        {" "}
+        {n.is_pinned && <span class="news-board notice">공지</span>}{" "}
+        {n.period && <span class="news-board sched">일정</span>}{" "}
+        {!n.is_pinned && !n.period && <span class="news-board">소식</span>}{" "}
+        <span class="news-title">{n.title}</span>{" "}
+      </a>{" "}
+      {n.period ? (
+        <small class="period">{fmtPeriodFull(n.period)}</small>
+      ) : (
+        <small>{ymd(n.created_at)}</small>
+      )}{" "}
+    </li>
+  ))}
+</ul>
+
+<style>
+  .news {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 10px;
+  }
+  li {
+    display: grid;
+    gap: 2px;
+  }
+  a {
+    display: flex;
+    gap: 8px;
+    align-items: baseline;
+    color: var(--color-ink);
+    min-width: 0;
+  }
+  a:hover .news-title {
+    color: var(--color-primary);
+  }
+  .news-board {
+    flex: none;
+    font-size: 0.8rem;
+    padding: 1px 8px;
+    border-radius: 999px;
+    background: var(--color-primary-bg);
+    color: var(--color-primary);
+  }
+  .news-board.notice,
+  .news-board.sched {
+    color: #fff;
+    font-weight: 700;
+  }
+  .news-board.notice {
+    background: var(--color-primary);
+  }
+  .news-board.sched {
+    background: var(--color-secondary);
+  }
+  .news-title {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  small {
+    color: var(--color-muted);
+    font-size: 0.85rem;
+    padding-left: 2px;
+  }
+  small.period {
+    color: var(--color-secondary);
+    font-weight: 700;
+  }
+</style>

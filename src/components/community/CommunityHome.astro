@@ -1,0 +1,406 @@
+---
+import Base from "../../layouts/Base.astro";
+import { postHref } from "../../lib/api";
+import { listRecentNews, listRecentPhotos } from "../../lib/content";
+import AlbumGrid from "../board/AlbumGrid.svelte";
+import CommunityModals from "../board/CommunityModals.svelte";
+import NewsModal from "../board/NewsModal.svelte";
+import NewsPanel from "../board/NewsPanel.svelte";
+import NewsRows from "../board/NewsRows.astro";
+import OrialterFeed from "../board/OrialterFeed.svelte";
+import OrialterMembers from "../board/OrialterMembers.svelte";
+import OrialterSearch from "../board/OrialterSearch.svelte";
+const {
+  openId = null,
+  newsOpenId = null,
+  title = "도생광장",
+  description = "증산법종교 소식과 도생들이 나누는 사진과 이야기",
+} = Astro.props;
+const [news, photos] = await Promise.all([
+  listRecentNews(Astro.request, 8),
+  listRecentPhotos(Astro.request, 9),
+]);
+const MTABS = [
+  { key: "feed", label: "오리알터" },
+  { key: "news", label: "소식" },
+  { key: "album", label: "앨범" },
+  { key: "members", label: "회원" },
+];
+---
+
+<Base title={title} description={description} tight>
+  <h1 class="sr-only">도생광장</h1>
+  <nav class="cm-mtabs" role="tablist" aria-label="도생광장">
+    {MTABS.map((t, i) => (
+      <button
+        type="button"
+        role="tab"
+        id={`cm-tab-${t.key}`}
+        aria-controls={`cm-panel-${t.key}`}
+        aria-selected={i === 0 ? "true" : "false"}
+        data-mtab={t.key}
+      >
+        {" "}
+        {t.label}{" "}
+      </button>
+    ))}
+  </nav>
+  <div class="cm-split" data-active="feed">
+    <div class="cm-feed" id="cm-panel-feed" role="tabpanel" aria-labelledby="cm-tab-feed">
+      <OrialterSearch client:load /> <OrialterFeed client:load openId={openId} />
+    </div>
+    <section class="lib-sec cm-news pc-only" aria-labelledby="cm-news-h">
+      <h2 id="cm-news-h">
+        <button type="button" class="h-link" data-news-all>
+          공지·일정·소식
+        </button>{" "}
+        <button type="button" class="more" data-news-all>
+          전체 보기 ›
+        </button>
+      </h2>
+      {news.length ? <NewsRows news={news} /> : <p class="empty">아직 올라온 소식이 없습니다.</p>}
+    </section>
+    <section class="lib-sec cm-photos pc-only" aria-labelledby="cm-photos-h">
+      <h2 id="cm-photos-h">
+        최근 사진
+        <button type="button" class="more" data-section-open="album">
+          전체 보기 ›
+        </button>
+      </h2>
+      {photos.length ? (
+        <ul class="grid">
+          {" "}
+          {photos.map((ph) => (
+            <li>
+              {" "}
+              <a href={postHref("orialter", ph.id)} data-open-post={ph.id}>
+                {" "}
+                <img src={ph.url} alt="" loading="lazy" />{" "}
+              </a>{" "}
+            </li>
+          ))}{" "}
+        </ul>
+      ) : (
+        <p class="empty">아직 올라온 사진이 없습니다.</p>
+      )}
+    </section>
+    <div class="cm-members pc-only">
+      <OrialterMembers client:media="(min-width: 861px)" mode="box" />
+    </div>
+    <div
+      class="cm-panel m-only"
+      id="cm-panel-news"
+      role="tabpanel"
+      aria-labelledby="cm-tab-news"
+      data-panel="news"
+    >
+      <NewsPanel client:media="(max-width: 860px)" />
+    </div>
+    <div
+      class="cm-panel m-only"
+      id="cm-panel-album"
+      role="tabpanel"
+      aria-labelledby="cm-tab-album"
+      data-panel="album"
+    >
+      <AlbumGrid client:media="(max-width: 860px)" />
+    </div>
+    <div
+      class="cm-panel m-only"
+      id="cm-panel-members"
+      role="tabpanel"
+      aria-labelledby="cm-tab-members"
+      data-panel="members"
+    >
+      <OrialterMembers client:media="(max-width: 860px)" mode="list" />
+    </div>
+  </div>
+  <NewsModal client:load openId={newsOpenId} syncUrl /> <CommunityModals client:load />{" "}
+</Base>{" "}
+<script>
+  // 복원: 배포본 번들(압축)에서 되살린 스크립트 — 변수 이름은 압축 결과 그대로다.
+  import { F as g } from "./api.B4FHETbQ.js";
+  globalThis.process ??= {};
+  globalThis.process.env ??= {};
+  const a = document.querySelector(".cm-split"),
+    r = document.querySelector(".cm-mtabs"),
+    u = [...document.querySelectorAll(".cm-mtabs [data-mtab]")],
+    n = u.map((e) => e.dataset.mtab),
+    h = window.matchMedia("(max-width: 860px)");
+  function i(e, t = 0, c = !0) {
+    if (!a || !n.includes(e)) return;
+    ((a.dataset.active = e), u.forEach((s) => s.setAttribute("aria-selected", String(s.dataset.mtab === e))));
+    const l = `${location.pathname}${location.search}${e === "feed" ? "" : `#${e}`}`;
+    if (
+      (history.replaceState(history.state, "", l),
+      t &&
+        !matchMedia("(prefers-reduced-motion: reduce)").matches &&
+        (a.classList.remove("slide-l", "slide-r"),
+        a.offsetWidth,
+        a.classList.add(t > 0 ? "slide-l" : "slide-r")),
+      c && r)
+    ) {
+      const s = r.getBoundingClientRect().top + scrollY - (parseFloat(getComputedStyle(r).top) || 0);
+      scrollY > s && scrollTo({ top: s, behavior: "auto" });
+    }
+  }
+  u.forEach((e) =>
+    e.addEventListener("click", () =>
+      i(e.dataset.mtab, Math.sign(n.indexOf(e.dataset.mtab) - n.indexOf(a?.dataset.active ?? "feed"))),
+    ),
+  );
+  const f = (e) => {
+      e === "news"
+        ? window.dispatchEvent(new CustomEvent("jb:news-open", { detail: {} }))
+        : (e === "album" || e === "members") &&
+          window.dispatchEvent(new CustomEvent("jb:section-open", { detail: { key: e } }));
+    },
+    v = () => {
+      const e = location.hash.slice(1);
+      h.matches ? i(n.includes(e) ? e : "feed", 0, !1) : E && n.includes(e) && e !== "feed" && f(e);
+    };
+  let E = !1;
+  v();
+  E = !0;
+  window.addEventListener("hashchange", v);
+  let w = 0,
+    b = 0,
+    y = 0,
+    o = !1;
+  const d = document;
+  d.addEventListener(
+    "touchstart",
+    (e) => {
+      const t = e.target;
+      ((o =
+        h.matches &&
+        e.touches.length === 1 &&
+        !t.closest("input, textarea, select, .mf-back, .picks, .menu-list, .masthead, .nav-mobile, .sd")),
+        o && ((w = m = e.touches[0].clientX), (b = p = e.touches[0].clientY), (y = Date.now())));
+    },
+    { passive: !0 },
+  );
+  let m = 0,
+    p = 0;
+  d.addEventListener(
+    "touchmove",
+    (e) => {
+      o && ((m = e.touches[0].clientX), (p = e.touches[0].clientY));
+    },
+    { passive: !0 },
+  );
+  const L = (e, t) => {
+    if (!o || !a) return;
+    o = !1;
+    const c = e - w,
+      l = t - b;
+    if (Math.abs(c) < 60 || Math.abs(c) < Math.abs(l) * 2 || Date.now() - y > 700) return;
+    const s = n.indexOf(a.dataset.active ?? "feed") + (c < 0 ? 1 : -1);
+    s >= 0 && s < n.length && i(n[s], c < 0 ? 1 : -1);
+  };
+  d.addEventListener("touchend", (e) => L(e.changedTouches[0].clientX, e.changedTouches[0].clientY), {
+    passive: !0,
+  });
+  d.addEventListener("touchcancel", () => L(m, p), { passive: !0 });
+  window.addEventListener(g, (e) => {
+    const t = e.detail;
+    h.matches && !t.keepAuthor && t.author && i("feed", -1);
+  });
+  document.querySelectorAll("[data-news-id]").forEach((e) =>
+    e.addEventListener("click", (t) => {
+      t.metaKey ||
+        t.ctrlKey ||
+        t.shiftKey ||
+        (t.preventDefault(),
+        window.dispatchEvent(new CustomEvent("jb:news-open", { detail: { id: e.dataset.newsId } })));
+    }),
+  );
+  document.querySelectorAll("[data-news-all]").forEach((e) => e.addEventListener("click", () => f("news")));
+  document
+    .querySelectorAll("[data-section-open]")
+    .forEach((e) => e.addEventListener("click", () => f(e.dataset.sectionOpen)));
+  document.querySelectorAll("[data-open-post]").forEach((e) =>
+    e.addEventListener("click", (t) => {
+      t.metaKey ||
+        t.ctrlKey ||
+        t.shiftKey ||
+        (t.preventDefault(),
+        window.dispatchEvent(
+          new CustomEvent("jb:orialter-open", {
+            detail: { id: e.dataset.openPost },
+          }),
+        ));
+    }),
+  );
+</script>
+<style>
+  .cm-split {
+    display: grid;
+    grid-template-columns: minmax(0, 6fr) minmax(0, 4fr);
+    grid-template-rows: auto auto 1fr;
+    column-gap: 24px;
+    row-gap: 16px;
+    align-items: start;
+    margin-top: 0;
+  }
+  .cm-feed :global(.osearch) {
+    margin-bottom: 12px;
+  }
+  .cm-feed {
+    grid-column: 1;
+    grid-row: 1 / span 3;
+    min-width: 0;
+  }
+  .cm-news,
+  .cm-photos,
+  .cm-members {
+    grid-column: 2;
+    min-width: 0;
+  }
+  .m-only {
+    display: none;
+  }
+  .h-link,
+  .more {
+    padding: 0;
+    border: 0;
+    background: none;
+    font: inherit;
+    cursor: pointer;
+  }
+  .h-link {
+    color: var(--color-ink);
+    font-weight: 700;
+  }
+  h2 .more {
+    margin-left: auto;
+    font-family: var(--font-body);
+    font-size: 0.82rem;
+    font-weight: 400;
+    color: var(--color-muted);
+  }
+  .h-link:hover,
+  h2 .more:hover {
+    color: var(--color-primary);
+  }
+  .cm-news :global(ul.news) {
+    margin-top: 14px;
+  }
+  .empty {
+    margin: 0;
+    padding: 14px 0 10px;
+    color: var(--color-muted);
+    font-size: 0.9rem;
+  }
+  .grid {
+    list-style: none;
+    margin: 0;
+    padding: 12px 0 10px;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 4px;
+  }
+  .grid a {
+    display: block;
+    aspect-ratio: 1;
+    overflow: hidden;
+    border-radius: var(--radius-sm);
+    background: var(--color-surface-2);
+  }
+  .grid img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  .cm-mtabs {
+    display: none;
+  }
+  @media (max-width: 860px) {
+    .cm-mtabs {
+      position: sticky;
+      top: var(--header-h);
+      z-index: 40;
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      margin: -14px calc(-1 * var(--gutter)) 12px;
+      background: var(--color-surface);
+      border-bottom: 1px solid var(--color-rule);
+      transition: top 0.28s ease;
+    }
+    :global(body:has(.masthead.is-hidden)) .cm-mtabs {
+      top: 0;
+    }
+    .cm-mtabs button {
+      position: relative;
+      height: 48px;
+      border: 0;
+      background: none;
+      font: inherit;
+      font-size: 0.98rem;
+      font-weight: 600;
+      color: var(--color-muted);
+      cursor: pointer;
+    }
+    .cm-mtabs button[aria-selected="true"] {
+      color: var(--color-ink);
+      font-weight: 700;
+    }
+    .cm-mtabs button[aria-selected="true"]:after {
+      content: "";
+      position: absolute;
+      left: 14%;
+      right: 14%;
+      bottom: -1px;
+      height: 3px;
+      background: var(--color-ink);
+    }
+    .cm-split {
+      display: block;
+      margin-top: 0;
+    }
+    .pc-only,
+    .m-only,
+    .cm-feed {
+      display: none;
+    }
+    .cm-split[data-active="feed"] .cm-feed,
+    .cm-split[data-active="news"] [data-panel="news"],
+    .cm-split[data-active="album"] [data-panel="album"],
+    .cm-split[data-active="members"] [data-panel="members"] {
+      display: block;
+    }
+    .cm-feed :global(.osearch) {
+      margin-bottom: 12px;
+    }
+    .cm-panel {
+      margin: -12px calc(-1 * var(--gutter)) 0;
+      padding: 8px var(--gutter) 16px;
+      background: var(--color-surface);
+      border-bottom: 1px solid var(--color-rule);
+    }
+    .slide-l > :not([hidden]) {
+      animation: cm-in-l 0.2s ease-out;
+    }
+    .slide-r > :not([hidden]) {
+      animation: cm-in-r 0.2s ease-out;
+    }
+  }
+  @media (max-width: 860px) {
+    :global(html),
+    :global(body) {
+      overscroll-behavior-x: none;
+    }
+  }
+  @keyframes cm-in-l {
+    0% {
+      opacity: 0.4;
+      transform: translate(28px);
+    }
+  }
+  @keyframes cm-in-r {
+    0% {
+      opacity: 0.4;
+      transform: translate(-28px);
+    }
+  }
+</style>

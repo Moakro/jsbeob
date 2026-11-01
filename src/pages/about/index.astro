@@ -1,80 +1,121 @@
 ---
 import Base from "../../layouts/Base.astro";
+import { ABOUT_KINDS, ABOUT_NAV } from "../../lib/content-types";
+import { listArticles } from "../../lib/content";
 import Thumb from "../../components/Thumb.astro";
-import { getCollection } from "astro:content";
-
-const all = (await getCollection("about")).sort(
-  (a, b) => (a.data.order ?? 0) - (b.data.order ?? 0),
-);
-
-const GROUPS: { key: string; label: string; kinds: string[] }[] = [
-  { key: "person", label: "인물", kinds: ["person"] },
-  { key: "doctrine", label: "교리·신앙", kinds: ["doctrine", "anthem"] },
-  {
-    key: "org",
-    label: "연혁·조직",
-    kinds: ["history", "org", "branches", "directions", "overview"],
-  },
-];
+import AboutSubnav from "../../components/content/AboutSubnav.astro";
+import DraftBadge from "../../components/content/DraftBadge.astro";
+export const prerender = false;
+const all = await listArticles(Astro.request, "about");
+const cats = ABOUT_NAV.filter((k) => all.some((a) => a.kind === k)).map((k) => ({
+  kind: k,
+  label: ABOUT_KINDS[k] ?? k,
+  items: all.filter((a) => a.kind === k),
+}));
+const want = Astro.url.searchParams.get("cat");
+const current = cats.find((c) => c.kind === want) ?? null;
+const shown = current ? [current] : cats;
+const PREVIEW = 6;
 ---
 
-<Base title="소개" description="증산법종교의 신앙·역사·인물·교리 소개">
-  <header class="page-head">
-    <span class="kicker">소개</span>
-    <h1>증산법종교</h1>
-    <p>증산상제님의 대도를 받든 화은당 선사님의 일심으로 세워진 증산법종교를 소개합니다.</p>
-  </header>
-
-  {
-    GROUPS.map((g) => {
-      const items = all.filter((e) => g.kinds.includes(e.data.kind));
-      if (!items.length) return null;
-      return (
-        <section class="block">
-          <div class="section-head">
-            <h2>{g.label}</h2>
-          </div>
-          <div class="wz-grid cols-3">
-            {items.map((e) => (
-              <a class="wz-card" href={`/about/${e.id}/`}>
-                {g.key === "person" && (
-                  <Thumb src={e.data.hero_image} glyph={e.data.title_hanja ?? e.data.title} alt={e.data.title} seed={e.id} />
-                )}
-                <div class="body">
-                  <h3>
-                    {e.data.title}
-                    {e.data.title_hanja && <span class="hanja"> {e.data.title_hanja}</span>}
-                  </h3>
-                  {e.data.summary && <p>{e.data.summary}</p>}
-                </div>
-              </a>
-            ))}
-          </div>
-        </section>
-      );
-    })
-  }
+<Base
+  title={current ? `${current.label} · 소개` : "소개"}
+  description="증산상제님의 대도를 받든 화은당 선사님의 일심으로 세워진 증산법종교를 소개합니다."
+  tight
+>
+  <h1 class="sr-only">{current ? current.label : "증산법종교 소개"}</h1>
+  <div class="subnav">
+    <AboutSubnav articles={all} current={current?.kind} />
+  </div>
+  {shown.map((c) => (
+    <section class="block" id={`cat-${c.kind}`}>
+      {" "}
+      {!current && (
+        <div class="sec-head">
+          {" "}
+          <h2>{c.label}</h2>{" "}
+          {c.items.length > PREVIEW && (
+            <a class="more" href={`/about/?cat=${c.kind}`}>
+              {" "}
+              {c.items.length}건 모두 보기 →
+            </a>
+          )}{" "}
+        </div>
+      )}{" "}
+      <div class:list={["wz-grid", c.kind === "person" ? "cols-4" : "cols-3"]}>
+        {" "}
+        {(current ? c.items : c.items.slice(0, PREVIEW)).map((e) => (
+          <a class="wz-card" href={`/about/${e.slug}/`}>
+            {" "}
+            {(c.kind === "person" || e.thumb) && (
+              <Thumb
+                src={e.thumb?.url}
+                glyph={e.title_hanja ?? e.title}
+                alt={e.thumb?.alt ?? e.title}
+                seed={e.slug}
+                crop={e.thumb?.crop}
+              />
+            )}{" "}
+            <div class="body">
+              {" "}
+              <h3>
+                {" "}
+                {e.title} {e.title_hanja && <span class="hanja"> {e.title_hanja}</span>}{" "}
+                {e.status === "draft" && <DraftBadge />}{" "}
+              </h3>{" "}
+              {e.summary && <p>{e.summary}</p>}{" "}
+            </div>{" "}
+          </a>
+        ))}{" "}
+      </div>{" "}
+    </section>
+  ))}
+  {!cats.length && <p class="empty">아직 올라온 소개 자료가 없습니다.</p>}
 </Base>
 
 <style>
-  .page-head {
-    margin-bottom: 36px;
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
   }
-  .page-head h1 {
-    font-size: 2.2rem;
-    margin: 8px 0 10px;
+  .subnav {
+    margin-bottom: 20px;
   }
-  .page-head p {
-    color: var(--color-muted);
-    max-width: 60ch;
+  .sec-head {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    margin: 0 0 14px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--color-rule);
+  }
+  .sec-head h2 {
     margin: 0;
+    font-size: 1.05rem;
+  }
+  .sec-head .more {
+    margin-left: auto;
+    color: var(--color-muted);
+    font-size: 0.82rem;
+    font-weight: 400;
   }
   .block {
     margin-bottom: 40px;
+    scroll-margin-top: 90px;
   }
   .hanja {
     color: var(--color-muted);
     font-weight: 500;
     font-size: 0.82em;
+  }
+  .empty {
+    color: var(--color-muted);
   }
 </style>

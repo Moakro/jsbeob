@@ -1,0 +1,78 @@
+---
+import Base from "../../layouts/Base.astro";
+import { listVideos } from "../../lib/content";
+import VideoCard from "../../components/media/VideoCard.astro";
+export const prerender = false;
+const { videos, channelUrl } = await listVideos(Astro.request);
+const [first, ...rest] = videos;
+const CHANNEL = "https://www.youtube.com/@jsbeob";
+---
+
+<Base
+  title="법종교 미디어"
+  description="증산법종교 유튜브 채널의 영상을 모았습니다. 새 영상은 유튜브에 올라오면 이곳에도 보입니다."
+  tight
+>
+  <h1 class="sr-only">법종교 미디어</h1>
+  {!videos.length ? (
+    <p class="empty">
+      지금 영상 목록을 불러올 수 없습니다.{" "}
+      <a href={CHANNEL} target="_blank" rel="noopener">
+        유튜브 채널에서 보기 ↗
+      </a>{" "}
+    </p>
+  ) : (
+    <Fragment>
+      {" "}
+      <section class="lead">
+        {" "}
+        <VideoCard video={first} size="lg" />{" "}
+      </section>{" "}
+      {rest.length > 0 && (
+        <section class="grid">
+          {" "}
+          {rest.map((v) => (
+            <VideoCard video={v} />
+          ))}{" "}
+        </section>
+      )}
+      <p class="more">
+        {" "}
+        <a href={channelUrl ? CHANNEL : CHANNEL} target="_blank" rel="noopener">
+          유튜브 채널에서 보기 ↗
+        </a>{" "}
+      </p>{" "}
+    </Fragment>
+  )}
+</Base>
+
+<style>
+  .lead {
+    max-width: 860px;
+    margin: 0 0 36px;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 28px 20px;
+  }
+  @media (max-width: 760px) {
+    .lead :global(.vc-thumb),
+    .grid :global(.vc-thumb) {
+      margin-inline: calc(-1 * var(--gutter));
+      border-radius: 0;
+    }
+    .grid {
+      grid-template-columns: 1fr;
+    }
+  }
+  .more,
+  .empty {
+    margin: 36px 0 12px;
+    color: var(--color-muted);
+  }
+  .more a,
+  .empty a {
+    font-weight: 600;
+  }
+</style>

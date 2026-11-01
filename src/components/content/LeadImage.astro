@@ -1,0 +1,41 @@
+---
+const { image, alt = "" } = Astro.props;
+---
+
+{image?.url && (
+  <figure class="lead">
+    <img
+      class="m-bleed"
+      src={image.url}
+      alt={image.alt ?? image.caption ?? alt}
+      width={image.width || void 0}
+      height={image.height || void 0}
+    />
+    {image.caption && <figcaption>{image.caption}</figcaption>}
+  </figure>
+)}
+
+<style>
+  .lead {
+    margin: 0 0 24px;
+  }
+  .lead img {
+    height: auto;
+    border-radius: var(--radius-md);
+  }
+  @media (min-width: 761px) {
+    .lead img {
+      width: 100%;
+    }
+  }
+  figcaption {
+    margin-top: 6px;
+    font-size: 0.85rem;
+    color: var(--color-muted);
+  }
+  @media (max-width: 760px) {
+    .lead img {
+      border-radius: 0;
+    }
+  }
+</style>

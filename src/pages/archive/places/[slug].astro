@@ -1,0 +1,48 @@
+---
+import Base from "../../../layouts/Base.astro";
+import { getPlace } from "../../../lib/content";
+import AdminEditLink from "../../../components/content/AdminEditLink.astro";
+import ContentGallery from "../../../components/content/ContentGallery.astro";
+import LeadImage from "../../../components/content/LeadImage.astro";
+import PageTitle from "../../../components/content/PageTitle.astro";
+import PlaceLocation from "../../../components/content/PlaceLocation.astro";
+import PreviewNotice from "../../../components/content/PreviewNotice.astro";
+import Prose from "../../../components/content/Prose.astro";
+export const prerender = false;
+const preview = Astro.url.searchParams.get("preview") === "1";
+const place = await getPlace(Astro.request, Astro.params.slug, preview);
+if (!place) {
+  return new Response("페이지를 찾을 수 없습니다.", {
+    status: 404,
+    headers: { "Content-Type": "text/plain; charset=utf-8" },
+  });
+}
+if (place.kind === "jeongak") return Astro.redirect(`/jeongak/${place.slug}/${preview ? "?preview=1" : ""}`);
+const { name, name_hanja, summary, built, hero, gallery = [], body_html = "", status, id } = place;
+const lead = hero ?? gallery[0] ?? null;
+const rest = hero ? gallery : gallery.slice(1);
+---
+
+<Base title={name} description={summary ?? void 0} tight>
+  {" "}
+  <PreviewNotice status={status} editHref={`/admin/#place/${id}`} />{" "}
+  {status === "published" && (
+    <div hidden data-page-feed data-kind="place" data-id={id} data-title={name}></div>
+  )}
+  <article class="doc">
+    <PageTitle title={name} hanja={name_hanja} sub={built ? `건립 ${built}` : null} />{" "}
+    <AdminEditLink href={`/admin/#place/${id}`} /> {summary && <p class="summary">{summary}</p>}{" "}
+    <LeadImage image={lead} alt={name} /> <Prose html={body_html} />{" "}
+    <ContentGallery items={rest} fallbackAlt={name} /> <PlaceLocation place={place} hrefPrefix="" />
+  </article>
+</Base>
+
+<style>
+  .doc {
+    max-width: 760px;
+  }
+  .summary {
+    margin: 0 0 1.4em;
+    color: var(--color-muted);
+  }
+</style>

@@ -1,0 +1,64 @@
+---
+import DraftBadge from "./DraftBadge.astro";
+import SeriesBadge from "./SeriesBadge.astro";
+const { rows } = Astro.props;
+---
+
+<ul class="rows">
+  {rows.map((r) => (
+    <li>
+      {" "}
+      <a href={r.href}>
+        {" "}
+        {r.series && <SeriesBadge count={r.series.count} />}{" "}
+        <span class="t">
+          {" "}
+          {r.title} {r.hanja && <span class="hanja">{r.hanja}</span>} {r.draft && <DraftBadge />}{" "}
+        </span>{" "}
+        {r.meta && <span class="m">{r.meta}</span>}{" "}
+      </a>{" "}
+    </li>
+  ))}
+</ul>
+
+<style>
+  .rows {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    border-top: 1px solid var(--color-rule);
+  }
+  .rows li {
+    border-bottom: 1px solid var(--color-rule);
+  }
+  .rows a {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 48px;
+    padding: 8px 4px;
+    color: var(--color-ink);
+  }
+  .rows a:hover .t {
+    color: var(--color-primary);
+  }
+  .t {
+    flex: 1;
+    min-width: 0;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .hanja {
+    margin-left: 6px;
+    color: var(--color-muted);
+    font-weight: 400;
+    font-size: 0.85em;
+  }
+  .m {
+    flex: none;
+    color: var(--color-muted);
+    font-size: 0.82rem;
+  }
+</style>

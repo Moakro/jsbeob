@@ -1,0 +1,61 @@
+---
+const { items = [], fallbackAlt = "" } = Astro.props;
+---
+
+{items.length > 0 && (
+  <div class="gallery">
+    {items.map((p) => {
+      const sub = [p.credit, p.taken_at].filter(Boolean).join(" · ");
+      return (
+        <figure>
+          <a href={p.url} target="_blank" rel="noopener">
+            <img
+              src={p.url}
+              alt={p.alt ?? p.caption ?? fallbackAlt}
+              width={p.width || void 0}
+              height={p.height || void 0}
+              loading="lazy"
+            />
+          </a>
+          {(p.caption || sub) && (
+            <figcaption>
+              {p.caption}
+              {sub && <span class="sub">{sub}</span>}
+            </figcaption>
+          )}
+        </figure>
+      );
+    })}
+  </div>
+)}
+
+<style>
+  .gallery {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 12px;
+    margin: 0 0 28px;
+  }
+  figure {
+    margin: 0;
+  }
+  img {
+    display: block;
+    width: 100%;
+    height: auto;
+    border-radius: var(--radius-md);
+    aspect-ratio: 4 / 3;
+    object-fit: cover;
+    background: var(--color-surface-2);
+  }
+  figcaption {
+    font-size: 0.82rem;
+    color: var(--color-muted);
+    margin-top: 4px;
+  }
+  .sub {
+    display: block;
+    font-size: 0.76rem;
+    opacity: 0.8;
+  }
+</style>

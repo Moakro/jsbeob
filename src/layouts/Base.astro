@@ -1,27 +1,34 @@
 ---
 import "../styles/global.css";
-import { HEADER_NAV, resolveSection } from "../data/site-nav";
+import AiChatDrawer from "../components/AiChatDrawer.svelte";
 import AuthLink from "../components/AuthLink.svelte";
-
-interface Props {
-  title?: string;
-  description?: string;
-  /** 홈 등 전체폭 페이지는 container 래핑을 끄고 직접 레이아웃. */
-  bleed?: boolean;
-}
-
-const { title, description = "증산법종교 공식 홈페이지", bleed = false } = Astro.props;
+import HeroSearch from "../components/HeroSearch.svelte";
+import ImageViewer from "../components/ImageViewer.svelte";
+import LoginModal from "../components/LoginModal.svelte";
+import MapBundle from "../components/MapBundle.svelte";
+import OverlayScrollbar from "../components/OverlayScrollbar.svelte";
+import RefDrawer from "../components/RefDrawer.svelte";
+import VideoPreview from "../components/VideoPreview.svelte";
+const {
+  title,
+  description = "증산법종교 공식 홈페이지",
+  bleed = false,
+  overlayHeader = false,
+  overlayKeepTools = false,
+  hideFooter = false,
+  tight = false,
+} = Astro.props;
 const pageTitle = title ? `${title} · 증산법종교` : "증산법종교";
 const active = resolveSection(Astro.url.pathname);
 ---
 
-<!doctype html>
 <html lang="ko">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="description" content={description} />
     <title>{pageTitle}</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="sitemap" href="/sitemap-index.xml" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -31,247 +38,545 @@ const active = resolveSection(Astro.url.pathname);
     />
   </head>
   <body>
-    <header class="masthead">
+    <header
+      class:list={["masthead", { "is-overlay": overlayHeader, "keep-tools": overlayKeepTools }]}
+      data-overlay={overlayHeader ? "" : void 0}
+    >
       <div class="masthead-bar container">
-        <a href="/" class="brand">
-          <span class="brand-mark">甑山</span>
-          <span class="brand-name">증산법종교</span>
-        </a>
-
+        <div class="brand-group">
+          <a href="/" class="brand">
+            {" "}
+            <svg class="brand-mark" viewBox="0 0 100 100" aria-hidden="true">
+              <circle
+                cx="50"
+                cy="50"
+                r="43.25"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="13.5"
+              ></circle>
+              <path d="M43.25 8h13.5v84h-13.5zM8 43.25h84v13.5H8z" fill="currentColor"></path>
+            </svg>{" "}
+            <span class="brand-name">증산법종교</span>{" "}
+          </a>{" "}
+          <!-- 검색 · AI 대화 — 사이트 제목 오른쪽. 홈 히어로 위(오버레이 헤더)에선 숨김: 히어로의 큰 검색폼·AI 버튼이 대신한다 -->
+          <div class="hdr-tools">
+            <HeroSearch client:load variant="header" inputId="hdrSearchInput" />{" "}
+            <button
+              type="button"
+              class="hdr-ai"
+              data-ai-open
+              aria-haspopup="dialog"
+              aria-expanded="false"
+              aria-label="AI 대화 열기"
+              title="AI 대화"
+            >
+              <svg viewBox="0 -960 960 960" aria-hidden="true">
+                <path d="m760-600-50-110-110-50 110-50 50-110 50 110 110 50-110 50-50 110Zm0 560-50-110-110-50 110-50 50-110 50 110 110 50-110 50-50 110ZM360-160 260-380 40-480l220-100 100-220 100 220 220 100-220 100-100 220Zm0-194 40-86 86-40-86-40-40-86-40 86-86 40 86 40 40 86Zm0-126Z"></path>
+              </svg>
+            </button>
+          </div>
+        </div>
         <nav class="nav-desktop" aria-label="주요 메뉴">
-          {
-            HEADER_NAV.filter((s) => s.slug !== "home").map((s) => (
-              <a href={s.href} class:list={["nav-link", { active: active === s.slug }]}>
-                {s.label}
-              </a>
-            ))
-          }
+          {HEADER_NAV.filter((s) => s.slug !== "home").map((s) => (
+            <a href={s.href} class:list={["nav-link", { active: active === s.slug }]}>
+              {" "}
+              {s.label}{" "}
+            </a>
+          ))}
         </nav>
-
         <div class="auth-slot">
           <AuthLink client:load />
         </div>
-
-        <button id="navToggle" class="nav-toggle" aria-label="메뉴 열기" aria-expanded="false">
-          <span></span><span></span><span></span>
+        <button
+          id="navToggle"
+          class="nav-toggle"
+          aria-label="메뉴 열기"
+          aria-expanded="false"
+          aria-controls="navMobile"
+        >
+          <span></span>
+          <span></span>
+          <span></span>
         </button>
       </div>
-
-      <nav id="navMobile" class="nav-mobile" aria-label="모바일 메뉴" hidden>
-        {
-          HEADER_NAV.filter((s) => s.slug !== "home").map((s) => (
-            <a href={s.href} class:list={["nav-link", { active: active === s.slug }]}>
-              {s.label}
-            </a>
-          ))
-        }
+      <!-- 모바일 메뉴: 헤더 아래로 떠서 본문을 덮는다(본문을 밀어내지 않음) -->
+      <nav id="navMobile" class="nav-mobile" aria-label="모바일 메뉴" inert>
+        {HEADER_NAV.filter((s) => s.slug !== "home").map((s) => (
+          <a href={s.href} class:list={["nav-link", { active: active === s.slug }]}>
+            {" "}
+            {s.label}{" "}
+          </a>
+        ))}
       </nav>
     </header>
-
+    <!-- 모바일 메뉴 뒤 어두운 막 — 헤더 밖에 둔다(헤더가 숨을 때 transform 이 fixed 자식을 가둠) -->
+    <div id="navScrim" class="nav-scrim" aria-hidden="true"></div>
     <main>
-      {bleed ? <slot /> : <div class="container page"><slot /></div>}
+      {bleed ? (
+        <slot />
+      ) : (
+        <div class:list={["container page", { tight }]}>
+          <slot />
+        </div>
+      )}
     </main>
-
-    <footer class="site-footer">
+    <footer class="site-footer" hidden={hideFooter}>
       <div class="container footer-inner">
         <div class="footer-brand">
-          <span class="brand-mark">甑山</span>
+          <svg class="brand-mark" viewBox="0 0 100 100" aria-hidden="true">
+            <circle cx="50" cy="50" r="43.25" fill="none" stroke="currentColor" stroke-width="13.5"></circle>
+            <path d="M43.25 8h13.5v84h-13.5zM8 43.25h84v13.5H8z" fill="currentColor"></path>
+          </svg>{" "}
           <strong>증산법종교</strong>
           <p>甑山法宗敎 · 華恩堂</p>
         </div>
         <nav class="footer-nav" aria-label="푸터 메뉴">
-          {
-            HEADER_NAV.filter((s) => s.slug !== "home").map((s) => (
-              <a href={s.href}>{s.label}</a>
-            ))
-          }
+          {HEADER_NAV.filter((s) => s.slug !== "home").map((s) => (
+            <a href={s.href}>{s.label}</a>
+          ))}
         </nav>
         <small class="footer-copy">
-          © {new Date().getFullYear()} 증산법종교. 문의 <a href="mailto:media@jsbeob.com">media@jsbeob.com</a>
+          © {/* @__PURE__ */ new Date().getFullYear()} 증산법종교. <a href="/community/help/">문의하기</a>{" "}
+          {KAKAO_CHANNEL_URL} {" · "} <a href="mailto:media@jsbeob.com">media@jsbeob.com</a>{" "}
         </small>
       </div>
     </footer>
-
-    <style>
-      /* ── 마스트헤드(웹진 헤더) ── */
-      .masthead {
-        position: sticky;
-        top: 0;
-        z-index: 50;
-        background: var(--color-surface);
-        border-bottom: 1px solid var(--color-rule);
-        box-shadow: var(--shadow-sm);
-      }
-      .masthead-bar {
-        height: var(--header-h);
-        display: flex;
-        align-items: center;
-        gap: 24px;
-      }
-      .brand {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        color: var(--color-ink);
-      }
-      .brand:hover {
-        text-decoration: none;
-      }
-      .brand-mark {
-        font-family: var(--font-display);
-        font-weight: 900;
-        font-size: 1.15rem;
-        color: #fff;
-        background: var(--color-primary);
-        width: 38px;
-        height: 38px;
-        display: grid;
-        place-items: center;
-        border-radius: 8px;
-        letter-spacing: -0.03em;
-      }
-      .brand-name {
-        font-family: var(--font-display);
-        font-weight: 900;
-        font-size: 1.32rem;
-        letter-spacing: -0.02em;
-      }
-      .nav-desktop {
-        display: flex;
-        gap: 4px;
-        margin-left: auto;
-      }
-      .auth-slot {
-        display: flex;
-        align-items: center;
-        margin-left: 14px;
-      }
-      .nav-link {
-        padding: 8px 14px;
-        border-radius: 8px;
-        color: var(--color-fg);
-        font-weight: 600;
-        font-size: 0.98rem;
-        white-space: nowrap;
-      }
-      .nav-link:hover {
-        background: var(--color-primary-bg);
-        color: var(--color-primary);
-        text-decoration: none;
-      }
-      .nav-link.active {
-        color: var(--color-primary);
-        background: var(--color-primary-bg);
-      }
-      .nav-toggle {
-        display: none;
-        margin-left: 10px;
-        flex-direction: column;
-        gap: 5px;
-        background: none;
-        border: none;
-        padding: 8px;
-        cursor: pointer;
-      }
-      .nav-toggle span {
-        width: 24px;
-        height: 2px;
-        background: var(--color-ink);
-        border-radius: 2px;
-      }
-      .nav-mobile {
-        display: none;
-        flex-direction: column;
-        padding: 8px 20px 16px;
-        gap: 2px;
-        border-top: 1px solid var(--color-rule);
-      }
-      .nav-mobile .nav-link {
-        padding: 12px 14px;
-      }
-
-      .page {
-        padding-block: 36px 64px;
-      }
-
-      /* ── 푸터 ── */
-      .site-footer {
-        margin-top: 64px;
-        background: var(--color-ink);
-        color: #e8ddcf;
-      }
-      .footer-inner {
-        padding-block: 40px 32px;
-        display: grid;
-        grid-template-columns: 1fr auto;
-        gap: 20px 40px;
-        align-items: start;
-      }
-      .footer-brand {
-        display: flex;
-        flex-direction: column;
-        gap: 6px;
-      }
-      .footer-brand strong {
-        font-family: var(--font-display);
-        font-size: 1.2rem;
-        color: #fff;
-      }
-      .footer-brand p {
-        margin: 0;
-        color: #b3a692;
-        font-size: 0.85rem;
-      }
-      .footer-nav {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 6px 18px;
-      }
-      .footer-nav a {
-        color: #d8cab6;
-        font-size: 0.92rem;
-      }
-      .footer-nav a:hover {
-        color: #fff;
-      }
-      .footer-copy {
-        grid-column: 1 / -1;
-        color: #8f8472;
-        border-top: 1px solid #3a3530;
-        padding-top: 16px;
-      }
-      .footer-copy a {
-        color: #d8cab6;
-      }
-
-      @media (max-width: 760px) {
-        .nav-desktop {
-          display: none;
-        }
-        .auth-slot {
-          margin-left: auto;
-        }
-        .nav-toggle {
-          display: flex;
-        }
-        .nav-mobile:not([hidden]) {
-          display: flex;
-        }
-        .footer-inner {
-          grid-template-columns: 1fr;
-        }
-      }
-    </style>
-
     <script>
-      const toggle = document.getElementById("navToggle");
-      const menu = document.getElementById("navMobile");
-      toggle?.addEventListener("click", () => {
-        const open = menu?.hasAttribute("hidden");
-        if (open) menu?.removeAttribute("hidden");
-        else menu?.setAttribute("hidden", "");
-        toggle.setAttribute("aria-expanded", String(!!open));
+      // 복원: 배포본 번들(압축)에서 되살린 스크립트 — 변수 이름은 압축 결과 그대로다.
+      const s = document.getElementById("navToggle"),
+        l = document.getElementById("navMobile"),
+        r = document.getElementById("navScrim"),
+        t = document.querySelector(".masthead");
+      function i() {
+        return !!t?.classList.contains("menu-open");
+      }
+      function n(e) {
+        (e && window.dispatchEvent(new CustomEvent("jb:search-close")),
+          t?.classList.toggle("menu-open", e),
+          r?.classList.toggle("is-open", e),
+          l && (l.inert = !e),
+          s?.setAttribute("aria-expanded", String(e)),
+          s?.setAttribute("aria-label", e ? "메뉴 닫기" : "메뉴 열기"));
+      }
+      s?.addEventListener("click", () => n(!i()));
+      window.addEventListener("jb:menu-close", () => {
+        i() && n(!1);
       });
-    </script>
+      r?.addEventListener("click", () => n(!1));
+      document.addEventListener("keydown", (e) => {
+        e.key === "Escape" && i() && (n(!1), s?.focus());
+      });
+      window.matchMedia("(min-width: 761px)").addEventListener("change", (e) => {
+        e.matches && n(!1);
+      });
+      let a = window.scrollY,
+        o = !1;
+      const d = t?.hasAttribute("data-overlay") ? document.querySelector("[data-hero]") : null;
+      function c() {
+        if (!t || !d) return;
+        const e = t.getBoundingClientRect().height;
+        t.classList.toggle("is-overlay", d.getBoundingClientRect().bottom > e);
+      }
+      c();
+      window.addEventListener("resize", c);
+      function u() {
+        c();
+        const e = window.scrollY;
+        (t &&
+          !i() &&
+          !t.classList.contains("search-open") &&
+          (e > a && e > 80
+            ? t.classList.add("is-hidden")
+            : (e < a || e <= 80) && t.classList.remove("is-hidden")),
+          (a = e),
+          (o = !1));
+      }
+      window.addEventListener(
+        "scroll",
+        () => {
+          o || (window.requestAnimationFrame(u), (o = !0));
+        },
+        { passive: !0 },
+      );
+    </script> <!-- 인용 출처(사이트 자료)를 여는 사이드 드로어 — 페이지 어디서나 a[data-drawer-kind] 클릭을 받는다 -->{" "}
+    <RefDrawer client:idle /> <!-- 이미지 참조 블록 썸네일 → 이미지 뷰어(모달) --> <ImageViewer client:idle />{" "}
+    <!-- 본문 지도 블록(.blk-map) 썸네일 → 본문 장소 묶음 모달 지도(서랍 카드와 함께) -->{" "}
+    <MapBundle client:idle /> <!-- 법종교 미디어 영상 카드(a[data-video-id]) → 미리보기 모달 -->{" "}
+    <VideoPreview client:idle /> <!-- 페이지 세로 스크롤 막대(자리 차지 없이 겹쳐 띄움, 스크롤할 때만) -->{" "}
+    <OverlayScrollbar client:idle /> <LoginModal client:load />{" "}
+    <!-- AI 대화 드로어 — 헤더·홈 히어로의 [data-ai-open] 버튼으로 연다(모든 페이지) -->{" "}
+    <AiChatDrawer client:load />
   </body>
 </html>
+
+<style>
+  .masthead {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    background: color-mix(in srgb, var(--color-surface) 80%, transparent);
+    border-bottom: 1px solid var(--color-rule);
+    box-shadow: var(--shadow-sm);
+    transition: transform 0.28s ease;
+  }
+  .masthead.is-hidden {
+    transform: translateY(-100%);
+  }
+  .masthead {
+    transition:
+      transform 0.28s ease,
+      background-color 0.25s ease,
+      border-color 0.25s ease;
+  }
+  .masthead.is-overlay {
+    background: #0e0b0973;
+    border-bottom-color: #ffffff1f;
+    box-shadow: none;
+  }
+  .masthead.is-overlay .brand-name,
+  .masthead.is-overlay .brand-mark {
+    color: #f5c84c;
+  }
+  .masthead.is-overlay .nav-link {
+    color: #fff;
+  }
+  .masthead.is-overlay .nav-link:hover,
+  .masthead.is-overlay .nav-link.active {
+    color: #fff;
+    background: #ffffff24;
+  }
+  .masthead.is-overlay .nav-toggle span {
+    background: #fff;
+  }
+  .masthead.is-overlay :global(.login-link) {
+    color: #fff;
+    border-color: #fff9;
+  }
+  .masthead.is-overlay :global(.login-link:hover) {
+    background: #ffffff24;
+    border-color: #fff;
+  }
+  .masthead.is-overlay.menu-open {
+    background: #17130ff7;
+  }
+  .masthead.is-overlay .nav-mobile {
+    background: #17130f;
+    border-top-color: #ffffff1f;
+    border-bottom-color: #ffffff14;
+  }
+  .masthead-bar {
+    height: var(--header-h);
+    display: flex;
+    align-items: center;
+    gap: 24px;
+  }
+  .brand-group {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    min-width: 0;
+  }
+  .hdr-tools {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    animation: hdr-tools-in 0.2s ease;
+  }
+  .masthead.is-overlay:not(.keep-tools) .hdr-tools {
+    display: none;
+  }
+  .hdr-ai {
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    display: grid;
+    place-items: center;
+    border: 0;
+    border-radius: 50%;
+    cursor: pointer;
+    color: #fff;
+    background-image: linear-gradient(
+      135deg,
+      var(--color-primary-deep) 0%,
+      var(--color-primary) 38%,
+      var(--color-primary-soft) 68%,
+      var(--color-primary-deep) 100%
+    );
+    background-size: 220% 220%;
+    box-shadow:
+      0 6px 14px -6px #7e241c99,
+      inset 0 0 0 1px #ffffff24;
+    animation: hdr-ai-shift 6s ease-in-out infinite;
+    transition:
+      filter 0.18s ease,
+      transform 0.12s ease;
+  }
+  .hdr-ai:hover {
+    filter: brightness(1.14);
+  }
+  .hdr-ai:active {
+    transform: scale(0.94);
+  }
+  .hdr-ai:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+  }
+  .hdr-ai svg {
+    width: 20px;
+    height: 20px;
+    fill: currentColor;
+  }
+  .brand {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--color-ink);
+  }
+  .brand:hover {
+    text-decoration: none;
+  }
+  .brand-mark {
+    flex: none;
+    width: 34px;
+    height: 34px;
+    color: var(--color-primary);
+  }
+  .brand-name {
+    white-space: nowrap;
+    font-family: var(--font-display);
+    font-weight: 900;
+    font-size: 1.32rem;
+    letter-spacing: -0.02em;
+  }
+  .nav-desktop {
+    display: flex;
+    gap: 4px;
+    margin-left: auto;
+  }
+  .auth-slot {
+    display: flex;
+    align-items: center;
+    margin-left: 14px;
+  }
+  .nav-link {
+    padding: 8px 14px;
+    border-radius: var(--radius-md);
+    color: var(--color-fg);
+    font-weight: 600;
+    font-size: 0.98rem;
+    white-space: nowrap;
+  }
+  .nav-link:hover {
+    background: var(--color-primary-bg);
+    color: var(--color-primary);
+    text-decoration: none;
+  }
+  .nav-link.active {
+    color: var(--color-primary);
+    background: var(--color-primary-bg);
+  }
+  .nav-toggle {
+    display: none;
+    margin-left: 10px;
+    flex-direction: column;
+    gap: 5px;
+    background: none;
+    border: none;
+    padding: 8px;
+    cursor: pointer;
+  }
+  .nav-toggle span {
+    width: 24px;
+    height: 2px;
+    background: var(--color-ink);
+    border-radius: 2px;
+    transform-origin: center;
+    transition:
+      transform 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+      opacity 0.18s ease,
+      background-color 0.25s ease;
+  }
+  .nav-toggle[aria-expanded="true"] span:nth-child(1) {
+    transform: translateY(7px) rotate(45deg);
+  }
+  .nav-toggle[aria-expanded="true"] span:nth-child(2) {
+    opacity: 0;
+    transform: scaleX(0.2);
+  }
+  .nav-toggle[aria-expanded="true"] span:nth-child(3) {
+    transform: translateY(-7px) rotate(-45deg);
+  }
+  .nav-mobile {
+    display: none;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    flex-direction: column;
+    padding: 8px 20px 16px;
+    gap: 2px;
+    background: var(--color-surface);
+    border-top: 1px solid var(--color-rule);
+    border-bottom: 1px solid var(--color-rule);
+    box-shadow: 0 12px 28px #0000002e;
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(-8px);
+    transition:
+      opacity 0.22s ease,
+      transform 0.22s ease,
+      visibility 0s linear 0.22s;
+  }
+  .masthead.menu-open .nav-mobile {
+    opacity: 1;
+    visibility: visible;
+    transform: none;
+    transition:
+      opacity 0.22s ease,
+      transform 0.22s ease,
+      visibility 0s;
+  }
+  .nav-mobile .nav-link {
+    padding: 12px 14px;
+  }
+  .nav-scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 49;
+    background: #00000061;
+    opacity: 0;
+    visibility: hidden;
+    transition:
+      opacity 0.22s ease,
+      visibility 0s linear 0.22s;
+  }
+  .nav-scrim.is-open {
+    opacity: 1;
+    visibility: visible;
+    transition:
+      opacity 0.22s ease,
+      visibility 0s;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .hdr-ai,
+    .hdr-tools {
+      animation: none;
+    }
+    .nav-toggle span,
+    .nav-mobile,
+    .nav-scrim {
+      transition: none;
+    }
+  }
+  .page {
+    padding-block: 36px 64px;
+  }
+  .page.tight {
+    padding-top: 14px;
+  }
+  .site-footer {
+    margin-top: 64px;
+    background: var(--color-ink);
+    color: #e8ddcf;
+  }
+  .footer-inner {
+    padding-block: 40px 32px;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 20px 40px;
+    align-items: start;
+  }
+  .footer-brand {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .footer-brand .brand-mark {
+    width: 32px;
+    height: 32px;
+    color: var(--color-primary-soft);
+  }
+  .footer-brand strong {
+    font-family: var(--font-display);
+    font-size: 1.2rem;
+    color: #fff;
+  }
+  .footer-brand p {
+    margin: 0;
+    color: #b3a692;
+    font-size: 0.85rem;
+  }
+  .footer-nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 18px;
+  }
+  .footer-nav a {
+    color: #d8cab6;
+    font-size: 0.92rem;
+  }
+  .footer-nav a:hover {
+    color: #fff;
+  }
+  .footer-copy {
+    grid-column: 1 / -1;
+    color: #8f8472;
+    border-top: 1px solid #3a3530;
+    padding-top: 16px;
+  }
+  .footer-copy a {
+    color: #d8cab6;
+  }
+  @media (min-width: 761px) and (max-width: 960px) {
+    .nav-desktop {
+      gap: 2px;
+    }
+    .nav-link {
+      padding: 8px 9px;
+      font-size: 0.94rem;
+    }
+  }
+  @media (max-width: 760px) {
+    .nav-desktop {
+      display: none;
+    }
+    .masthead-bar,
+    .brand-group {
+      gap: 10px;
+    }
+    .brand {
+      gap: 8px;
+    }
+    .brand-name {
+      font-size: 1.12rem;
+    }
+    .hdr-tools {
+      gap: 8px;
+    }
+    .hdr-ai {
+      width: 34px;
+      height: 34px;
+    }
+    .hdr-ai svg {
+      width: 19px;
+      height: 19px;
+    }
+    .auth-slot {
+      margin-left: auto;
+    }
+    .nav-toggle,
+    .nav-mobile {
+      display: flex;
+    }
+    .footer-inner {
+      grid-template-columns: 1fr;
+    }
+  }
+  @media (max-width: 450px) {
+    .masthead .brand-mark {
+      display: none;
+    }
+  }
+</style>

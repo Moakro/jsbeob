@@ -1,51 +1,73 @@
 ---
 import Base from "../../layouts/Base.astro";
-import DetailHero from "../../components/DetailHero.astro";
-import { getCollection, render } from "astro:content";
-
-export async function getStaticPaths() {
-  const all = await getCollection("about");
-  return all.map((entry) => ({ params: { slug: entry.id }, props: { entry } }));
-}
-
-const { entry } = Astro.props;
-const { Content } = await render(entry);
-const { title, title_hanja, summary, hero_image } = entry.data;
+import { ABOUT_KINDS } from "../../lib/content-types";
+import { getArticle, listArticles } from "../../lib/content";
+import AboutSubnav from "../../components/content/AboutSubnav.astro";
+import AdminEditLink from "../../components/content/AdminEditLink.astro";
+import ContentGallery from "../../components/content/ContentGallery.astro";
+import DocPager from "../../components/content/DocPager.astro";
+import LeadImage from "../../components/content/LeadImage.astro";
+import PageTitle from "../../components/content/PageTitle.astro";
+import PreviewNotice from "../../components/content/PreviewNotice.astro";
+import Prose from "../../components/content/Prose.astro";
+import SideList from "../../components/content/SideList.astro";
+export const prerender = false;
+const preview = Astro.url.searchParams.get("preview") === "1";
+const entry = await getArticle(Astro.request, "about", Astro.params.slug, preview);
+if (!entry)
+  return new Response("페이지를 찾을 수 없습니다.", {
+    status: 404,
+    headers: { "Content-Type": "text/plain; charset=utf-8" },
+  });
+const all = await listArticles(Astro.request, "about");
+const { title, title_hanja, summary, hero, gallery = [], body_html = "", status, id } = entry;
+const href = (slug) => `/about/${slug}/`;
+const side = all
+  .filter((a) => a.kind === entry.kind)
+  .map((a) => ({
+    key: a.slug,
+    title: a.title,
+    hanja: a.title_hanja,
+    href: href(a.slug),
+    on: a.slug === entry.slug,
+    draft: a.status === "draft",
+  }));
+if (side.length && !side.some((s) => s.on))
+  side.unshift({ key: entry.slug, title, hanja: title_hanja, href: href(entry.slug), on: true });
+const split = side.length > 1;
+const at = side.findIndex((s) => s.on);
+const prev = split && at > 0 ? { href: side[at - 1].href, label: side[at - 1].title } : null;
+const next =
+  split && at >= 0 && at < side.length - 1 ? { href: side[at + 1].href, label: side[at + 1].title } : null;
+const listLabel = `${ABOUT_KINDS[entry.kind] ?? "소개"} 목록`;
 ---
 
-<Base title={title} description={summary} bleed>
-  <DetailHero
-    title={title}
-    hanja={title_hanja}
-    summary={summary}
-    image={hero_image}
-    glyph={title_hanja}
-    seed={entry.id}
-    back={{ href: "/about/", label: "소개" }}
-  />
-  <article class="container doc">
-    <div class="prose">
-      <Content />
+<Base title={title} description={summary ?? void 0} tight>
+  {" "}
+  <PreviewNotice status={status} editHref={`/admin/#article/${id}`} />{" "}
+  {status === "published" && (
+    <div hidden data-page-feed data-kind="article" data-id={id} data-title={title}></div>
+  )}
+  <AboutSubnav articles={all} current={entry.kind} />
+  <div class:list={[{ "doc-split": split }]}>
+    <div class="doc-main">
+      <article class="doc">
+        <PageTitle title={title} hanja={title_hanja} /> <AdminEditLink href={`/admin/#article/${id}`} />{" "}
+        {summary && <p class="summary">{summary}</p>} <LeadImage image={hero} alt={title} />{" "}
+        <Prose html={body_html} /> <ContentGallery items={gallery} fallbackAlt={title} />
+      </article>
     </div>
-  </article>
+    {split && <SideList label={listLabel} items={side} />}
+  </div>
+  {split && <DocPager prev={prev} next={next} />}
 </Base>
 
 <style>
   .doc {
     max-width: 760px;
   }
-  .prose :global(h1) {
-    display: none; /* 본문 첫 h1은 히어로와 중복 → 숨김 */
-  }
-  .prose :global(blockquote) {
-    border-left: 3px solid var(--color-gold-soft);
-    background: var(--color-surface-2);
-    margin: 0;
-    padding: 12px 18px;
-    border-radius: var(--radius-sm);
+  .summary {
+    margin: 0 0 1.4em;
     color: var(--color-muted);
-  }
-  .prose :global(p) {
-    margin: 0 0 1.1em;
   }
 </style>

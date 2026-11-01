@@ -1,0 +1,88 @@
+---
+import Thumb from "../Thumb.astro";
+const { items } = Astro.props;
+---
+
+<aside class="side" aria-labelledby="sec-featured">
+  <h2 id="sec-featured" class="feat-h">
+    주요 자료
+  </h2>
+  <ul class="feat">
+    {items.map((r) => (
+      <li>
+        {" "}
+        <a href={r.href}>
+          {" "}
+          <Thumb
+            src={r.thumb?.url}
+            crop={r.thumb?.crop}
+            glyph={r.hanja ?? r.title}
+            alt={r.title}
+            seed={r.key}
+            ratio="4 / 3"
+          />{" "}
+          <span class="ft">{r.title}</span>{" "}
+        </a>{" "}
+      </li>
+    ))}
+  </ul>
+</aside>
+
+<style>
+  .side {
+    min-width: 0;
+  }
+  .feat-h {
+    display: none;
+    margin: 0 0 10px;
+    font-size: 1.05rem;
+  }
+  .feat {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px 12px;
+  }
+  .feat a {
+    display: grid;
+    gap: 6px;
+    color: var(--color-ink);
+  }
+  .feat :global(.thumb) {
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+  }
+  .ft {
+    font-size: 0.9rem;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .feat a:hover .ft {
+    color: var(--color-primary);
+  }
+  @media (max-width: 860px) {
+    .feat-h {
+      display: block;
+    }
+  }
+  @media (max-width: 760px) {
+    .feat {
+      grid-auto-flow: column;
+      grid-template-columns: none;
+      grid-auto-columns: 44%;
+      overflow-x: auto;
+      scroll-snap-type: x mandatory;
+      margin-inline: calc(-1 * var(--gutter));
+      padding-inline: var(--gutter);
+      scroll-padding-inline: var(--gutter);
+      scrollbar-width: none;
+    }
+    .feat li {
+      scroll-snap-align: start;
+    }
+  }
+</style>

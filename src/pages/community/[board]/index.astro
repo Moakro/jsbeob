@@ -14,7 +14,11 @@ if (!meta) return Astro.redirect("/community/");
 
 <Base title={meta.label} description={meta.desc}>
   <header class="page-head">
-    <nav class="crumbs"><a href="/community/">소식·커뮤니티</a><span>/</span><span>{meta.label}</span></nav>
+    <nav class="crumbs">
+      <a href="/community/">소식·커뮤니티</a>
+      <span>/</span>
+      <span>{meta.label}</span>
+    </nav>
     <h1>{meta.label}</h1>
     <p>{meta.desc}</p>
   </header>
@@ -22,8 +26,22 @@ if (!meta) return Astro.redirect("/community/");
 </Base>
 
 <style>
-  .page-head { margin-bottom: 24px; }
-  .crumbs { display: flex; gap: 8px; font-size: 0.86rem; color: var(--color-muted); margin-bottom: 10px; }
-  .page-head h1 { font-size: 2rem; margin: 0 0 6px; }
-  .page-head p { color: var(--color-muted); margin: 0; }
+  .page-head {
+    margin-bottom: 24px;
+  }
+  .crumbs {
+    display: flex;
+    gap: 8px;
+    font-size: 0.86rem;
+    color: var(--color-muted);
+    margin-bottom: 10px;
+  }
+  .page-head h1 {
+    font-size: 2rem;
+    margin: 0 0 6px;
+  }
+  .page-head p {
+    color: var(--color-muted);
+    margin: 0;
+  }
 </style>

@@ -1,0 +1,118 @@
+---
+import Base from "../../layouts/Base.astro";
+import { listMapPoints } from "../../lib/content";
+import KakaoMap from "../../components/KakaoMap.svelte";
+import { MAP_HOME } from "../../lib/map-categories";
+export const prerender = false;
+const { points, tags } = await listMapPoints(Astro.request);
+const hasKey = Boolean(import.meta.env.PUBLIC_KAKAO_JS_KEY);
+const onMap = points.map((p) => ({
+  id: p.id,
+  slug: p.id,
+  name: p.name,
+  name_hanja: p.name_hanja ?? void 0,
+  coord: [p.lat, p.lng],
+  kind: p.kind,
+  color: p.color && p.icon !== "doc" ? p.color : void 0,
+  icon: p.icon,
+  href: p.place?.href ?? "",
+}));
+const categories = tags.map((t) => ({
+  key: t.id,
+  label: t.name,
+  color: t.color,
+  icon: t.icon,
+  members: t.members,
+}));
+const wantTag = Astro.url.searchParams.get("tag");
+const initialCat = wantTag ? (tags.find((t) => t.slug === wantTag || t.id === wantTag)?.id ?? "") : "";
+const searchPlaces = onMap.map((p) => ({ ...p }));
+---
+
+<Base
+  title="지도"
+  description="증산법종교 본부와 주변 성지·전각 지도"
+  bleed
+  overlayHeader
+  overlayKeepTools={!hasKey}
+  hideFooter
+>
+  <h1 class="sr-only">성지 지도</h1>
+  <section class="map-full" data-hero data-drawer-sheet>
+    {hasKey ? (
+      <KakaoMap
+        client:only="svelte"
+        mode="display"
+        height="100%"
+        level={MAP_HOME.level}
+        initial={MAP_HOME.center}
+        mapType={MAP_HOME.mapType}
+        fitBounds={false}
+        places={onMap}
+        hrefPrefix=""
+        drawerKind="point"
+        controls
+        controlsTop="calc(var(--header-h) + 12px)"
+        categories={categories}
+        htmlMarkers
+        initialCat={initialCat}
+        homeLabel={MAP_HOME.label}
+        searchPlaceholder="지도 검색"
+        searchPlaces={searchPlaces}
+        aiButton
+      />
+    ) : (
+      <div class="map-empty">
+        {" "}
+        <span aria-hidden="true">🗺️</span> <p>지도를 준비하고 있습니다.</p>{" "}
+      </div>
+    )}
+  </section>
+</Base>
+
+<style>
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
+  }
+  .map-full {
+    position: relative;
+    margin-top: calc(-1 * var(--header-h) - 1px);
+    height: 100vh;
+    height: 100dvh;
+    background: #1b1714;
+  }
+  .map-full :global(.map-container),
+  .map-full :global(.map-fallback) {
+    border: 0;
+    border-radius: 0;
+  }
+  .map-empty {
+    height: 100%;
+    padding-top: var(--header-h);
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    color: #ffffffb8;
+    background:
+      radial-gradient(ellipse at 30% 20%, rgba(120, 150, 110, 0.35), transparent 60%),
+      radial-gradient(ellipse at 75% 80%, rgba(90, 120, 150, 0.3), transparent 60%),
+      linear-gradient(160deg, #2a2620, #17130f);
+  }
+  .map-empty span {
+    font-size: 2.4rem;
+  }
+  .map-empty p {
+    margin: 0;
+  }
+</style>

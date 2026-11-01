@@ -1,0 +1,259 @@
+---
+import { getCollection } from "astro:content";
+import Base from "../../../layouts/Base.astro";
+import {
+  LIBRARY_BOARD,
+  articleHref,
+  chapterHref,
+  getArticle,
+  getLibraryPostMeta,
+  getSeriesToc,
+  libPostHref,
+  listLibraryCategories,
+  scriptureHref,
+} from "../../../lib/content";
+import { articleRows, postRows } from "../../../lib/library-rows";
+import PostView from "../../../components/board/PostView.svelte";
+import AdminEditLink from "../../../components/content/AdminEditLink.astro";
+import ArchiveTabs from "../../../components/content/ArchiveTabs.astro";
+import ContentGallery from "../../../components/content/ContentGallery.astro";
+import DocPager from "../../../components/content/DocPager.astro";
+import PageTitle from "../../../components/content/PageTitle.astro";
+import PreviewNotice from "../../../components/content/PreviewNotice.astro";
+import Prose from "../../../components/content/Prose.astro";
+import SideList from "../../../components/content/SideList.astro";
+const decode = (s) =>
+  s
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, "&");
+const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+const isHan = (ch) => /[㐀-䶿一-鿿豈-﫿]/.test(ch);
+function hanRatio(s) {
+  const cs = [...s].filter((c) => !/\s|[·.,*()\[\]○]/.test(c));
+  return cs.length ? cs.filter(isHan).length / cs.length : 0;
+}
+function alignPair(ko, han) {
+  if (hanRatio(ko) >= 0.5 || hanRatio(han) < 0.5) return null;
+  const kw = ko.trim().split(/\s+/);
+  const hw = han.trim().split(/\s+/);
+  if (kw.length !== hw.length) return null;
+  const kc = kw.map((w) => [...w]);
+  const hc = hw.map((w) => [...w]);
+  if (kc.some((w, i) => w.length !== hc[i].length)) return null;
+  const words = kc.map(
+    (w, i) =>
+      `<span class="mt-w">${w.map((ch, j) => `<span class="mt-c"><span class="mt-k">${esc(ch)}</span><span class="mt-h">${esc(hc[i][j])}</span></span>`).join("")}</span>`,
+  );
+  return `<p class="mt-line"><span class="mt-sr">${esc(ko.trim())} ${esc(han.trim())}</span><span class="mt-grid" aria-hidden="true">${words.join("")}</span></p>`;
+}
+function alignMantraHtml(html) {
+  return html.replace(/<p>([^<]*)<br>([^<]*)<\/p>/g, (m, a, b) => alignPair(decode(a), decode(b)) ?? m);
+}
+export const prerender = false;
+const notFound = () =>
+  new Response("페이지를 찾을 수 없습니다.", {
+    status: 404,
+    headers: { "Content-Type": "text/plain; charset=utf-8" },
+  });
+const key = Astro.params.cat;
+const slug = Astro.params.slug;
+const preview = Astro.url.searchParams.get("preview") === "1";
+const q = preview ? "?preview=1" : "";
+const categories = await listLibraryCategories(Astro.request);
+const cat = categories.find((c) => c.key === key);
+const isPostId = /^[0-9a-f-]{36}$/.test(slug);
+if (!cat) {
+  const books = new Set(
+    (await getCollection("scripture")).filter((e) => e.id.includes("/")).map((e) => e.id.split("/")[0]),
+  );
+  if (books.has(key)) return Astro.redirect(scriptureHref(key, slug), 301);
+  if (isPostId) {
+    const m = await getLibraryPostMeta(Astro.request, slug);
+    if (m?.board === LIBRARY_BOARD) return Astro.redirect(libPostHref(m.category, slug), 301);
+    return notFound();
+  }
+  const a = await getArticle(Astro.request, "library", slug, preview);
+  if (a) return Astro.redirect(articleHref(a.kind, a.slug) + q, 301);
+  return notFound();
+}
+let side = [];
+let prev = null;
+let next = null;
+const around = (list) => {
+  const at = list.findIndex((s) => s.on);
+  prev = at > 0 ? { href: list[at - 1].href, label: list[at - 1].title } : null;
+  next = at >= 0 && at < list.length - 1 ? { href: list[at + 1].href, label: list[at + 1].title } : null;
+};
+let post = null;
+let seriesBox = null;
+if (cat.type === "post") {
+  const m = isPostId ? await getLibraryPostMeta(Astro.request, slug) : null;
+  if (!m || m.board !== LIBRARY_BOARD) return notFound();
+  const category = m.category ?? LIBRARY_BOARD;
+  if (category !== key) return Astro.redirect(libPostHref(category, slug), 301);
+  post = { id: m.id, title: m.title, category, series: m.series };
+  if (m.series) {
+    const toc = await getSeriesToc(Astro.request, m.series.id);
+    if (toc) {
+      seriesBox = {
+        title: toc.series.title,
+        items: toc.posts.map((p) => ({
+          id: p.id,
+          title: p.title,
+          href: libPostHref(p.category, p.id),
+          on: p.id === slug,
+        })),
+      };
+    }
+  }
+  if (cat.as_book) {
+    const { rows } = await postRows(Astro.request, cat, { limit: 15 });
+    side = rows.map((r) => ({
+      id: r.id,
+      title: r.title,
+      sub: r.series ? `${r.series.title} · ${r.series.count}편` : r.meta,
+      href: r.href,
+      on: r.id === slug || (!!r.series && r.series.id === post.series?.id),
+    }));
+  }
+  if (seriesBox) around(seriesBox.items);
+  else around(side);
+}
+const entry = cat.type === "article" ? await getArticle(Astro.request, "library", slug, preview) : null;
+if (cat.type === "article") {
+  if (!entry) return notFound();
+  if (entry.kind !== key) return Astro.redirect(articleHref(entry.kind, entry.slug) + q, 301);
+  if (entry.parent_id && entry.book)
+    return Astro.redirect(chapterHref(entry.book.kind, entry.book.slug, entry.slug) + q, 301);
+  if (cat.as_book) {
+    const rows = await articleRows(Astro.request, cat);
+    side = rows.map((r) => ({
+      id: r.id ?? r.key,
+      title: r.title,
+      hanja: r.hanja,
+      href: r.href,
+      on: r.id === entry.id,
+      draft: r.draft,
+    }));
+    if (!side.some((s) => s.on))
+      side.unshift({
+        id: entry.id,
+        title: entry.title,
+        hanja: entry.title_hanja,
+        href: articleHref(entry.kind, entry.slug),
+        on: true,
+      });
+  }
+  around(side);
+}
+const body_html = entry ? alignMantraHtml(entry.body_html ?? "") : "";
+const chapters = entry && !entry.parent_id ? (entry.chapters ?? []) : [];
+const split = side.length > 0;
+const pageTitle = entry?.title ?? post?.title ?? "";
+---
+
+<Base title={pageTitle} description={entry?.summary ?? void 0} tight>
+  {" "}
+  <ArchiveTabs current={cat.key} categories={categories} />
+  <div class:list={[{ "doc-split": split }]}>
+    <div class="doc-main">
+      {entry && (
+        <Fragment>
+          {" "}
+          <PageTitle title={entry.title} hanja={entry.title_hanja} />{" "}
+          <PreviewNotice status={entry.status} editHref={`/admin/#article/${entry.id}`} />{" "}
+          {entry.status === "published" && (
+            <div hidden data-page-feed data-kind="article" data-id={entry.id} data-title={entry.title}></div>
+          )}
+          <article class="doc">
+            {" "}
+            <AdminEditLink href={`/admin/#article/${entry.id}`} />{" "}
+            {entry.summary && <p class="summary">{entry.summary}</p>} <Prose html={body_html} />{" "}
+            {chapters.length > 0 && (
+              <ol class="toc" aria-label="차례">
+                {" "}
+                {chapters.map((c) => (
+                  <li>
+                    {" "}
+                    <a href={chapterHref(entry.kind, entry.slug, c.slug) + q}>
+                      {" "}
+                      <span class="name">{c.title}</span>{" "}
+                      {c.title_hanja && <span class="hanja">{c.title_hanja}</span>}{" "}
+                    </a>{" "}
+                  </li>
+                ))}{" "}
+              </ol>
+            )}{" "}
+            <ContentGallery items={entry.gallery ?? []} fallbackAlt={entry.title} />{" "}
+          </article>{" "}
+        </Fragment>
+      )}{" "}
+      {post && (
+        <div class="post-wrap">
+          {" "}
+          <PostView client:load board={LIBRARY_BOARD} id={post.id} crumbs={false} series={seriesBox} />{" "}
+        </div>
+      )}
+    </div>
+    {split && (
+      <SideList
+        label={`${cat.label} 목록`}
+        items={side.map((s) => ({
+          key: s.id,
+          title: s.title,
+          hanja: s.hanja,
+          sub: s.sub,
+          href: s.href,
+          on: s.on,
+          draft: s.draft,
+        }))}
+      />
+    )}
+  </div>
+  {(prev || next || split) && <DocPager prev={prev} next={next} />}
+</Base>
+
+<style>
+  .doc {
+    max-width: 760px;
+  }
+  .summary {
+    margin: 0 0 1.4em;
+    color: var(--color-muted);
+  }
+  .post-wrap {
+    max-width: 760px;
+    margin-top: 20px;
+  }
+  .toc {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .toc a {
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    padding: 14px 16px;
+    border-radius: var(--radius-md);
+    color: var(--color-ink);
+    border: 1px solid transparent;
+  }
+  .toc a:hover {
+    background: var(--color-surface);
+    border-color: var(--color-rule);
+    text-decoration: none;
+  }
+  .toc .name {
+    font-size: 1.05rem;
+  }
+  .toc .hanja {
+    color: var(--color-muted);
+  }
+</style>

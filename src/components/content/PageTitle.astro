@@ -1,0 +1,71 @@
+---
+const { title, hanja, parent, sub } = Astro.props;
+---
+
+<header class="ptitle">
+  {parent && (
+    <a class="parent" href={parent.href}>
+      {parent.label}
+    </a>
+  )}
+  <h1>
+    {title} {hanja && <span class="hanja">{hanja}</span>}
+  </h1>
+  {sub && <span class="sub">{sub}</span>} <slot />
+</header>
+
+<style>
+  .ptitle {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    column-gap: 10px;
+    row-gap: 4px;
+    max-width: 760px;
+    margin: 22px 0 20px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid var(--color-rule);
+  }
+  .ptitle:first-child {
+    margin-top: 0;
+  }
+  :global(.subtabs) ~ .ptitle,
+  :global(.subtabs) ~ * .ptitle {
+    margin-top: 22px;
+  }
+  .parent {
+    flex-basis: 100%;
+    font-size: 0.85rem;
+    color: var(--color-muted);
+  }
+  h1 {
+    margin: 0;
+    font-size: 1.6rem;
+    line-height: 1.3;
+  }
+  .hanja {
+    margin-left: 8px;
+    color: var(--color-muted);
+    font-weight: 400;
+    font-size: 0.62em;
+  }
+  .sub {
+    color: var(--color-muted);
+    font-size: 0.85rem;
+  }
+  @media (max-width: 760px) {
+    .ptitle {
+      margin: 18px 0 16px;
+    }
+    .ptitle:first-child {
+      margin-top: 0;
+    }
+    :global(.subtabs) ~ .ptitle,
+    :global(.subtabs) ~ * .ptitle {
+      margin-top: 18px;
+    }
+    h1 {
+      font-size: 1.4rem;
+    }
+  }
+</style>

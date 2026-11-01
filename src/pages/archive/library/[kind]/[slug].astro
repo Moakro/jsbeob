@@ -1,0 +1,14 @@
+---
+import { articleHref, getArticle } from "../../../../lib/content";
+export const prerender = false;
+const q = Astro.url.search;
+const a = await getArticle(Astro.request, "library", Astro.params.slug, q.includes("preview=1"));
+if (!a)
+  return new Response("페이지를 찾을 수 없습니다.", {
+    status: 404,
+    headers: { "Content-Type": "text/plain; charset=utf-8" },
+  });
+return Astro.redirect(articleHref(a.kind, a.slug) + q, 301);
+---
+
+

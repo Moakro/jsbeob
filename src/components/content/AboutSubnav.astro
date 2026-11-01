@@ -1,0 +1,20 @@
+---
+import { ABOUT_KINDS, ABOUT_NAV } from "../../lib/content-types";
+import SubTabs from "./SubTabs.astro";
+const { articles, current = null } = Astro.props;
+const cats = ABOUT_NAV.map((kind) => {
+  const items2 = articles.filter((a) => a.kind === kind);
+  return {
+    kind,
+    label: ABOUT_KINDS[kind] ?? kind,
+    href: items2.length === 1 ? `/about/${items2[0].slug}/` : `/about/?cat=${kind}`,
+    has: items2.length > 0,
+  };
+}).filter((c) => c.has);
+const items = [
+  { label: "전체", href: "/about/", on: !current },
+  ...cats.map((c) => ({ label: c.label, href: c.href, on: current === c.kind })),
+];
+---
+
+<SubTabs label="소개 분류" items={items} />

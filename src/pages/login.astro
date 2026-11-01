@@ -6,7 +6,10 @@ export const prerender = false;
 
 <Base title="로그인">
   <div class="login-wrap">
-    <div class="brand-mark">甑山</div>
+    <svg class="brand-mark" viewBox="0 0 100 100" aria-hidden="true">
+      <circle cx="50" cy="50" r="43.25" fill="none" stroke="currentColor" stroke-width="13.5"></circle>
+      <path d="M43.25 8h13.5v84h-13.5zM8 43.25h84v13.5H8z" fill="currentColor"></path>
+    </svg>
     <h1>증산법종교 로그인</h1>
     <p class="sub">카카오 또는 구글 계정으로 로그인하세요.</p>
     <LoginPanel client:load />
@@ -20,17 +23,11 @@ export const prerender = false;
     text-align: center;
   }
   .brand-mark {
+    display: block;
     width: 56px;
     height: 56px;
     margin: 0 auto 16px;
-    display: grid;
-    place-items: center;
-    background: var(--color-primary);
-    color: #fff;
-    font-family: var(--font-display);
-    font-weight: 900;
-    font-size: 1.4rem;
-    border-radius: 12px;
+    color: var(--color-primary);
   }
   h1 {
     font-size: 1.6rem;
