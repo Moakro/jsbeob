@@ -1,11 +1,15 @@
 <script lang="ts">
+  // 복원(2026-11-01): 배포본 SSR(Base 청크)·클라이언트(_astro/LoginPanel.*.js) 기준. 9월 버전에 next prop 추가.
   import { onMount } from "svelte";
   import { api } from "../lib/api";
+
+  /** 로그인 후 돌아갈 경로. 없으면 주소의 ?next= 를 쓴다. */
+  let { next: nextProp = null }: { next?: string | null } = $props();
 
   let next = $state("/");
 
   onMount(() => {
-    const p = new URLSearchParams(window.location.search).get("next");
+    const p = nextProp ?? new URLSearchParams(window.location.search).get("next");
     if (p && p.startsWith("/")) next = p;
   });
 </script>
@@ -32,7 +36,7 @@
     justify-content: center;
     gap: 10px;
     padding: 14px 18px;
-    border-radius: 10px;
+    border-radius: var(--radius-md);
     font-weight: 700;
     font-size: 1rem;
     border: 1px solid transparent;
