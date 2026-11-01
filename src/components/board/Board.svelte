@@ -1,6 +1,8 @@
 <script lang="ts">
+  // 게시판 목록 — 문의(help)·자료실 기타 자료(etc) 등. 비공개 보드는 로그인해야 자기 글이 보인다.
+  // 복원(2026-11-01): 9월 버전을 배포본 클라이언트(_astro/Board.*.js) 기준으로 갱신.
   import { onMount } from "svelte";
-  import { api, BOARDS, type PostSummary, type MeUser } from "../../lib/api";
+  import { api, BOARDS, boardBase, postHref, type PostSummary, type MeUser } from "../../lib/api";
 
   let { board }: { board: string } = $props();
   const meta = BOARDS[board];
@@ -13,14 +15,11 @@
   let hasMore = $state(false);
   let q = $state("");
 
-  const canWrite = $derived(
-    !!me && (me.level ?? 0) >= (meta?.writeLevel ?? 1) && !!me.display_name,
-  );
+  const canWrite = $derived(!!me && (me.level ?? 0) >= (meta?.writeLevel ?? 1) && !!me.display_name);
 
   function fmtDate(iso: string): string {
     const d = new Date(iso);
-    const now = Date.now();
-    const diff = (now - d.getTime()) / 1000;
+    const diff = (Date.now() - d.getTime()) / 1000;
     if (diff < 60) return "방금";
     if (diff < 3600) return `${Math.floor(diff / 60)}분 전`;
     if (diff < 86400) return `${Math.floor(diff / 3600)}시간 전`;
@@ -62,11 +61,11 @@
 
 <div class="board">
   <div class="toolbar">
-    <form class="search" onsubmit={search}>
+    <form class="search" onsubmit={search} hidden={meta?.private && !me}>
       <input type="search" bind:value={q} placeholder="검색" aria-label="게시글 검색" />
     </form>
     {#if canWrite}
-      <a class="btn btn-primary write" href={`/community/${board}/write/`}>＋ 글쓰기</a>
+      <a class="btn btn-primary write" href={`${boardBase(board)}/write/`}>＋ 글쓰기</a>
     {/if}
   </div>
 
@@ -74,13 +73,22 @@
     <p class="state">불러오는 중…</p>
   {:else if error}
     <p class="state err">{error}</p>
+  {:else if meta?.private && !me}
+    <p class="state">
+      <a href={`/login/?next=${encodeURIComponent(`${boardBase(board)}/`)}`}>로그인</a>하면 문의를 남기고
+      답변을 볼 수 있습니다.
+    </p>
   {:else if posts.length === 0}
-    <p class="state">아직 글이 없습니다.{canWrite ? " 첫 글을 남겨보세요." : ""}</p>
+    <p class="state">
+      {meta?.private
+        ? "남긴 문의가 없습니다."
+        : `아직 글이 없습니다.${canWrite ? " 첫 글을 남겨보세요." : ""}`}
+    </p>
   {:else if meta?.photo}
     <!-- 사진 피드 / 갤러리 그리드 -->
     <div class="photo-grid">
       {#each posts as p (p.id)}
-        <a class="photo-card" href={`/community/${board}/${p.id}/`}>
+        <a class="photo-card" href={postHref(board, p.id)}>
           {#if p.cover_image}
             <img src={p.cover_image} alt={p.title} loading="lazy" />
           {:else}
@@ -98,7 +106,7 @@
     <ul class="list">
       {#each posts as p (p.id)}
         <li class:pinned={p.is_pinned}>
-          <a href={`/community/${board}/${p.id}/`}>
+          <a href={postHref(board, p.id)}>
             <span class="title">
               {#if p.is_pinned}<span class="pin">공지</span>{/if}
               {p.title}
@@ -137,7 +145,7 @@
     max-width: 280px;
     padding: 9px 14px;
     border: 1px solid var(--color-rule);
-    border-radius: 999px;
+    border-radius: var(--radius-md);
     background: var(--color-surface);
     font-size: 0.92rem;
   }
@@ -152,8 +160,6 @@
   .state.err {
     color: var(--color-primary);
   }
-
-  /* 목록형 */
   .list {
     list-style: none;
     margin: 0;
@@ -199,8 +205,6 @@
     font-size: 0.82rem;
     white-space: nowrap;
   }
-
-  /* 사진 그리드 */
   .photo-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
@@ -236,7 +240,7 @@
     display: flex;
     flex-direction: column;
     gap: 2px;
-    background: linear-gradient(transparent, rgba(0, 0, 0, 0.7));
+    background: linear-gradient(transparent, #000000b3);
     color: #fff;
   }
   .overlay strong {

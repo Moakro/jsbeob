@@ -1,9 +1,22 @@
 <script lang="ts">
+  // 게시글 보기 + 댓글. 자료실 게시물이면 시리즈 목차 상자를 위·아래에 보인다.
+  // 복원(2026-11-01): 9월 버전을 배포본 클라이언트(_astro/PostView.*.js) 기준으로 갱신.
   import { onMount } from "svelte";
-  import { api, BOARDS, type PostDetail, type MeUser } from "../../lib/api";
+  import { api, BOARDS, boardBase, postHref, type PostDetail, type MeUser } from "../../lib/api";
   import YouTubeEmbed from "./YouTubeEmbed.svelte";
+  import SeriesBox from "./SeriesBox.svelte";
 
-  let { id, board }: { id: string; board: string } = $props();
+  let {
+    id,
+    board,
+    crumbs = true,
+    series = null,
+  }: {
+    id: string;
+    board: string;
+    crumbs?: boolean;
+    series?: { title: string; items: { id: string; title: string; href: string; on?: boolean }[] } | null;
+  } = $props();
   const meta = BOARDS[board];
 
   let post = $state<PostDetail | null>(null);
@@ -16,10 +29,24 @@
   let commentText = $state("");
   let posting = $state(false);
 
-  const canEdit = $derived(
-    !!me && !!post && (me.id === post.author_id || (me.level ?? 0) >= 4),
-  );
+  const canEdit = $derived(!!me && !!post && (me.id === post.author_id || (me.level ?? 0) >= 4));
   const canComment = $derived(!!me && !!me.display_name);
+  /** 상단 고정은 운영자가 탭 보드(소식·오리알터)에서만 */
+  const canPin = $derived(!!me && (me.level ?? 0) >= 4 && !!meta?.tab);
+
+  let pinning = $state(false);
+  async function togglePin() {
+    if (!post) return;
+    pinning = true;
+    try {
+      const r = await api.pinPost(id);
+      post = { ...post, is_pinned: r.is_pinned };
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "고정 실패");
+    } finally {
+      pinning = false;
+    }
+  }
 
   function fmt(iso: string): string {
     const d = new Date(iso);
@@ -79,7 +106,7 @@
     if (!confirm("이 글을 삭제하시겠습니까?")) return;
     try {
       await api.deletePost(id);
-      window.location.href = `/community/${board}/`;
+      window.location.href = `${boardBase(board, post?.category)}/`;
     } catch (e) {
       alert(e instanceof Error ? e.message : "삭제 실패");
     }
@@ -92,11 +119,12 @@
   <p class="state err">{error ?? "글을 찾을 수 없습니다."}</p>
 {:else}
   <article class="post">
-    <nav class="crumbs">
-      <a href="/community/">소식·커뮤니티</a><span>/</span>
-      <a href={`/community/${board}/`}>{meta?.label ?? board}</a>
-    </nav>
-
+    {#if crumbs}
+      <nav class="crumbs">
+        <a href={meta?.parent?.href ?? "/community/"}>{meta?.parent?.label ?? "도생광장"}</a><span>/</span>
+        <a href={`${boardBase(board, post.category)}/`}>{meta?.label ?? board}</a>
+      </nav>
+    {/if}
     <header class="post-head">
       <h1>{post.title}</h1>
       <div class="byline">
@@ -104,17 +132,33 @@
         <span>{fmt(post.created_at)}</span>
         <span>조회 {post.view_count}</span>
       </div>
-      {#if canEdit}
+      {#if canEdit || canPin}
         <div class="actions">
-          <a class="btn btn-ghost" href={`/community/${board}/${id}/edit/`}>수정</a>
-          <button class="btn btn-ghost danger" onclick={remove}>삭제</button>
+          {#if canPin}
+            <button
+              class="btn btn-ghost"
+              class:on={post.is_pinned}
+              disabled={pinning}
+              aria-pressed={post.is_pinned}
+              onclick={togglePin}>{post.is_pinned ? "상단 고정 해제" : "상단 고정"}</button
+            >
+          {/if}
+          {#if canEdit}
+            <a class="btn btn-ghost" href={`${postHref(board, id, post.category)}edit/`}>수정</a>
+            <button class="btn btn-ghost danger" onclick={remove}>삭제</button>
+          {/if}
         </div>
       {/if}
     </header>
 
+    {#if series && series.items.length}
+      <SeriesBox title={series.title} items={series.items} />
+    {/if}
+
     <div class="prose">{@html post.body_html}</div>
 
-    {#if post.attachments.length}
+    <!-- 블록 본문(has_blocks)은 사진·영상이 본문 안에 있다 — 예전 글만 첨부를 따로 보인다 -->
+    {#if post.attachments.length && !post.has_blocks}
       <div class="attachments">
         {#each post.attachments as a}
           {#if a.type === "image" && a.url}
@@ -126,10 +170,13 @@
       </div>
     {/if}
 
+    {#if series && series.items.length}
+      <SeriesBox title={series.title} items={series.items} where="bottom" />
+    {/if}
+
     <!-- 댓글 -->
     <section class="comments">
       <h2>댓글 <span>{comments.length}</span></h2>
-
       {#if canComment}
         <form class="comment-form" onsubmit={submitComment}>
           <textarea bind:value={commentText} placeholder="댓글을 남겨보세요" rows="2"></textarea>
@@ -140,7 +187,6 @@
       {:else}
         <p class="login-hint">댓글을 쓰려면 로그인하세요.</p>
       {/if}
-
       <ul class="comment-list">
         {#each comments as c (c.id)}
           <li>
@@ -167,7 +213,6 @@
   }
   .post {
     max-width: 760px;
-    margin-inline: auto;
   }
   .crumbs {
     display: flex;
@@ -177,13 +222,14 @@
     margin-bottom: 12px;
   }
   .post-head {
-    border-bottom: 2px solid var(--color-ink);
-    padding-bottom: 16px;
-    margin-bottom: 24px;
+    margin: 0 0 20px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid var(--color-rule);
   }
   .post-head h1 {
-    font-size: 1.9rem;
-    margin: 0 0 10px;
+    font-size: 1.6rem;
+    line-height: 1.3;
+    margin: 0 0 8px;
   }
   .byline {
     display: flex;
@@ -199,6 +245,10 @@
     display: flex;
     gap: 8px;
     margin-top: 12px;
+  }
+  .actions .on {
+    border-color: var(--color-primary);
+    color: var(--color-primary);
   }
   .actions .danger:hover {
     border-color: var(--color-primary);

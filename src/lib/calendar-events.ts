@@ -22,6 +22,8 @@ export interface CalendarEvent {
   updated_at: string;
   /** GET /api/events 응답 — 작성자 닉네임 (공개 일정 등 타인 일정 표시용) */
   owner_name?: string | null;
+  /** 소식 글에서 온 일정이면 그 글 id (jsbeob) */
+  source_post_id?: string | null;
   /** GET /api/events 응답 — 1=내 일정, 0=공개된 타인 일정 */
   is_mine?: 0 | 1;
 }

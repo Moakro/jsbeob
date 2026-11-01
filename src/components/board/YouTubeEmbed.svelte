@@ -1,4 +1,6 @@
 <script lang="ts">
+  // 유튜브 지연 임베드 — 처음엔 썸네일, 누르면 iframe.
+  // 복원(2026-11-01): 9월 버전과 배포본(_astro/PostView.*.js 안의 같은 컴포넌트)이 같다. 스타일만 배포본 기준.
   let { videoId, title = "YouTube 영상" }: { videoId: string; title?: string } = $props();
   let play = $state(false);
   const thumb = `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
@@ -53,7 +55,7 @@
     height: 64px;
     display: grid;
     place-items: center;
-    background: rgba(168, 53, 42, 0.92);
+    background: #a8352aeb;
     color: #fff;
     border-radius: 50%;
     font-size: 1.4rem;
