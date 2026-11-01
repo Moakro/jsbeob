@@ -1,0 +1,133 @@
+---
+// 복원(2026-11-01): 프리렌더 페이지라 서버 번들에 코드가 없다 — 배포본 HTML 과 9월 버전
+// (src/pages/archive/hwaeundang-silgi/[chap].astro)을 근거로 다시 썼다.
+import Base from "../../../../layouts/Base.astro";
+import ArchiveTabs from "../../../../components/content/ArchiveTabs.astro";
+import PageTitle from "../../../../components/content/PageTitle.astro";
+import SideList from "../../../../components/content/SideList.astro";
+import DocPager from "../../../../components/content/DocPager.astro";
+import { getHwaeundang, chapterSlug, chapterLabel } from "../../../../lib/hwaeundang";
+import { parseChapter } from "../../../../lib/scripture";
+
+const BOOK_HREF = "/archive/book/hwaeundang-silgi/";
+
+export async function getStaticPaths() {
+  const chapters = await getHwaeundang();
+  return chapters.map((entry, i) => ({
+    params: { chap: chapterSlug(entry) },
+    props: {
+      entry,
+      chapters,
+      prev: chapters[i - 1] ?? null,
+      next: chapters[i + 1] ?? null,
+    },
+  }));
+}
+
+const { entry, chapters, prev, next } = Astro.props;
+const verses = parseChapter(entry.body ?? "");
+const label = chapterLabel(entry);
+const heading = entry.data.장_이름 ? `${label} ${entry.data.장_이름}` : label;
+const href = (e) => `${BOOK_HREF}${chapterSlug(e)}/`;
+const toc = chapters.map((c) => ({
+  key: c.id,
+  title: chapterLabel(c),
+  sub: c.data.장_이름,
+  href: href(c),
+  on: c.id === entry.id,
+}));
+const prevLink = prev ? { href: href(prev), label: chapterLabel(prev) } : null;
+const nextLink = next ? { href: href(next), label: chapterLabel(next) } : null;
+---
+
+<Base title={`화은당실기 — ${heading}`} description={`화은당실기 ${heading}`} tight>
+  <ArchiveTabs current="book" />
+  <div class="doc-split">
+    <div class="doc-main">
+      <!-- 사이트 검색(Pagefind) 색인 대상 — 홈 히어로 검색이 이 본문을 찾는다. 결과 묶음 제목=title, 출처=source -->
+      <article class="scripture" data-pagefind-body data-pagefind-meta={`title:${heading}`}>
+        <span hidden data-pagefind-meta="source:화은당실기"></span>
+        <div data-pagefind-ignore>
+          <PageTitle title={heading} parent={{ href: BOOK_HREF, label: "화은당실기" }} />
+        </div>
+        <div class="verses">
+          {verses.map((v) => (
+            <section class="verse">
+              {v.label && (
+                <h2 class="vlabel" id={v.anchor ?? undefined}>
+                  {v.label}
+                </h2>
+              )}
+              {v.paragraphs.map((p) => (
+                <p set:html={p} />
+              ))}
+            </section>
+          ))}
+        </div>
+        <nav class="pager" data-pagefind-ignore>
+          {prevLink ? <a href={prevLink.href}>← {prevLink.label}</a> : <span />}
+          {nextLink && (
+            <a class="next" href={nextLink.href}>
+              {nextLink.label} →
+            </a>
+          )}
+        </nav>
+      </article>
+    </div>
+    <SideList label="화은당실기 목차" items={toc} />
+  </div>
+  <DocPager prev={prevLink} next={nextLink} />
+</Base>
+
+<style>
+  .scripture {
+    max-width: 760px;
+  }
+  .verse {
+    margin-bottom: 28px;
+    scroll-margin-top: calc(var(--header-h) + 16px);
+  }
+  .vlabel {
+    scroll-margin-top: calc(var(--header-h) + 16px);
+    font-size: 1.05rem;
+    color: var(--color-primary);
+    margin: 0 0 10px;
+  }
+  .verse :global(p) {
+    margin: 0 0 0.9em;
+    font-size: 1.05rem;
+    line-height: 1.95;
+  }
+  .verse :global(.wikiref) {
+    color: var(--color-secondary);
+    font-weight: 500;
+  }
+  /* 사이트 검색 결과로 들어왔을 때 찾은 낱말 강조 */
+  .scripture :global(mark.pagefind-highlight) {
+    background: #fff3a8;
+    color: inherit;
+    padding: 0 1px;
+    border-radius: 2px;
+    font-weight: 600;
+    box-shadow: 0 0 0 1px #a8352a33;
+  }
+  .pager {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    margin-top: 40px;
+    padding-top: 20px;
+    border-top: 1px solid var(--color-rule);
+  }
+  .pager a {
+    font-weight: 600;
+  }
+  .pager .next {
+    margin-left: auto;
+  }
+  @media (max-width: 860px) {
+    .pager {
+      display: none;
+    }
+  }
+</style>

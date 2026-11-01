@@ -1,76 +1,137 @@
 ---
+// 복원(2026-11-01): 프리렌더 페이지라 서버 번들에 코드가 없다 — 배포본 HTML·인라인 스크립트·CSS 를 근거로 다시 썼다.
+// 달력 본체(Calendar.svelte)는 jsbooks 의 달력을 가져온 것이다.
 import Base from "../../layouts/Base.astro";
+import Calendar from "../../components/calendar/Calendar.svelte";
+import MemorialList from "../../components/calendar/MemorialList.svelte";
 
-const MEMORIALS = [
-  { name: "고수부 탄신일", date: "음력 5월 12일" },
-  { name: "화은당 선사님 선화일", date: "음력 5월 17일" },
-  { name: "증산미륵부처님 오신날", date: "음력 5월 24일" },
-];
+// 빌드 시점의 연·월로 처음 화면을 그린다(클라이언트에서 오늘로 다시 맞춘다).
+const now = new Date();
+const initialYear = now.getFullYear();
+const initialMonth = now.getMonth() + 1;
 ---
 
-<Base title="달력" description="증산법종교 절기와 종교 기념일">
-  <header class="page-head">
-    <span class="kicker">달력</span>
-    <h1>절기와 기념일</h1>
-    <p>24절기와 음력, 법종교의 주요 기념일을 안내합니다. 음력 달력은 곧 추가됩니다.</p>
-  </header>
-
-  <section class="block">
-    <div class="section-head">
-      <h2>주요 기념일</h2>
+<Base title="달력" description="증산법종교 절기와 종교 기념일" tight>
+  <h1 class="sr-only">달력</h1>
+  <!-- 모바일: 달력 / 기념일 탭 전환 -->
+  <div class="cal-tabs" role="tablist" aria-label="달력 보기 전환">
+    <button type="button" role="tab" id="tab-calendar" aria-controls="panel-calendar" aria-selected="true" data-tab="calendar">달력</button>
+    <button type="button" role="tab" id="tab-memorials" aria-controls="panel-memorials" aria-selected="false" data-tab="memorials">기념일</button>
+  </div>
+  <div class="cal-layout" data-tab="calendar">
+    <!-- 기념일 목록 — PC 는 좌측 사이드바, 모바일은 '기념일' 탭 -->
+    <aside class="memo-side" id="panel-memorials" role="tabpanel" aria-labelledby="tab-memorials">
+      <MemorialList client:load />
+    </aside>
+    <div class="cal-card" id="panel-calendar" role="tabpanel" aria-labelledby="tab-calendar">
+      <Calendar client:load initialYear={initialYear} initialMonth={initialMonth} />
+      <p class="cal-note">절기는 평균일 기준으로 ±1일 오차가 있을 수 있습니다.</p>
     </div>
-    <ul class="memorials">
-      {MEMORIALS.map((m) => (
-        <li>
-          <span class="m-name">{m.name}</span>
-          <span class="m-date">{m.date}</span>
-        </li>
-      ))}
-    </ul>
-    <p class="placeholder">📅 음력 달력 위젯이 이곳에 표시됩니다. (Phase 4)</p>
-  </section>
+  </div>
 </Base>
 
+<script>
+  // 탭 전환(모바일) — #memorials 해시와 동기화. 다른 곳에서 날짜로 이동(jb:calendar-goto)하면 달력 탭으로.
+  const layout = document.querySelector<HTMLElement>(".cal-layout");
+  const tabs = [...document.querySelectorAll<HTMLElement>(".cal-tabs [data-tab]")];
+  function setTab(tab: string, push = true) {
+    if (!layout) return;
+    layout.dataset.tab = tab;
+    tabs.forEach((b) => b.setAttribute("aria-selected", String(b.dataset.tab === tab)));
+    if (push)
+      history.replaceState(null, "", `${location.pathname}${location.search}${tab === "memorials" ? "#memorials" : ""}`);
+  }
+  tabs.forEach((b) => b.addEventListener("click", () => setTab(b.dataset.tab ?? "calendar")));
+  const syncHash = () => setTab(location.hash === "#memorials" ? "memorials" : "calendar", false);
+  syncHash();
+  window.addEventListener("hashchange", syncHash);
+  window.addEventListener("jb:calendar-goto", () => {
+    if (layout?.dataset.tab === "memorials") setTab("calendar");
+    const panel = document.getElementById("panel-calendar");
+    if (panel && panel.getBoundingClientRect().top < 0) panel.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
+</script>
+
 <style>
-  .page-head {
-    margin-bottom: 32px;
-  }
-  .page-head h1 {
-    font-size: 2.2rem;
-    margin: 8px 0 10px;
-  }
-  .page-head p {
-    color: var(--color-muted);
-    margin: 0;
-  }
-  .memorials {
-    list-style: none;
-    margin: 0 0 18px;
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
     padding: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
   }
-  .memorials li {
-    display: flex;
-    justify-content: space-between;
-    padding: 14px 16px;
+  .cal-layout {
+    display: grid;
+    grid-template-columns: 260px minmax(0, 1fr);
+    gap: 24px;
+    align-items: start;
+  }
+  .cal-tabs {
+    display: none;
+  }
+  .memo-side {
+    padding: 18px 16px;
     background: var(--color-surface);
     border: 1px solid var(--color-rule);
     border-radius: var(--radius-md);
   }
-  .m-name {
-    font-weight: 600;
-  }
-  .m-date {
-    color: var(--color-primary);
-    font-weight: 600;
-  }
-  .placeholder {
-    color: var(--color-muted);
-    background: var(--color-surface-2);
-    border: 1px dashed var(--color-rule);
+  .cal-card {
+    padding: 24px 28px 20px;
+    background: var(--color-surface);
+    border: 1px solid var(--color-rule);
     border-radius: var(--radius-md);
-    padding: 16px;
+  }
+  .cal-note {
+    margin: 0.8rem 0 0;
+    font-size: 0.78rem;
+    color: var(--color-muted);
+  }
+  @media (max-width: 900px) {
+    .cal-layout {
+      display: block;
+    }
+    .cal-tabs {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 16px;
+    }
+    .cal-tabs button {
+      padding: 6px 14px;
+      border: 1px solid var(--color-rule);
+      border-radius: 999px;
+      background: var(--color-surface);
+      font: inherit;
+      font-size: 0.9rem;
+      color: var(--color-fg);
+      cursor: pointer;
+    }
+    .cal-tabs button:hover {
+      border-color: var(--color-primary);
+    }
+    .cal-tabs button[aria-selected="true"] {
+      background: var(--color-primary);
+      border-color: var(--color-primary);
+      color: #fff;
+    }
+    .cal-tabs button:focus-visible {
+      outline: 2px solid var(--color-primary);
+      outline-offset: 1px;
+    }
+    .cal-layout[data-tab="calendar"] .memo-side,
+    .cal-layout[data-tab="memorials"] .cal-card {
+      display: none;
+    }
+  }
+  @media (max-width: 600px) {
+    .cal-card {
+      padding: 0;
+      background: none;
+      border: 0;
+      border-radius: 0;
+    }
   }
 </style>

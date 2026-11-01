@@ -1,47 +1,43 @@
 ---
+// 복원(2026-11-01): 프리렌더 페이지라 서버 번들에 코드가 없다 — 배포본 HTML(/community/help/)과 9월 버전을 근거로 다시 썼다.
+// 오리알터·소식은 도생광장(/community/) 탭으로, 기타 자료는 자료실로 옮겨 astro.config 의 redirects 가 처리한다.
 import Base from "../../../layouts/Base.astro";
+import PageTitle from "../../../components/content/PageTitle.astro";
 import Board from "../../../components/board/Board.svelte";
 import { BOARDS } from "../../../lib/api";
+import { KAKAO_CHANNEL_URL } from "../../../data/site-nav";
 
 export function getStaticPaths() {
-  return Object.keys(BOARDS).map((board) => ({ params: { board } }));
+  // 복원: 추정 — 배포본 사이트맵에는 /community/help/ 만 있다(탭 보드·자료실 보드 제외).
+  return Object.values(BOARDS)
+    .filter((b) => !b.tab && !b.base)
+    .map((b) => ({ params: { board: b.key } }));
 }
 
 const { board } = Astro.params;
 const meta = BOARDS[board as string];
-if (!meta) return Astro.redirect("/community/");
 ---
 
-<Base title={meta.label} description={meta.desc}>
-  <header class="page-head">
-    <nav class="crumbs">
-      <a href="/community/">소식·커뮤니티</a>
-      <span>/</span>
-      <span>{meta.label}</span>
-    </nav>
-    <h1>{meta.label}</h1>
-    <p>{meta.desc}</p>
-  </header>
-  <Board client:load board={board as string} />
+<Base title={meta.label} description={meta.desc} tight>
+  <PageTitle title={meta.label}>
+    {board === "help" && KAKAO_CHANNEL_URL && (
+      <a class="kakao" href={KAKAO_CHANNEL_URL} target="_blank" rel="noopener">
+        카카오톡 채널로 문의 →
+      </a>
+    )}
+  </PageTitle>
+  <div class="board-wrap">
+    <Board client:load board={board as string} />
+  </div>
 </Base>
 
 <style>
-  .page-head {
-    margin-bottom: 24px;
+  .board-wrap {
+    margin-top: 0;
   }
-  .crumbs {
-    display: flex;
-    gap: 8px;
-    font-size: 0.86rem;
-    color: var(--color-muted);
-    margin-bottom: 10px;
-  }
-  .page-head h1 {
-    font-size: 2rem;
-    margin: 0 0 6px;
-  }
-  .page-head p {
-    color: var(--color-muted);
-    margin: 0;
+  .kakao {
+    margin-left: auto;
+    font-size: 0.88rem;
+    font-weight: 600;
   }
 </style>
