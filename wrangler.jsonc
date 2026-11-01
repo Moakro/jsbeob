@@ -7,6 +7,13 @@
 		"directory": "./dist",
 		"binding": "ASSETS"
 	},
+	// /api/* 와 SSR 데이터 조회는 게시판·자료 API Worker를 service binding으로 호출한다
+	// (src/pages/api/[...path].ts, src/lib/content.ts 의 env.API).
+	// 복원 근거: 배포본 settings 바인딩 — service "API" → jsbeob-api-preview.
+	// SESSION(KV)·IMAGES 바인딩은 @astrojs/cloudflare 가 빌드 시 자동 추가한다.
+	"services": [
+		{ "binding": "API", "service": "jsbeob-api-preview" }
+	],
 	"observability": {
 		"enabled": true
 	}

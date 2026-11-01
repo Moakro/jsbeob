@@ -1,30 +1,17 @@
 /**
- * jsbooks comments + auth worker.
+ * jsbeob API worker — 인증·게시판·댓글·달력·소식·업로드 + 자료실/자료/미디어 하위 라우터.
  *
- * Routes:
- *   GET  /api/auth/login           — Google OAuth start
- *   GET  /api/auth/callback/google — OAuth callback, sets session cookie
- *   POST /api/auth/logout          — clears session cookie
- *   GET  /api/me                   — current session info
- *   POST /api/me/nickname          — set or change display_name
- *   GET  /api/comments?target=...  — list comments for a target
- *   POST /api/comments             — create comment
- *   PATCH /api/comments/:id        — edit comment (owner only)
- *   DELETE /api/comments/:id       — soft-delete (owner) or hide (curator+)
- *   POST /api/comments/:id/react   — toggle reaction (e.g. helpful)
- *   POST /api/comments/:id/flag    — flag comment
- *   POST /api/comments/:id/pin     — toggle pin (level >= 4)
- *   POST /api/upload/image         — upload resized image (optional X-Upload-Hash for dedup)
- *   POST /api/upload/check         — body { hash } → check user's prior upload
- *   POST /api/visits/touch         — body { scripture, chapter } → upsert last_visited
- *   GET  /api/visits/badges        — ?scripture=<slug> 또는 (없으면) 전 경전 합계
- *   GET  /api/comments/verse-feed  — ?scripture=<slug>&chapter=<anchor> 절별 댓글+최신 미리보기
+ * 사이트 Worker(jsbeob)가 service binding(env.API)으로 호출한다.
+ * 라우트 전체 목록은 아래 fetch 핸들러를 본다. 하위 라우터:
+ *   /api/library/*            — library.ts (handleLibrary)
+ *   /api/content/*, /api/admin/content/* 등 — content.ts (handleContent)
+ *   /api/media/*              — media.ts (handleMedia)
  *
  * Session: signed JWT in HttpOnly cookie (`jb_session`).
  * SameSite=Lax, Secure, ~30 day expiry. JWT signing uses HS256 with AUTH_SECRET.
  */
 
-interface Env {
+export interface Env {
   DB: D1Database;
   UPLOADS: R2Bucket;
   GOOGLE_CLIENT_ID: string;
@@ -35,35 +22,89 @@ interface Env {
   AUTH_SECRET: string; // any 32+ char random string
   SITE_ORIGIN: string;
   UPLOADS_PUBLIC_BASE: string;
+  MEDIA_PUBLIC_BASE?: string;
+  YOUTUBE_API_KEY?: string;
+  YOUTUBE_CHANNEL_ID?: string;
 }
 
+// 복원: 2026-11-01 배포본(jsbeob-api-preview) 번들에서 복원. 원본 TS 타입 정보는 번들에서 사라져
+// 대부분 생략되었다(tsconfig strict:false). 동작은 배포본과 같다.
+import { ALLOWED_BOARDS, BOARD_MIN_LEVEL, OPERATOR_BOARDS, PRIVATE_BOARDS, PRIVATE_BOARDS_SQL, TITLE_OPTIONAL_BOARDS } from "./boards";
+import { BRANCH_CODES } from "../src/data/branches";
+import { LIBRARY_BOARD, handleLibrary, normLibraryPostFields } from "./library";
+import { BlockError, allKeys, allPointIds, blocksForEditor, imageItems, normalizeBlocks, parseStoredBlocks, plainFromBlocks, resolveBlocks, s } from "./blocks";
+import { handleContent, mediaUrl, refIndexStmts, renderRowBlocks, siteHosts } from "./content";
+import { handleMedia } from "./media";
+
 const COOKIE_NAME = "jb_session";
-const SESSION_TTL = 60 * 60 * 24 * 30; // 30 days
+const SESSION_TTL = 60 * 60 * 24 * 30;
 const NICKNAME_RESERVED = [
   // 운영자
-  "관리자", "admin", "운영자", "moakro", "system", "support",
+  "관리자",
+  "admin",
+  "운영자",
+  "moakro",
+  "system",
+  "support",
   // 단체명 부분 매치
-  "본부", "공식", "총무", "총회", "회장", "교주",
+  "본부",
+  "공식",
+  "총무",
+  "총회",
+  "회장",
+  "교주",
   // 교리적 권위
-  "상제", "강증산", "미륵", "미륵존불", "옥황", "옥황상제",
-  "대선생", "진인", "성인", "도주",
+  "상제",
+  "강증산",
+  "미륵",
+  "미륵존불",
+  "옥황",
+  "옥황상제",
+  "대선생",
+  "진인",
+  "성인",
+  "도주"
 ];
-
 export default {
-  async fetch(req: Request, env: Env): Promise<Response> {
+  async fetch(req, env) {
     const url = new URL(req.url);
     const path = url.pathname;
-
     try {
-      // ──── Auth ────
+      const libRes = await handleLibrary(req, env, path, {
+        adminUser: async (r) => {
+          const uid = await currentUserId(r, env);
+          if (!uid) return null;
+          const u = await loadUser(env, uid);
+          return u && u.level >= 4 ? { id: u.id, level: u.level } : null;
+        }
+      });
+      if (libRes) return libRes;
+      const contentRes = await handleContent(req, env, path, {
+        adminUser: async (r) => {
+          const uid = await currentUserId(r, env);
+          if (!uid) return null;
+          const u = await loadUser(env, uid);
+          return u && u.level >= 4 ? { id: u.id, level: u.level } : null;
+        },
+        branchCodes: BRANCH_CODES
+      });
+      if (contentRes) return contentRes;
+      const mediaRes = await handleMedia(req, env, path, {
+        adminUser: async (r) => {
+          const uid = await currentUserId(r, env);
+          if (!uid) return null;
+          const u = await loadUser(env, uid);
+          return u && u.level >= 4 ? { id: u.id, level: u.level } : null;
+        }
+      });
+      if (mediaRes) return mediaRes;
       if (path === "/api/auth/login") return loginStart(req, env);
       if (path === "/api/auth/callback/google") return loginCallback(req, env);
       if (path === "/api/auth/callback/kakao") return loginCallbackKakao(req, env);
       if (path === "/api/auth/logout") return logout();
-
-      // ──── Posts (게시판/SNS) ────
       if (path === "/api/posts" && req.method === "GET") return listPosts(req, env);
       if (path === "/api/posts" && req.method === "POST") return createPost(req, env);
+      if (path === "/api/posts/authors" && req.method === "GET") return listPostAuthors(req, env);
       const pm = path.match(/^\/api\/posts\/([^/]+)(?:\/(pin))?$/);
       if (pm) {
         const id = pm[1];
@@ -73,28 +114,21 @@ export default {
         if (req.method === "PATCH") return updatePost(req, env, id);
         if (req.method === "DELETE") return deletePost(req, env, id);
       }
-
-      // ──── Session ────
       if (path === "/api/me") return getMe(req, env);
       if (path === "/api/me/nickname") return setNickname(req, env);
-
-      // ──── Admin (level >= 4) ────
       if (path === "/api/admin/users" && req.method === "GET") return adminListUsers(req, env);
+      const userMatch = path.match(/^\/api\/admin\/users\/([^/]+)$/);
+      if (userMatch && req.method === "PATCH") return adminUpdateUser(req, env, decodeURIComponent(userMatch[1]));
       if (path === "/api/admin/comments" && req.method === "GET") return adminListComments(req, env);
       const promoteMatch = path.match(/^\/api\/admin\/comments\/([^/]+)\/promote$/);
       if (promoteMatch && req.method === "POST") return adminPromoteComment(req, env, promoteMatch[1]);
-
-      // ──── Uploads (R2) ────
       if (path === "/api/upload/image" && req.method === "POST") return uploadImage(req, env);
-
-      // ──── Comments ────
       if (path === "/api/comments" && req.method === "GET") return listComments(req, env);
       if (path === "/api/comments" && req.method === "POST") return createComment(req, env);
       if (path === "/api/comments/counts" && req.method === "GET") return countComments(req, env);
       if (path === "/api/comments/verse-feed" && req.method === "GET") return verseFeed(req, env);
       if (path === "/api/comments/recent" && req.method === "GET") return recentFeed(req, env);
       if (path === "/api/comments/mine" && req.method === "GET") return mineFeed(req, env);
-
       const m = path.match(/^\/api\/comments\/([^/]+)(?:\/(react|flag|pin))?$/);
       if (m) {
         const id = m[1];
@@ -105,15 +139,9 @@ export default {
         if (req.method === "PATCH") return editComment(req, env, id);
         if (req.method === "DELETE") return deleteComment(req, env, id);
       }
-
-      // ──── Upload check (dedup) ────
       if (path === "/api/upload/check" && req.method === "POST") return checkUpload(req, env);
-
-      // ──── Visits ────
       if (path === "/api/visits/touch" && req.method === "POST") return touchVisit(req, env);
       if (path === "/api/visits/badges" && req.method === "GET") return visitsBadges(req, env);
-
-      // ──── Events (사용자 개인 일정) ────
       if (path === "/api/events" && req.method === "GET") return listEvents(req, env);
       if (path === "/api/events" && req.method === "POST") return createEvent(req, env);
       const evMatch = path.match(/^\/api\/events\/([^/]+)$/);
@@ -122,52 +150,41 @@ export default {
         if (req.method === "PUT") return updateEvent(req, env, id);
         if (req.method === "DELETE") return deleteEvent(req, env, id);
       }
-
-      // ──── News (사이트 공지/업데이트/릴리스/로드맵) ────
-      // GET /api/news        → 발행 글 목록 (admin 은 ?include_drafts=1)
-      // GET /api/news/:slug  → 단일 글 (slug)
-      // POST /api/news       → admin 생성
-      // PUT /api/news/:id    → admin 수정 (id 기준)
-      // DELETE /api/news/:id → admin 삭제 (id 기준)
       if (path === "/api/news" && req.method === "GET") return listNews(req, env);
       if (path === "/api/news" && req.method === "POST") return createNews(req, env);
       const newsMatch = path.match(/^\/api\/news\/([^/]+)$/);
       if (newsMatch) {
-        // 한글 slug 는 URL.pathname 에서 percent-encoded 로 반환되므로 디코드.
-        let idOrSlug: string;
-        try { idOrSlug = decodeURIComponent(newsMatch[1]); }
-        catch { idOrSlug = newsMatch[1]; }
+        let idOrSlug;
+        try {
+          idOrSlug = decodeURIComponent(newsMatch[1]);
+        } catch {
+          idOrSlug = newsMatch[1];
+        }
         if (req.method === "GET") return getNews(req, env, idOrSlug);
         if (req.method === "PUT") return updateNews(req, env, idOrSlug);
         if (req.method === "DELETE") return deleteNews(req, env, idOrSlug);
       }
-
       return json({ error: "not found" }, 404);
-    } catch (e: unknown) {
+    } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       return json({ error: "server error", detail: msg }, 500);
     }
-  },
+  }
 };
-
-// ───────────────────── helpers ─────────────────────
-
-function json(body: unknown, status = 200, headers: Record<string, string> = {}): Response {
+function json(body, status = 200, headers = {}) {
   return new Response(JSON.stringify(body), {
     status,
     headers: {
       "Content-Type": "application/json; charset=utf-8",
       "Cache-Control": "private, no-store",
-      ...headers,
-    },
+      ...headers
+    }
   });
 }
-
-function uuid(): string {
+function uuid() {
   return crypto.randomUUID();
 }
-
-function getCookie(req: Request, name: string): string | null {
+function getCookie(req, name) {
   const raw = req.headers.get("Cookie");
   if (!raw) return null;
   for (const part of raw.split(";")) {
@@ -176,66 +193,51 @@ function getCookie(req: Request, name: string): string | null {
   }
   return null;
 }
-
-function setCookieHeader(name: string, value: string, ttlSeconds: number): string {
+function setCookieHeader(name, value, ttlSeconds) {
   const attrs = [
     `${name}=${value}`,
     "Path=/",
     "HttpOnly",
     "Secure",
     "SameSite=Lax",
-    `Max-Age=${ttlSeconds}`,
+    `Max-Age=${ttlSeconds}`
   ];
   return attrs.join("; ");
 }
-
-function clearCookieHeader(name: string): string {
+function clearCookieHeader(name) {
   return `${name}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`;
 }
-
-// ── HMAC-SHA256 JWT (HS256), tiny implementation ──
-async function hmacSign(secret: string, data: string): Promise<string> {
+async function hmacSign(secret, data) {
   const key = await crypto.subtle.importKey(
     "raw",
     new TextEncoder().encode(secret),
     { name: "HMAC", hash: "SHA-256" },
     false,
-    ["sign"],
+    ["sign"]
   );
   const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(data));
   return b64url(new Uint8Array(sig));
 }
-
-async function hmacVerify(secret: string, data: string, expected: string): Promise<boolean> {
+async function hmacVerify(secret, data, expected) {
   const sig = await hmacSign(secret, data);
-  // constant-time compare
   if (sig.length !== expected.length) return false;
   let diff = 0;
   for (let i = 0; i < sig.length; i++) diff |= sig.charCodeAt(i) ^ expected.charCodeAt(i);
   return diff === 0;
 }
-
-function b64url(bytes: Uint8Array): string {
+function b64url(bytes) {
   let s = "";
   for (const b of bytes) s += String.fromCharCode(b);
   return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
-function b64urlText(t: string): string {
-  return btoa(unescape(encodeURIComponent(t)))
-    .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+function b64urlText(t) {
+  return btoa(unescape(encodeURIComponent(t))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
-function b64urlDecodeText(s: string): string {
-  const pad = s.length % 4 === 0 ? "" : "=".repeat(4 - (s.length % 4));
+function b64urlDecodeText(s) {
+  const pad = s.length % 4 === 0 ? "" : "=".repeat(4 - s.length % 4);
   return decodeURIComponent(escape(atob(s.replace(/-/g, "+").replace(/_/g, "/") + pad)));
 }
-
-interface SessionPayload {
-  sub: string;        // user id
-  iat: number;
-  exp: number;
-}
-
-async function signSession(secret: string, payload: SessionPayload): Promise<string> {
+async function signSession(secret, payload) {
   const header = { alg: "HS256", typ: "JWT" };
   const head = b64urlText(JSON.stringify(header));
   const body = b64urlText(JSON.stringify(payload));
@@ -243,63 +245,46 @@ async function signSession(secret: string, payload: SessionPayload): Promise<str
   const sig = await hmacSign(secret, data);
   return `${data}.${sig}`;
 }
-
-async function verifySession(secret: string, token: string | null): Promise<SessionPayload | null> {
+async function verifySession(secret, token) {
   if (!token) return null;
   const parts = token.split(".");
   if (parts.length !== 3) return null;
   const [h, p, s] = parts;
   const data = `${h}.${p}`;
-  if (!(await hmacVerify(secret, data, s))) return null;
-  let payload: SessionPayload;
-  try { payload = JSON.parse(b64urlDecodeText(p)); } catch { return null; }
-  if (typeof payload.exp !== "number" || payload.exp < Math.floor(Date.now() / 1000)) return null;
+  if (!await hmacVerify(secret, data, s)) return null;
+  let payload;
+  try {
+    payload = JSON.parse(b64urlDecodeText(p));
+  } catch {
+    return null;
+  }
+  if (typeof payload.exp !== "number" || payload.exp < Math.floor(Date.now() / 1e3)) return null;
   return payload;
 }
-
-async function currentUserId(req: Request, env: Env): Promise<string | null> {
+async function currentUserId(req, env) {
   const sess = await verifySession(env.AUTH_SECRET, getCookie(req, COOKIE_NAME));
   return sess?.sub ?? null;
 }
-
-interface UserRow {
-  id: string;
-  google_id: string;
-  email: string;
-  display_name: string | null;
-  avatar_url: string | null;
-  affiliation: string | null;
-  level: number;
-}
-
-async function loadUser(env: Env, userId: string): Promise<UserRow | null> {
-  // 회원관리 '최근 접속' 이 OAuth 재로그인 없이도 매 API 호출에 갱신되도록.
-  // (이전엔 OAuth callback 에서만 update → 한 번 로그인 후엔 영원히 stale.)
+async function loadUser(env, userId) {
   await env.DB.prepare(
-    "UPDATE users SET last_seen_at=datetime('now') WHERE id=?",
+    "UPDATE users SET last_seen_at=datetime('now') WHERE id=?"
   ).bind(userId).run();
   return env.DB.prepare(
-    "SELECT id, google_id, email, display_name, avatar_url, affiliation, level FROM users WHERE id=?",
-  ).bind(userId).first<UserRow>();
+    "SELECT id, google_id, email, display_name, avatar_url, affiliation, level FROM users WHERE id=?"
+  ).bind(userId).first();
 }
-
-// ───────────────────── auth flow ─────────────────────
-
-async function loginStart(req: Request, env: Env): Promise<Response> {
+async function loginStart(req, env) {
   const url = new URL(req.url);
   const next = url.searchParams.get("next") ?? "/";
-  // provider 기본값 = kakao (메인). ?provider=google 로 구글 선택.
   const provider = url.searchParams.get("provider") === "google" ? "google" : "kakao";
   const state = `${uuid()}.${b64urlText(next)}`;
-
-  let auth: URL;
+  let auth;
   if (provider === "kakao") {
     auth = new URL("https://kauth.kakao.com/oauth/authorize");
     auth.searchParams.set("client_id", env.KAKAO_REST_API_KEY);
     auth.searchParams.set("redirect_uri", `${env.SITE_ORIGIN}/api/auth/callback/kakao`);
     auth.searchParams.set("response_type", "code");
     auth.searchParams.set("state", state);
-    // 닉네임·프로필 이미지 동의 항목 (카카오 개발자콘솔에서 사전 설정)
     auth.searchParams.set("scope", "profile_nickname profile_image");
   } else {
     auth = new URL("https://accounts.google.com/o/oauth2/v2/auth");
@@ -311,22 +296,22 @@ async function loginStart(req: Request, env: Env): Promise<Response> {
     auth.searchParams.set("access_type", "online");
     auth.searchParams.set("prompt", "select_account");
   }
-
   return new Response(null, {
     status: 302,
     headers: {
       Location: auth.toString(),
-      "Set-Cookie": setCookieHeader("jb_oauth_state", state, 600),
-    },
+      "Set-Cookie": setCookieHeader("jb_oauth_state", state, 600)
+    }
   });
 }
-
-/** state 접미부에서 next 경로를 복원하고 닉네임 미설정 시 닉네임 페이지로 보낸다. */
-function resolveNext(state: string, needsNickname: boolean): string {
+function resolveNext(state, needsNickname) {
   let nextPath = "/";
   const dot = state.indexOf(".");
   if (dot > 0) {
-    try { nextPath = b64urlDecodeText(state.slice(dot + 1)) || "/"; } catch {}
+    try {
+      nextPath = b64urlDecodeText(state.slice(dot + 1)) || "/";
+    } catch {
+    }
     if (!nextPath.startsWith("/")) nextPath = "/";
   }
   if (needsNickname) {
@@ -334,8 +319,7 @@ function resolveNext(state: string, needsNickname: boolean): string {
   }
   return nextPath;
 }
-
-async function loginCallback(req: Request, env: Env): Promise<Response> {
+async function loginCallback(req, env) {
   const url = new URL(req.url);
   const code = url.searchParams.get("code");
   const state = url.searchParams.get("state");
@@ -343,8 +327,6 @@ async function loginCallback(req: Request, env: Env): Promise<Response> {
   if (!code || !state || state !== stored) {
     return json({ error: "invalid state" }, 400);
   }
-
-  // Exchange code → tokens
   const tokRes = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -353,53 +335,42 @@ async function loginCallback(req: Request, env: Env): Promise<Response> {
       client_id: env.GOOGLE_CLIENT_ID,
       client_secret: env.GOOGLE_CLIENT_SECRET,
       redirect_uri: `${env.SITE_ORIGIN}/api/auth/callback/google`,
-      grant_type: "authorization_code",
-    }),
+      grant_type: "authorization_code"
+    })
   });
   if (!tokRes.ok) {
     const t = await tokRes.text();
     return json({ error: "token exchange failed", detail: t }, 400);
   }
-  const tok = await tokRes.json() as { id_token?: string; access_token?: string };
+  const tok = await tokRes.json();
   if (!tok.id_token) return json({ error: "no id_token" }, 400);
-
-  // Decode id_token (JWT). We do NOT verify Google's signature here — we just
-  // need profile claims, and the token came directly from Google over TLS.
-  // For stronger guarantees, fetch /tokeninfo or verify against Google's JWKS.
   const idParts = tok.id_token.split(".");
   if (idParts.length !== 3) return json({ error: "bad id_token" }, 400);
-  let claims: { sub: string; email: string; name: string; picture?: string };
+  let claims;
   try {
     claims = JSON.parse(b64urlDecodeText(idParts[1]));
   } catch {
     return json({ error: "bad id_token claims" }, 400);
   }
-
-  // Upsert user. NOTE: google_name (legal name) is stored but never returned.
   const existing = await env.DB.prepare(
-    "SELECT id, display_name FROM users WHERE google_id=?",
-  ).bind(claims.sub).first<{ id: string; display_name: string | null }>();
-
-  let userId: string;
+    "SELECT id, display_name FROM users WHERE google_id=?"
+  ).bind(claims.sub).first();
+  let userId;
   if (existing) {
     userId = existing.id;
     await env.DB.prepare(
-      "UPDATE users SET provider='google', email=?, google_name=?, avatar_url=?, last_seen_at=datetime('now'), updated_at=datetime('now') WHERE id=?",
+      "UPDATE users SET provider='google', email=?, google_name=?, avatar_url=?, last_seen_at=datetime('now'), updated_at=datetime('now') WHERE id=?"
     ).bind(claims.email, claims.name, claims.picture ?? null, userId).run();
   } else {
     userId = uuid();
     await env.DB.prepare(
       `INSERT INTO users (id, provider, google_id, email, google_name, avatar_url, last_seen_at)
-       VALUES (?, 'google', ?, ?, ?, ?, datetime('now'))`,
+       VALUES (?, 'google', ?, ?, ?, ?, datetime('now'))`
     ).bind(userId, claims.sub, claims.email, claims.name, claims.picture ?? null).run();
   }
-
-  // 닉네임은 강제하지 않음 — 원래 위치로 복귀. 닉네임은 개인설정에서 설정.
   return issueSessionRedirect(env, userId, false, state);
 }
-
-/** 카카오 OAuth 콜백 — code → token → /v2/user/me → upsert(kakao_id). */
-async function loginCallbackKakao(req: Request, env: Env): Promise<Response> {
+async function loginCallbackKakao(req, env) {
   const url = new URL(req.url);
   const code = url.searchParams.get("code");
   const state = url.searchParams.get("state");
@@ -407,81 +378,61 @@ async function loginCallbackKakao(req: Request, env: Env): Promise<Response> {
   if (!code || !state || state !== stored) {
     return json({ error: "invalid state" }, 400);
   }
-
-  const body: Record<string, string> = {
+  const body = {
     grant_type: "authorization_code",
     client_id: env.KAKAO_REST_API_KEY,
     redirect_uri: `${env.SITE_ORIGIN}/api/auth/callback/kakao`,
-    code,
+    code
   };
   if (env.KAKAO_CLIENT_SECRET) body.client_secret = env.KAKAO_CLIENT_SECRET;
-
   const tokRes = await fetch("https://kauth.kakao.com/oauth/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded;charset=utf-8" },
-    body: new URLSearchParams(body),
+    body: new URLSearchParams(body)
   });
   if (!tokRes.ok) {
     const t = await tokRes.text();
     return json({ error: "token exchange failed", detail: t }, 400);
   }
-  const tok = await tokRes.json() as { access_token?: string };
+  const tok = await tokRes.json();
   if (!tok.access_token) return json({ error: "no access_token" }, 400);
-
-  // 프로필 조회
   const meRes = await fetch("https://kapi.kakao.com/v2/user/me", {
-    headers: { Authorization: `Bearer ${tok.access_token}` },
+    headers: { Authorization: `Bearer ${tok.access_token}` }
   });
   if (!meRes.ok) {
     const t = await meRes.text();
     return json({ error: "profile fetch failed", detail: t }, 400);
   }
-  const me = await meRes.json() as {
-    id: number;
-    kakao_account?: {
-      email?: string;
-      profile?: { nickname?: string; profile_image_url?: string };
-    };
-  };
+  const me = await meRes.json();
   const kakaoId = String(me.id);
   const acct = me.kakao_account ?? {};
   const nickname = acct.profile?.nickname ?? null;
   const avatar = acct.profile?.profile_image_url ?? null;
   const email = acct.email ?? null;
-
   const existing = await env.DB.prepare(
-    "SELECT id, display_name FROM users WHERE kakao_id=?",
-  ).bind(kakaoId).first<{ id: string; display_name: string | null }>();
-
-  let userId: string;
+    "SELECT id, display_name FROM users WHERE kakao_id=?"
+  ).bind(kakaoId).first();
+  let userId;
   if (existing) {
     userId = existing.id;
     await env.DB.prepare(
-      "UPDATE users SET provider='kakao', email=?, google_name=?, avatar_url=?, last_seen_at=datetime('now'), updated_at=datetime('now') WHERE id=?",
+      "UPDATE users SET provider='kakao', email=?, google_name=?, avatar_url=?, last_seen_at=datetime('now'), updated_at=datetime('now') WHERE id=?"
     ).bind(email, nickname, avatar, userId).run();
   } else {
     userId = uuid();
     await env.DB.prepare(
       `INSERT INTO users (id, provider, kakao_id, email, google_name, avatar_url, last_seen_at)
-       VALUES (?, 'kakao', ?, ?, ?, ?, datetime('now'))`,
+       VALUES (?, 'kakao', ?, ?, ?, ?, datetime('now'))`
     ).bind(userId, kakaoId, email, nickname, avatar).run();
   }
-
   return issueSessionRedirect(env, userId, false, state);
 }
-
-/** 세션 쿠키 발급 + next 경로로 302 리다이렉트 (구글·카카오 공용). */
-async function issueSessionRedirect(
-  env: Env,
-  userId: string,
-  needsNickname: boolean,
-  state: string,
-): Promise<Response> {
-  const now = Math.floor(Date.now() / 1000);
+async function issueSessionRedirect(env, userId, needsNickname, state) {
+  const now = Math.floor(Date.now() / 1e3);
   const session = await signSession(env.AUTH_SECRET, {
     sub: userId,
     iat: now,
-    exp: now + SESSION_TTL,
+    exp: now + SESSION_TTL
   });
   const nextPath = resolveNext(state, needsNickname);
   const headers = new Headers({ Location: `${env.SITE_ORIGIN}${nextPath}` });
@@ -489,22 +440,21 @@ async function issueSessionRedirect(
   headers.append("Set-Cookie", clearCookieHeader("jb_oauth_state"));
   return new Response(null, { status: 302, headers });
 }
-
-function logout(): Response {
+function logout() {
   return new Response(null, {
     status: 302,
     headers: {
       Location: "/",
-      "Set-Cookie": clearCookieHeader(COOKIE_NAME),
-    },
+      "Set-Cookie": clearCookieHeader(COOKIE_NAME)
+    }
   });
 }
-
-async function getMe(req: Request, env: Env): Promise<Response> {
+async function getMe(req, env) {
   const uid = await currentUserId(req, env);
   if (!uid) return json({ user: null });
   const u = await loadUser(env, uid);
   if (!u) return json({ user: null });
+  const mp = await env.DB.prepare("SELECT branch, real_name FROM member_profiles WHERE user_id=?").bind(uid).first();
   return json({
     user: {
       id: u.id,
@@ -513,14 +463,25 @@ async function getMe(req: Request, env: Env): Promise<Response> {
       affiliation: u.affiliation,
       level: u.level,
       needs_nickname: !u.display_name,
-    },
+      member: mp ? { branch: mp.branch, real_name: mp.real_name ?? "" } : null
+    }
   });
 }
-
-async function setNickname(req: Request, env: Env): Promise<Response> {
+async function setNickname(req, env) {
   const uid = await currentUserId(req, env);
   if (!uid) return json({ error: "not authenticated" }, 401);
-  const body = await req.json().catch(() => ({})) as { nickname?: string; affiliation?: string | null };
+  const body = await req.json().catch(() => ({}));
+  const hasMember = Object.prototype.hasOwnProperty.call(body, "member");
+  const memberBranch = body.member ? String(body.member.branch ?? "") : null;
+  const memberRealName = body.member ? String(body.member.real_name ?? "").trim().replace(/\s+/g, " ") : null;
+  if (hasMember && body.member) {
+    if (!memberRealName || memberRealName.length < 2 || memberRealName.length > 20 || !/^[\p{L} ]+$/u.test(memberRealName)) {
+      return json({ error: "실명을 확인해 주세요 (2~20자, 문자만)" }, 400);
+    }
+    if (!BRANCH_CODES.has(memberBranch)) {
+      return json({ error: "지부/분원을 선택해 주세요" }, 400);
+    }
+  }
   const nickname = (body.nickname ?? "").trim();
   if (nickname.length < 2 || nickname.length > 24) {
     return json({ error: "닉네임은 2~24자여야 합니다" }, 400);
@@ -532,109 +493,96 @@ async function setNickname(req: Request, env: Env): Promise<Response> {
   if (NICKNAME_RESERVED.some((r) => lower.includes(r.toLowerCase()))) {
     return json({ error: "운영자·단체명·교리적 권위를 유추할 수 있는 닉네임입니다" }, 400);
   }
-  // 중복 확인은 의도적으로 하지 않음. 프로필 이미지로 사용자를 구분.
-
-  const old = await env.DB.prepare("SELECT display_name FROM users WHERE id=?").bind(uid).first<{ display_name: string | null }>();
+  const old = await env.DB.prepare("SELECT display_name FROM users WHERE id=?").bind(uid).first();
   const oldName = old?.display_name ?? null;
-
-  // 닉네임이 채워지면 자동 승급: 대기(0) → 일반(1). 이미 그 이상이면 유지.
-  // (이전엔 D1 직접 UPDATE 로 등급 변경해야 했음 — 닉네임 흐름 자체에 자동 승급
-  // 합의가 있었으나 코드 누락. 신규 가입자도 닉네임 등록 즉시 일반.)
   await env.DB.prepare(
-    "UPDATE users SET display_name=?, affiliation=?, level=MAX(level, 1), updated_at=datetime('now') WHERE id=?",
+    "UPDATE users SET display_name=?, affiliation=?, level=MAX(level, 1), updated_at=datetime('now') WHERE id=?"
   ).bind(nickname, body.affiliation ?? null, uid).run();
-
   if (oldName !== nickname) {
     await env.DB.prepare(
-      "INSERT INTO display_name_history (user_id, old_name, new_name) VALUES (?, ?, ?)",
+      "INSERT INTO display_name_history (user_id, old_name, new_name) VALUES (?, ?, ?)"
     ).bind(uid, oldName, nickname).run();
   }
-
+  if (hasMember) {
+    if (memberBranch) {
+      await env.DB.prepare(
+        `INSERT INTO member_profiles (user_id, branch, real_name) VALUES (?, ?, ?)
+         ON CONFLICT(user_id) DO UPDATE SET branch=excluded.branch, real_name=excluded.real_name, updated_at=datetime('now')`
+      ).bind(uid, memberBranch, memberRealName).run();
+    } else {
+      await env.DB.prepare("DELETE FROM member_profiles WHERE user_id=?").bind(uid).run();
+    }
+  }
   return json({ ok: true });
 }
-
-// ───────────────────── admin ─────────────────────
-
-interface AdminUserRow {
-  id: string;
-  created_at: string;
-  avatar_url: string | null;
-  display_name: string | null;
-  email: string;
-  level: number;
-  is_seed: number;
-  last_seen_at: string | null;
-  comments_count: number;
-  flags_received: number;
-}
-
-async function adminListUsers(req: Request, env: Env): Promise<Response> {
+const USER_LEVEL_MIN = 0;
+const USER_LEVEL_MAX = 4;
+async function adminListUsers(req, env) {
   const uid = await currentUserId(req, env);
   if (!uid) return json({ error: "unauthenticated" }, 401);
   const me = await loadUser(env, uid);
   if (!me || me.level < 4) return json({ error: "forbidden" }, 403);
-
   const rs = await env.DB.prepare(
     `
     SELECT
       u.id,
       u.created_at,
+      u.provider,
       u.avatar_url,
       u.display_name,
       u.email,
       u.level,
       u.is_seed,
       u.last_seen_at,
+      (SELECT COUNT(*) FROM posts p WHERE p.author_id = u.id AND p.status = 'published') AS posts_count,
       (SELECT COUNT(*) FROM comments c WHERE c.user_id = u.id AND c.status = 'published') AS comments_count,
       (SELECT COUNT(*) FROM flags f
          JOIN comments c ON c.id = f.comment_id
-        WHERE c.user_id = u.id AND f.status = 'open') AS flags_received
+        WHERE c.user_id = u.id AND f.status = 'open') AS flags_received,
+      mp.branch AS member_branch,
+      mp.real_name AS member_real_name
     FROM users u
+    LEFT JOIN member_profiles mp ON mp.user_id = u.id
     ORDER BY u.created_at DESC, u.id DESC
-    `,
-  ).all<AdminUserRow>();
-
+    `
+  ).all();
   return json({ users: rs.results ?? [] });
 }
-
-interface AdminCommentRow {
-  id: string;
-  target_type: string;
-  target_id: string;
-  body: string;
-  type: string;
-  status: string;
-  promoted_to_note_id: string | null;
-  created_at: string;
-  user_id: string;
-  display_name: string | null;
-  helpful_count: number;
-}
-
-// List comments for admin promotion UI. Filters:
-//   ?unpromoted=1   (default 1) — only comments NOT yet promoted
-//   ?type=question  — restrict to one comment type
-//   ?limit=N        — max rows (default 100, max 500)
-async function adminListComments(req: Request, env: Env): Promise<Response> {
+async function adminUpdateUser(req, env, id) {
   const uid = await currentUserId(req, env);
   if (!uid) return json({ error: "unauthenticated" }, 401);
   const me = await loadUser(env, uid);
   if (!me || me.level < 4) return json({ error: "forbidden" }, 403);
-
+  const body = await req.json().catch(() => ({}));
+  const level = body.level;
+  if (typeof level !== "number" || !Number.isInteger(level) || level < USER_LEVEL_MIN || level > USER_LEVEL_MAX) {
+    return json({ error: "등급 값이 올바르지 않습니다" }, 400);
+  }
+  if (id === uid) return json({ error: "자기 등급은 바꿀 수 없습니다" }, 400);
+  const found = await env.DB.prepare("SELECT id, level FROM users WHERE id=?").bind(id).first();
+  if (!found) return json({ error: "회원을 찾을 수 없습니다" }, 404);
+  if (found.level !== level) {
+    await env.DB.prepare("UPDATE users SET level=?, updated_at=datetime('now') WHERE id=?").bind(level, id).run();
+  }
+  return json({ ok: true, id, level });
+}
+async function adminListComments(req, env) {
+  const uid = await currentUserId(req, env);
+  if (!uid) return json({ error: "unauthenticated" }, 401);
+  const me = await loadUser(env, uid);
+  if (!me || me.level < 4) return json({ error: "forbidden" }, 403);
   const url = new URL(req.url);
   const unpromoted = (url.searchParams.get("unpromoted") ?? "1") === "1";
   const typeFilter = url.searchParams.get("type");
   const limitRaw = parseInt(url.searchParams.get("limit") ?? "100", 10);
   const limit = Math.min(Math.max(Number.isFinite(limitRaw) ? limitRaw : 100, 1), 500);
-
-  const where: string[] = ["c.status = 'published'"];
-  const binds: unknown[] = [];
+  const where = ["c.status = 'published'"];
+  const binds = [];
   if (unpromoted) where.push("c.promoted_to_note_id IS NULL");
   if (typeFilter && ALLOWED_TYPES.has(typeFilter)) {
     where.push("c.type = ?");
     binds.push(typeFilter);
   }
-
   const sql = `
     SELECT c.id, c.target_type, c.target_id, c.body, c.type, c.status,
            c.promoted_to_note_id, c.created_at,
@@ -645,48 +593,32 @@ async function adminListComments(req: Request, env: Env): Promise<Response> {
     WHERE ${where.join(" AND ")}
     ORDER BY c.created_at DESC
     LIMIT ?`;
-  const rs = await env.DB.prepare(sql).bind(...binds, limit).all<AdminCommentRow>();
+  const rs = await env.DB.prepare(sql).bind(...binds, limit).all();
   return json({ comments: rs.results ?? [] });
 }
-
-// Mark a comment as promoted into a vault note.
-// Body: { note_id: string }   (e.g. "uc-2026-05-15-1")
-// To clear an accidental promotion: { note_id: null }
-async function adminPromoteComment(req: Request, env: Env, id: string): Promise<Response> {
+async function adminPromoteComment(req, env, id) {
   const uid = await currentUserId(req, env);
   if (!uid) return json({ error: "unauthenticated" }, 401);
   const me = await loadUser(env, uid);
   if (!me || me.level < 4) return json({ error: "forbidden" }, 403);
-
-  const body = await req.json().catch(() => ({})) as { note_id?: string | null };
+  const body = await req.json().catch(() => ({}));
   const noteId = body.note_id;
   if (noteId !== null && (typeof noteId !== "string" || !/^uc-\d{4}-\d{2}-\d{2}-\d+$/.test(noteId))) {
     return json({ error: "note_id 형식이 잘못되었습니다 (uc-YYYY-MM-DD-N)" }, 400);
   }
-
   const found = await env.DB.prepare("SELECT id FROM comments WHERE id=?").bind(id).first();
   if (!found) return json({ error: "not found" }, 404);
-
   await env.DB.prepare(
-    `UPDATE comments SET promoted_to_note_id=?, updated_at=datetime('now') WHERE id=?`,
+    `UPDATE comments SET promoted_to_note_id=?, updated_at=datetime('now') WHERE id=?`
   ).bind(noteId, id).run();
-
   return json({ ok: true, id, promoted_to_note_id: noteId });
 }
-
-// ───────────────────── comments ─────────────────────
-
 const ALLOWED_TYPES = new Set(["memo", "question", "cross", "cite"]);
-const ALLOWED_TARGET_TYPES = new Set(["post"]);
+const ALLOWED_TARGET_TYPES = new Set(["post", "article", "place"]);
+const MEMBER_LEVEL = 2;
+const FEED_TARGETS = new Set(["article", "place"]);
 const MAX_ATTACHMENTS = 6;
-
-type Attachment =
-  | { type: "image"; url: string; width?: number; height?: number }
-  | { type: "video"; url: string; provider: "youtube"; videoId: string }
-  | { type: "map"; lat: number; lng: number; zoom?: number; label?: string };
-
-/** YouTube URL/ID → 11자 videoId 추출 (실패 시 null). */
-function parseYouTubeId(input: string): string | null {
+function parseYouTubeId(input) {
   const s = input.trim();
   if (/^[\w-]{11}$/.test(s)) return s;
   try {
@@ -702,74 +634,69 @@ function parseYouTubeId(input: string): string | null {
       const mShorts = u.pathname.match(/^\/(shorts|embed)\/([\w-]{11})/);
       if (mShorts) return mShorts[2];
     }
-  } catch {}
+  } catch {
+  }
   return null;
 }
-
-function sanitizeAttachments(input: unknown, env: Env): Attachment[] {
+function sanitizeAttachments(input, env) {
   if (!Array.isArray(input)) return [];
-  const allowedHosts = new Set<string>();
+  const allowedHosts = new Set();
   try {
     const u = new URL(env.UPLOADS_PUBLIC_BASE);
     allowedHosts.add(u.host);
-  } catch {}
-  const out: Attachment[] = [];
+  } catch {
+  }
+  const out = [];
   for (const raw of input) {
     if (!raw || typeof raw !== "object") continue;
-    const t = (raw as any).type;
+    const t = raw.type;
     if (t === "video") {
-      const id = parseYouTubeId(String((raw as any).url ?? (raw as any).videoId ?? ""));
+      const id = parseYouTubeId(String(raw.url ?? raw.videoId ?? ""));
       if (!id) continue;
       out.push({ type: "video", provider: "youtube", videoId: id, url: `https://www.youtube.com/watch?v=${id}` });
     } else if (t === "image") {
-      const url = String((raw as any).url ?? "");
+      const url = String(raw.url ?? "");
       try {
         const u = new URL(url);
         if (!allowedHosts.has(u.host)) continue;
       } catch {
         continue;
       }
-      const width = Number((raw as any).width);
-      const height = Number((raw as any).height);
+      const width = Number(raw.width);
+      const height = Number(raw.height);
       out.push({
         type: "image",
         url,
-        ...(Number.isFinite(width) ? { width } : {}),
-        ...(Number.isFinite(height) ? { height } : {}),
+        ...Number.isFinite(width) ? { width } : {},
+        ...Number.isFinite(height) ? { height } : {}
       });
     } else if (t === "map") {
-      const lat = Number((raw as any).lat);
-      const lng = Number((raw as any).lng);
+      const lat = Number(raw.lat);
+      const lng = Number(raw.lng);
       if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
       if (lat < -90 || lat > 90 || lng < -180 || lng > 180) continue;
-      const zoomNum = Number((raw as any).zoom);
-      const labelRaw = (raw as any).label;
-      const label = typeof labelRaw === "string" ? labelRaw.slice(0, 80) : undefined;
+      const zoomNum = Number(raw.zoom);
+      const labelRaw = raw.label;
+      const label = typeof labelRaw === "string" ? labelRaw.slice(0, 80) : void 0;
       out.push({
         type: "map",
         lat,
         lng,
-        ...(Number.isFinite(zoomNum) ? { zoom: Math.min(20, Math.max(1, zoomNum)) } : {}),
-        ...(label ? { label } : {}),
+        ...Number.isFinite(zoomNum) ? { zoom: Math.min(20, Math.max(1, zoomNum)) } : {},
+        ...label ? { label } : {}
       });
     }
     if (out.length >= MAX_ATTACHMENTS) break;
   }
   return out;
 }
-
-// Batch count: GET /api/comments/counts?targets=verse:slug:1,verse:slug:2,...
-// Returns { counts: { "<target>": N, ... } } — only entries with N > 0 are guaranteed present;
-// callers should default missing keys to 0.
-async function countComments(req: Request, env: Env): Promise<Response> {
+async function countComments(req, env) {
   const url = new URL(req.url);
   const raw = url.searchParams.get("targets");
   if (!raw) return json({ counts: {} });
   const targets = raw.split(",").map((s) => s.trim()).filter(Boolean).slice(0, 500);
   if (targets.length === 0) return json({ counts: {} });
-
-  // Group by target_type for a single SQL per type
-  const byType = new Map<string, string[]>();
+  const byType = new Map();
   for (const t of targets) {
     if (!t.includes(":")) continue;
     const [type, ...rest] = t.split(":");
@@ -777,41 +704,31 @@ async function countComments(req: Request, env: Env): Promise<Response> {
     const id = rest.join(":");
     if (!id) continue;
     if (!byType.has(type)) byType.set(type, []);
-    byType.get(type)!.push(id);
+    byType.get(type).push(id);
   }
-
-  const counts: Record<string, number> = {};
+  const counts = {};
   for (const [type, ids] of byType) {
     const placeholders = ids.map(() => "?").join(",");
     const rows = await env.DB.prepare(
       `SELECT target_id, COUNT(*) AS n
          FROM comments
         WHERE target_type=? AND status='published' AND target_id IN (${placeholders})
-        GROUP BY target_id`,
-    ).bind(type, ...ids).all<{ target_id: string; n: number }>();
+        GROUP BY target_id`
+    ).bind(type, ...ids).all();
     for (const r of rows.results ?? []) {
       counts[`${type}:${r.target_id}`] = r.n;
     }
   }
   return json({ counts });
 }
-
-// GET /api/comments/verse-feed?scripture=<slug>&chapter=<anchor>
-// 응답: { verses: [{ anchor, count, latest: {body, user_nickname, is_admin, created_at, has_photos} }] }
-// 댓글 0건 절은 제외. 정렬: latest.created_at desc.
-// latest 본문은 status='published' 중 최신 1건 (deleted 제외). body는 plain text 30자.
-async function verseFeed(req: Request, env: Env): Promise<Response> {
+async function verseFeed(req, env) {
   const url = new URL(req.url);
   const scripture = url.searchParams.get("scripture")?.trim();
   const chapter = url.searchParams.get("chapter")?.trim();
   if (!scripture || !chapter) return json({ verses: [] });
-
   const versePrefix = `${scripture}:`;
-  // chapter 안 verse anchor 패턴 — chapterKeyPattern 재사용
   const anchorPattern = chapterKeyPattern(scripture, chapter);
   const likePattern = `${versePrefix.replace(/[%_]/g, "\\$&")}${anchorPattern}`;
-
-  // 절별 카운트 + 최신 댓글 행
   const rows = await env.DB.prepare(
     `WITH cnt AS (
        SELECT target_id, COUNT(*) AS n, MAX(created_at) AS latest_at
@@ -829,29 +746,21 @@ async function verseFeed(req: Request, env: Env): Promise<Response> {
                      AND c.status='published'
                      AND c.created_at=cnt.latest_at
        JOIN users u ON u.id=c.user_id
-      ORDER BY cnt.latest_at DESC`,
-  ).bind(likePattern).all<{
-    target_id: string;
-    n: number;
-    latest_at: string;
-    body_html: string | null;
-    attachments: string | null;
-    user_nickname: string | null;
-    user_level: number;
-  }>();
-
+      ORDER BY cnt.latest_at DESC`
+  ).bind(likePattern).all();
   const verses = (rows.results ?? []).map((r) => {
     const anchor = r.target_id.slice(versePrefix.length);
     let photos = 0;
     if (r.attachments) {
       try {
         const arr = JSON.parse(r.attachments);
-        if (Array.isArray(arr)) photos = arr.filter((a: any) => a?.type === "image").length;
-      } catch {}
+        if (Array.isArray(arr)) photos = arr.filter((a) => a?.type === "image").length;
+      } catch {
+      }
     }
     const plain = stripHtmlToPlain(r.body_html ?? "");
     let preview = plain;
-    if (!preview && photos > 0) preview = `📷 사진 ${photos}장`;
+    if (!preview && photos > 0) preview = `\u{1F4F7} 사진 ${photos}장`;
     return {
       anchor,
       count: r.n,
@@ -860,33 +769,25 @@ async function verseFeed(req: Request, env: Env): Promise<Response> {
         user_nickname: r.user_nickname ?? "",
         is_admin: (r.user_level ?? 0) >= 4,
         created_at: toIsoUtc(r.latest_at),
-        has_photos: photos > 0,
-      },
+        has_photos: photos > 0
+      }
     };
   });
-
   return json({ verses }, 200, { "Cache-Control": "private, max-age=15" });
 }
-
-// admin-only scripture slug — 사용자 노출 surface 어디에도 보여서는 안 된다.
-// SSR 측 src/lib/scripture-visibility.ts 의 ADMIN_ONLY_SCRIPTURES 와 동일 set.
-const ADMIN_ONLY_SCRIPTURE_SLUGS = ["cheonjigaebyeokgyeong-hangeul"] as const;
-
-// 전체 피드 — 최근 발행 댓글을 타깃·작성자 메타 포함해서 반환.
-// 클라이언트가 목록 페이지(/feed/) 와 홈 사이트맵 피드 카드에서 사용.
-async function recentFeed(req: Request, env: Env): Promise<Response> {
+const ADMIN_ONLY_SCRIPTURE_SLUGS = ["cheonjigaebyeokgyeong-hangeul"];
+async function recentFeed(req, env) {
   const url = new URL(req.url);
   const limitRaw = parseInt(url.searchParams.get("limit") ?? "30", 10);
   const limit = Math.min(Math.max(limitRaw || 30, 1), 100);
   const before = url.searchParams.get("before");
-
-  const where: string[] = ["c.status='published'", "c.parent_id IS NULL"];
-  const args: unknown[] = [];
+  const where = ["c.status='published'", "c.parent_id IS NULL"];
+  const args = [];
+  where.push(`NOT (c.target_type='post' AND c.target_id IN (SELECT id FROM posts WHERE board IN (${PRIVATE_BOARDS_SQL})))`);
   if (before) {
     where.push("c.created_at < ?");
     args.push(before);
   }
-  // admin-only verse 댓글 제외 (target_id = "<slug>:<anchor>").
   for (const slug of ADMIN_ONLY_SCRIPTURE_SLUGS) {
     where.push("NOT (c.target_type='verse' AND c.target_id LIKE ? ESCAPE '\\')");
     args.push(slug.replace(/[%_]/g, "\\$&") + ":%");
@@ -899,35 +800,21 @@ async function recentFeed(req: Request, env: Env): Promise<Response> {
        JOIN users u ON u.id = c.user_id
       WHERE ${where.join(" AND ")}
       ORDER BY c.created_at DESC
-      LIMIT ?`,
-  ).bind(...args, limit).all<{
-    id: string;
-    target_type: string;
-    target_id: string;
-    body_html: string | null;
-    attachments: string | null;
-    created_at: string;
-    author_name: string | null;
-    author_avatar: string | null;
-    author_level: number;
-  }>();
-
+      LIMIT ?`
+  ).bind(...args, limit).all();
   const items = (rows.results ?? []).map((r) => buildFeedItem(r));
   const nextCursor = items.length === limit ? items[items.length - 1].created_at : null;
   return json({ items, nextCursor }, 200, { "Cache-Control": "public, max-age=15" });
 }
-
-// /feed/me/ — 로그인 사용자의 댓글 목록.
-async function mineFeed(req: Request, env: Env): Promise<Response> {
+async function mineFeed(req, env) {
   const me = await currentUserId(req, env);
   if (!me) return json({ items: [], nextCursor: null }, 200);
   const url = new URL(req.url);
   const limitRaw = parseInt(url.searchParams.get("limit") ?? "30", 10);
   const limit = Math.min(Math.max(limitRaw || 30, 1), 100);
   const before = url.searchParams.get("before");
-
-  const where: string[] = ["c.status='published'", "c.user_id=?"];
-  const args: unknown[] = [me];
+  const where = ["c.status='published'", "c.user_id=?"];
+  const args = [me];
   if (before) {
     where.push("c.created_at < ?");
     args.push(before);
@@ -940,47 +827,25 @@ async function mineFeed(req: Request, env: Env): Promise<Response> {
        JOIN users u ON u.id = c.user_id
       WHERE ${where.join(" AND ")}
       ORDER BY c.created_at DESC
-      LIMIT ?`,
-  ).bind(...args, limit).all<{
-    id: string;
-    target_type: string;
-    target_id: string;
-    body_html: string | null;
-    attachments: string | null;
-    created_at: string;
-    author_name: string | null;
-    author_avatar: string | null;
-    author_level: number;
-  }>();
-
+      LIMIT ?`
+  ).bind(...args, limit).all();
   const items = (rows.results ?? []).map((r) => buildFeedItem(r));
   const nextCursor = items.length === limit ? items[items.length - 1].created_at : null;
   return json({ items, nextCursor }, 200, { "Cache-Control": "private, max-age=5" });
 }
-
-function buildFeedItem(r: {
-  id: string;
-  target_type: string;
-  target_id: string;
-  body_html: string | null;
-  attachments: string | null;
-  created_at: string;
-  author_name: string | null;
-  author_avatar: string | null;
-  author_level: number;
-}) {
+function buildFeedItem(r) {
   let photos = 0;
   if (r.attachments) {
     try {
       const arr = JSON.parse(r.attachments);
-      if (Array.isArray(arr)) photos = arr.filter((a: { type?: string }) => a?.type === "image").length;
-    } catch {}
+      if (Array.isArray(arr)) photos = arr.filter((a) => a?.type === "image").length;
+    } catch {
+    }
   }
   const plain = stripHtmlToPlain(r.body_html ?? "");
-  const preview = plain || (photos > 0 ? `📷 사진 ${photos}장` : "");
-  // target_id 가 "scripture-slug:anchor" 형태(verse) 일 때 분해해서 라우팅 힌트 제공.
-  let scripture: string | null = null;
-  let anchor: string | null = null;
+  const preview = plain || (photos > 0 ? `\u{1F4F7} 사진 ${photos}장` : "");
+  let scripture = null;
+  let anchor = null;
   if (r.target_type === "verse" && r.target_id.includes(":")) {
     const i = r.target_id.indexOf(":");
     scripture = r.target_id.slice(0, i);
@@ -998,44 +863,28 @@ function buildFeedItem(r: {
     author: {
       display_name: r.author_name ?? "",
       avatar_url: r.author_avatar ?? null,
-      is_admin: (r.author_level ?? 0) >= 4,
-    },
+      is_admin: (r.author_level ?? 0) >= 4
+    }
   };
 }
-
-// SQLite datetime('now') 는 "YYYY-MM-DD HH:MM:SS" (UTC) 형식이지만 'Z' 접미사가
-// 없어 클라이언트 JS `new Date(s)` 가 local time 으로 잘못 해석한다(KST 9h 어긋남).
-// 응답에 담기 전 ISO 8601 + Z 로 정규화.
-function toIsoUtc(s: string | null | undefined): string {
+function toIsoUtc(s) {
   if (!s) return "";
   if (s.includes("T") || /[Zz]$|[+-]\d\d:?\d\d$/.test(s)) return s;
   return s.replace(" ", "T") + "Z";
 }
-
-function stripHtmlToPlain(html: string): string {
-  // worker 환경(no DOM) — 정규식 기반. 태그 제거 후 엔티티 디코드.
+function stripHtmlToPlain(html) {
   const noTags = html.replace(/<[^>]*>/g, "");
-  return noTags
-    .replace(/&nbsp;/g, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/\s+/g, " ")
-    .trim();
+  return noTags.replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/\s+/g, " ").trim();
 }
-
-async function listComments(req: Request, env: Env): Promise<Response> {
+async function listComments(req, env) {
   const url = new URL(req.url);
   const target = url.searchParams.get("target");
   if (!target || !target.includes(":")) return json({ error: "missing target" }, 400);
   const [targetType, ...rest] = target.split(":");
   const targetId = rest.join(":");
   if (!ALLOWED_TARGET_TYPES.has(targetType)) return json({ error: "invalid target type" }, 400);
-
-  // published + deleted 모두 반환. deleted는 답글이 있어 placeholder로 남은 행.
-  // hidden(큐레이터 숨김)은 노출 안 함.
+  const priv = await privatePostOf(env, targetType, targetId);
+  if (priv && !canSeePost(priv.board, priv.author_id, await viewerOf(req, env))) return json({ error: "not found" }, 404);
   const rows = await env.DB.prepare(
     `SELECT c.id, c.target_type, c.target_id, c.parent_id, c.body, c.body_html, c.type,
             c.status, c.attachments, c.is_pinned, c.promoted_to_note_id, c.created_at, c.updated_at,
@@ -1047,33 +896,32 @@ async function listComments(req: Request, env: Env): Promise<Response> {
      FROM comments c
      JOIN users u ON u.id = c.user_id
      WHERE c.target_type=? AND c.target_id=? AND c.status IN ('published','deleted')
-     ORDER BY c.is_pinned DESC, c.created_at ASC`,
+     ORDER BY c.is_pinned DESC, c.created_at ASC`
   ).bind(targetType, targetId).all();
-
   const me = await currentUserId(req, env);
-  let myReactions: Set<string> = new Set();
+  let myReactions = new Set();
   if (me) {
     const r = await env.DB.prepare(
       `SELECT comment_id FROM reactions
        WHERE user_id=? AND comment_id IN (SELECT id FROM comments WHERE target_type=? AND target_id=?)
-       AND type='helpful'`,
-    ).bind(me, targetType, targetId).all<{ comment_id: string }>();
+       AND type='helpful'`
+    ).bind(me, targetType, targetId).all();
     myReactions = new Set((r.results ?? []).map((x) => x.comment_id));
   }
-
-  const comments = (rows.results ?? []).map((r: any) => {
+  const comments = (rows.results ?? []).map((r) => {
     const isDeleted = r.status === "deleted";
-    let attachments: any[] = [];
+    let attachments = [];
     if (!isDeleted && r.attachments) {
       try {
         const parsed = JSON.parse(r.attachments);
         if (Array.isArray(parsed)) attachments = parsed;
-      } catch {}
+      } catch {
+      }
     }
     return {
       id: r.id,
       parent_id: r.parent_id,
-      body: isDeleted ? "" : (r.body ?? ""),
+      body: isDeleted ? "" : r.body ?? "",
       body_html: isDeleted ? "" : r.body_html,
       type: r.type,
       status: r.status,
@@ -1083,37 +931,27 @@ async function listComments(req: Request, env: Env): Promise<Response> {
       updated_at: toIsoUtc(r.updated_at),
       attachments,
       promoted_to_note_id: r.promoted_to_note_id ?? null,
-      author: isDeleted
-        ? { display_name: "", avatar_url: null, affiliation: null, level: 0 }
-        : {
-            display_name: r.author_name,
-            avatar_url: r.author_avatar,
-            affiliation: r.author_affiliation,
-            level: r.author_level,
-          },
+      author: isDeleted ? { display_name: "", avatar_url: null, affiliation: null, level: 0 } : {
+        display_name: r.author_name,
+        avatar_url: r.author_avatar,
+        affiliation: r.author_affiliation,
+        level: r.author_level
+      },
       helpful_count: isDeleted ? 0 : r.helpful_count,
       you_helpful: !isDeleted && myReactions.has(r.id),
-      author_id: isDeleted ? null : r.user_id,
+      author_id: isDeleted ? null : r.user_id
     };
   });
-
   return json({ target, count: comments.length, comments });
 }
-
-async function createComment(req: Request, env: Env): Promise<Response> {
+async function createComment(req, env) {
   const uid = await currentUserId(req, env);
   if (!uid) return json({ error: "not authenticated" }, 401);
   const u = await loadUser(env, uid);
   if (!u || !u.display_name) {
     return json({ error: "닉네임 설정 필요" }, 403);
   }
-  const body = await req.json().catch(() => ({})) as {
-    target?: string;
-    parent_id?: string | null;
-    body?: string;
-    type?: string;
-    attachments?: unknown;
-  };
+  const body = await req.json().catch(() => ({}));
   const target = body.target ?? "";
   if (!target.includes(":")) return json({ error: "missing target" }, 400);
   const [targetType, ...rest] = target.split(":");
@@ -1121,183 +959,176 @@ async function createComment(req: Request, env: Env): Promise<Response> {
   if (!ALLOWED_TARGET_TYPES.has(targetType)) return json({ error: "invalid target type" }, 400);
   const attachments = sanitizeAttachments(body.attachments, env);
   const text = (body.body ?? "").trim();
-  if (attachments.length === 0 && (text.length === 0 || text.length > 4000)) {
+  if (attachments.length === 0 && (text.length === 0 || text.length > 4e3)) {
     return json({ error: "댓글은 1~4000자여야 합니다 (또는 첨부 1개 이상)" }, 400);
   }
-  if (text.length > 4000) {
+  if (text.length > 4e3) {
     return json({ error: "댓글은 1~4000자여야 합니다" }, 400);
   }
   const type = body.type ?? "memo";
   if (!ALLOWED_TYPES.has(type)) return json({ error: "invalid type" }, 400);
-
+  const privTarget = await privatePostOf(env, targetType, targetId);
+  if (privTarget && !canSeePost(privTarget.board, privTarget.author_id, { id: uid, level: u.level ?? 0 })) {
+    return json({ error: "not found" }, 404);
+  }
+  if (FEED_TARGETS.has(targetType)) {
+    if ((u.level ?? 0) < MEMBER_LEVEL) return json({ error: "교인 인증 회원만 피드를 쓸 수 있습니다" }, 403);
+    const table = targetType === "article" ? "articles" : "places";
+    const ok = await env.DB.prepare(`SELECT 1 FROM ${table} WHERE id=? AND status='published'`).bind(targetId).first();
+    if (!ok) return json({ error: "not found" }, 404);
+  }
+  if (body.parent_id) {
+    const parent = await env.DB.prepare("SELECT target_type, target_id FROM comments WHERE id=?").bind(body.parent_id).first();
+    if (!parent || parent.target_type !== targetType || parent.target_id !== targetId) {
+      return json({ error: "invalid parent" }, 400);
+    }
+  }
   const id = uuid();
   const attJson = attachments.length > 0 ? JSON.stringify(attachments) : null;
   await env.DB.prepare(
     `INSERT INTO comments (id, target_type, target_id, user_id, parent_id, body, body_html, type, attachments)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(id, targetType, targetId, uid, body.parent_id ?? null, text, sanitizeHTML(text), type, attJson).run();
-
   return json({ ok: true, id });
 }
-
-async function editComment(req: Request, env: Env, id: string): Promise<Response> {
+async function editComment(req, env, id) {
   const uid = await currentUserId(req, env);
   if (!uid) return json({ error: "not authenticated" }, 401);
-  const owner = await env.DB.prepare("SELECT user_id FROM comments WHERE id=?").bind(id).first<{ user_id: string }>();
+  const owner = await env.DB.prepare("SELECT user_id FROM comments WHERE id=?").bind(id).first();
   if (!owner) return json({ error: "not found" }, 404);
   if (owner.user_id !== uid) return json({ error: "forbidden" }, 403);
-
-  // 답글이 하나라도 있으면 수정 잠금 (published + deleted 모두 카운트, hidden 제외)
   const replyCount = await env.DB.prepare(
-    "SELECT COUNT(*) AS n FROM comments WHERE parent_id=? AND status IN ('published','deleted')",
-  ).bind(id).first<{ n: number }>();
+    "SELECT COUNT(*) AS n FROM comments WHERE parent_id=? AND status IN ('published','deleted')"
+  ).bind(id).first();
   if ((replyCount?.n ?? 0) > 0) {
     return json({ error: "답글이 있어 수정할 수 없습니다" }, 403);
   }
-
-  const body = await req.json().catch(() => ({})) as {
-    body?: string;
-    type?: string;
-    attachments?: unknown;
-  };
+  const body = await req.json().catch(() => ({}));
   const text = (body.body ?? "").trim();
-  const hasAttachmentField = body.attachments !== undefined;
+  const hasAttachmentField = body.attachments !== void 0;
   const attachments = hasAttachmentField ? sanitizeAttachments(body.attachments, env) : null;
   if (text.length === 0 && (!hasAttachmentField || (attachments?.length ?? 0) === 0)) {
     return json({ error: "댓글은 1~4000자여야 합니다 (또는 첨부 1개 이상)" }, 400);
   }
-  if (text.length > 4000) return json({ error: "댓글은 1~4000자여야 합니다" }, 400);
+  if (text.length > 4e3) return json({ error: "댓글은 1~4000자여야 합니다" }, 400);
   if (body.type && !ALLOWED_TYPES.has(body.type)) return json({ error: "invalid type" }, 400);
-
   if (hasAttachmentField) {
     const attJson = (attachments?.length ?? 0) > 0 ? JSON.stringify(attachments) : null;
     await env.DB.prepare(
-      `UPDATE comments SET body=?, body_html=?, type=COALESCE(?, type), attachments=?, updated_at=datetime('now') WHERE id=?`,
+      `UPDATE comments SET body=?, body_html=?, type=COALESCE(?, type), attachments=?, updated_at=datetime('now') WHERE id=?`
     ).bind(text, sanitizeHTML(text), body.type ?? null, attJson, id).run();
   } else {
     await env.DB.prepare(
-      `UPDATE comments SET body=?, body_html=?, type=COALESCE(?, type), updated_at=datetime('now') WHERE id=?`,
+      `UPDATE comments SET body=?, body_html=?, type=COALESCE(?, type), updated_at=datetime('now') WHERE id=?`
     ).bind(text, sanitizeHTML(text), body.type ?? null, id).run();
   }
-
   return json({ ok: true });
 }
-
-async function deleteComment(req: Request, env: Env, id: string): Promise<Response> {
+async function deleteComment(req, env, id) {
   const uid = await currentUserId(req, env);
   if (!uid) return json({ error: "not authenticated" }, 401);
   const u = await loadUser(env, uid);
-  const owner = await env.DB.prepare("SELECT user_id FROM comments WHERE id=?").bind(id).first<{ user_id: string }>();
+  const owner = await env.DB.prepare("SELECT user_id FROM comments WHERE id=?").bind(id).first();
   if (!owner) return json({ error: "not found" }, 404);
   const isOwner = owner.user_id === uid;
   const isCurator = (u?.level ?? 0) >= 3;
   if (!isOwner && !isCurator) return json({ error: "forbidden" }, 403);
-
   if (isOwner) {
-    // 답글 유무에 따라 hard vs soft. published+deleted 모두 답글로 카운트.
     const replyCount = await env.DB.prepare(
-      "SELECT COUNT(*) AS n FROM comments WHERE parent_id=? AND status IN ('published','deleted')",
-    ).bind(id).first<{ n: number }>();
+      "SELECT COUNT(*) AS n FROM comments WHERE parent_id=? AND status IN ('published','deleted')"
+    ).bind(id).first();
     if ((replyCount?.n ?? 0) === 0) {
-      // hard delete. reactions/flags는 ON DELETE CASCADE로 함께 정리.
-      // R2 첨부는 보존 (orphan cleanup 별도 트랙).
       await env.DB.prepare("DELETE FROM comments WHERE id=?").bind(id).run();
       return json({ ok: true, status: "removed" });
     }
     await env.DB.prepare(
-      `UPDATE comments SET status='deleted', body='', body_html='', attachments=NULL, updated_at=datetime('now') WHERE id=?`,
+      `UPDATE comments SET status='deleted', body='', body_html='', attachments=NULL, updated_at=datetime('now') WHERE id=?`
     ).bind(id).run();
     return json({ ok: true, status: "deleted" });
   }
-
-  // 큐레이터(level>=3) — 숨김 처리 (현행 유지)
   await env.DB.prepare(
-    `UPDATE comments SET status='hidden', updated_at=datetime('now') WHERE id=?`,
+    `UPDATE comments SET status='hidden', updated_at=datetime('now') WHERE id=?`
   ).bind(id).run();
   return json({ ok: true, status: "hidden" });
 }
-
-async function pinComment(req: Request, env: Env, id: string): Promise<Response> {
+async function pinComment(req, env, id) {
   const uid = await currentUserId(req, env);
   if (!uid) return json({ error: "not authenticated" }, 401);
   const u = await loadUser(env, uid);
   if (!u || (u.level ?? 0) < 4) return json({ error: "forbidden" }, 403);
-  const row = await env.DB.prepare("SELECT is_pinned FROM comments WHERE id=?").bind(id).first<{ is_pinned: number }>();
+  const row = await env.DB.prepare("SELECT is_pinned FROM comments WHERE id=?").bind(id).first();
   if (!row) return json({ error: "not found" }, 404);
   const next = row.is_pinned === 1 ? 0 : 1;
   await env.DB.prepare(
-    `UPDATE comments SET is_pinned=?, updated_at=datetime('now') WHERE id=?`,
+    `UPDATE comments SET is_pinned=?, updated_at=datetime('now') WHERE id=?`
   ).bind(next, id).run();
   return json({ ok: true, is_pinned: next === 1 });
 }
-
-async function toggleReaction(req: Request, env: Env, id: string): Promise<Response> {
+async function toggleReaction(req, env, id) {
   const uid = await currentUserId(req, env);
   if (!uid) return json({ error: "not authenticated" }, 401);
-  const body = await req.json().catch(() => ({})) as { type?: string };
+  const body = await req.json().catch(() => ({}));
   const type = body.type ?? "helpful";
   const exists = await env.DB.prepare(
-    "SELECT 1 FROM reactions WHERE comment_id=? AND user_id=? AND type=?",
+    "SELECT 1 FROM reactions WHERE comment_id=? AND user_id=? AND type=?"
   ).bind(id, uid, type).first();
   if (exists) {
     await env.DB.prepare(
-      "DELETE FROM reactions WHERE comment_id=? AND user_id=? AND type=?",
+      "DELETE FROM reactions WHERE comment_id=? AND user_id=? AND type=?"
     ).bind(id, uid, type).run();
     return json({ ok: true, on: false });
   }
   await env.DB.prepare(
-    "INSERT INTO reactions (comment_id, user_id, type) VALUES (?, ?, ?)",
+    "INSERT INTO reactions (comment_id, user_id, type) VALUES (?, ?, ?)"
   ).bind(id, uid, type).run();
   return json({ ok: true, on: true });
 }
-
-async function flagComment(req: Request, env: Env, id: string): Promise<Response> {
+async function flagComment(req, env, id) {
   const uid = await currentUserId(req, env);
   if (!uid) return json({ error: "not authenticated" }, 401);
-  const body = await req.json().catch(() => ({})) as { reason?: string };
+  const body = await req.json().catch(() => ({}));
   const reason = (body.reason ?? "").trim();
   if (!reason || reason.length > 500) return json({ error: "신고 사유 필요 (1~500자)" }, 400);
   await env.DB.prepare(
-    "INSERT INTO flags (comment_id, user_id, reason) VALUES (?, ?, ?)",
+    "INSERT INTO flags (comment_id, user_id, reason) VALUES (?, ?, ?)"
   ).bind(id, uid, reason).run();
   return json({ ok: true });
 }
-
-// URL → <a> 자동 변환. 이미 escape된 텍스트에 적용.
-// - 내부 (jsbooks.wiki/...): 현재 창, 표시는 사람 친화 한국어 라벨
-//   (예: "화은당실기 6장 2절"). path + hash 자동 파싱.
-// - 외부: 새 창, 표시는 원본 URL + ↗ 아이콘
-// URL 끝 일반 구두점은 anchor 밖으로 빼서 자연 흐름 유지.
-// (src/lib/linkify.ts 의 readableInternalLabel 과 동일 로직 — 두 곳 동기 유지 필요.)
 const URL_RE = /\bhttps?:\/\/[^\s<>"']+/g;
 const INTERNAL_HOSTS = new Set(["jsbooks.wiki", "www.jsbooks.wiki"]);
-const SCRIPTURE_NAME: Record<string, string> = {
+const SCRIPTURE_NAME = {
   cheonjigaebyeokgyeong: "천지개벽경",
   "cheonjigaebyeokgyeong-hangeul": "천지개벽경 한글본",
   donggokbiseo: "동곡비서",
-  "hwaeundang-silgi": "화은당실기",
+  "hwaeundang-silgi": "화은당실기"
 };
-const ARCHIVE_KIND: Record<string, string> = {
+const ARCHIVE_KIND = {
   people: "인물",
   places: "장소",
   dosu: "도수",
   terms: "용어",
-  dates: "시기",
+  dates: "시기"
 };
-
-function readableInternalLabel(rawUrl: string): string {
+function readableInternalLabel(rawUrl) {
   const hostMatch = rawUrl.match(/^https?:\/\/[^/?#]+/i);
   const tail = hostMatch ? rawUrl.slice(hostMatch[0].length) : rawUrl;
   const hashIdx = tail.indexOf("#");
   const pathRaw = hashIdx >= 0 ? tail.slice(0, hashIdx) : tail;
   const hashRaw = hashIdx >= 0 ? tail.slice(hashIdx + 1) : "";
   let hash = "";
-  try { hash = decodeURIComponent(hashRaw); } catch { hash = hashRaw; }
+  try {
+    hash = decodeURIComponent(hashRaw);
+  } catch {
+    hash = hashRaw;
+  }
   const segments = pathRaw.split("/").filter(Boolean).map((s) => {
-    try { return decodeURIComponent(s); } catch { return s; }
+    try {
+      return decodeURIComponent(s);
+    } catch {
+      return s;
+    }
   });
   const fallback = `.${pathRaw}${hashRaw ? "#" + hashRaw : ""}`;
-
   if (segments[0] === "library" && segments[1]) {
     const slug = segments[1];
     const name = SCRIPTURE_NAME[slug] ?? slug;
@@ -1332,30 +1163,26 @@ function readableInternalLabel(rawUrl: string): string {
     }
     return hash ? `${name} ^${hash}` : name;
   }
-
   if (segments[0] === "archive" && segments[1] && segments[2]) {
     const kind = ARCHIVE_KIND[segments[1]] ?? segments[1];
     return `${kind}: ${segments[2]}`;
   }
-
   if (segments.length === 0) return "홈";
-  const SECTION: Record<string, string> = {
+  const SECTION = {
     calendar: "달력",
     news: "뉴스",
     feed: "피드",
     history: "변경 내역",
-    admin: "관리자",
+    admin: "관리자"
   };
   if (segments[0] in SECTION) {
     const label = SECTION[segments[0]];
     return segments[1] ? `${label} · ${segments.slice(1).join(" / ")}` : label;
   }
-
   return fallback;
 }
-
-function linkifyEscaped(esc: string): string {
-  return esc.replace(URL_RE, (raw) => {
+function linkifyEscaped(esc2) {
+  return esc2.replace(URL_RE, (raw) => {
     let trailing = "";
     const m = raw.match(/[.,!?;:)\]}]+$/);
     if (m) {
@@ -1372,66 +1199,37 @@ function linkifyEscaped(esc: string): string {
     return `<a class="comment-link external" href="${raw}" target="_blank" rel="noopener noreferrer nofollow ugc">${raw} <span aria-hidden="true">↗</span></a>${trailing}`;
   });
 }
-
-// ── Minimal HTML sanitizer for comment bodies ──
-// Allows a tiny markdown-ish subset converted to HTML with strict escaping.
-function sanitizeHTML(text: string): string {
-  const escaped = text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-  // paragraphs by blank lines, single newline → <br>; URL은 같은 탭 anchor로
-  const paras = escaped
-    .split(/\n\s*\n/)
-    .map((p) => `<p>${linkifyEscaped(p.replace(/\n/g, "<br>"))}</p>`);
-  return paras.join("");
+function sanitizeHTML(text) {
+  const escaped = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  const paras2 = escaped.split(/\n\s*\n/).map((p) => `<p>${linkifyEscaped(p.replace(/\n/g, "<br>"))}</p>`);
+  return paras2.join("");
 }
-
-// ───────────────────── visits ─────────────────────
-
-// chapter anchor 형식 검증 — "vol-chap" 또는 평면 "0" 또는 "preface"
-function isValidChapterAnchor(s: string): boolean {
+function isValidChapterAnchor(s) {
   if (s === "0" || s === "preface" || s === "appendix") return true;
   return /^\d+-\d+$/.test(s) || /^\d+$/.test(s);
 }
-
-// POST /api/visits/touch — { scripture, chapter }
-// 로그인: D1 upsert. 비로그인: 200 OK (클라이언트가 localStorage 처리).
-async function touchVisit(req: Request, env: Env): Promise<Response> {
-  const body = await req.json().catch(() => ({})) as { scripture?: string; chapter?: string };
+async function touchVisit(req, env) {
+  const body = await req.json().catch(() => ({}));
   const scripture = (body.scripture ?? "").trim();
   const chapter = (body.chapter ?? "").trim();
   if (!scripture || !/^[a-z0-9-]+$/.test(scripture)) return json({ error: "invalid scripture" }, 400);
   if (!chapter || !isValidChapterAnchor(chapter)) return json({ error: "invalid chapter" }, 400);
-
   const uid = await currentUserId(req, env);
   if (!uid) return json({ ok: true, anonymous: true });
-
   await env.DB.prepare(
     `INSERT INTO user_visits (user_id, scripture_slug, chapter_anchor, last_visited)
      VALUES (?, ?, ?, datetime('now'))
      ON CONFLICT(user_id, scripture_slug, chapter_anchor)
-     DO UPDATE SET last_visited = datetime('now')`,
+     DO UPDATE SET last_visited = datetime('now')`
   ).bind(uid, scripture, chapter).run();
   return json({ ok: true });
 }
-
-// GET /api/visits/badges?scripture=<slug>
-//   응답: { chapters: { "vol-chap": { total, new } }, scripture_total: { total, new } }
-// scripture 미지정 시: 모든 경전 — { scriptures: { "<slug>": { total, new } } }
-async function visitsBadges(req: Request, env: Env): Promise<Response> {
+async function visitsBadges(req, env) {
   const url = new URL(req.url);
   const scripture = url.searchParams.get("scripture")?.trim();
   const uid = await currentUserId(req, env);
-
   const cacheHeaders = { "Cache-Control": "private, max-age=30" };
-
   if (!scripture) {
-    // 경전별 합계 모드 — 모든 verse·chapter 댓글 총수 + new 수 집계.
-    // verse target_id 패턴: "<slug>:<anchor>"; chapter target_id: "<vol>:<chap>".
-    // 새 댓글 = visits 없거나 created_at > last_visited.
-    // 효율을 위해 verse 댓글은 target_id의 첫 segment(slug)로 group.
     const versesRows = await env.DB.prepare(
       `SELECT
          substr(target_id, 1, instr(target_id, ':') - 1) AS slug,
@@ -1439,30 +1237,20 @@ async function visitsBadges(req: Request, env: Env): Promise<Response> {
          MAX(created_at) AS latest
        FROM comments
        WHERE target_type='verse' AND status='published' AND instr(target_id, ':') > 0
-       GROUP BY slug`,
-    ).all<{ slug: string; n: number; latest: string }>();
-
-    // chapter 댓글: target_id = "vol:chap" — 별도 매핑 테이블이 없으므로 카운트만.
-    // chapter target은 cheonjigaebyeokgyeong 한정 사용 — verse 합계에 합치지 않고
-    // 응답에서는 verse 슬러그별로만 노출 (chapter 댓글은 chapter 페이지 진입 시 별도).
-    const totals: Record<string, { total: number; new: number }> = {};
+       GROUP BY slug`
+    ).all();
+    const totals = {};
     for (const r of versesRows.results ?? []) {
       if (r.slug) totals[r.slug] = { total: r.n, new: 0 };
     }
-
     if (uid) {
-      // 회원별 last_visited per (slug, chapter). 단일 슬러그 합계는 전체 chapter
-      // last_visited 중 가장 오래된 것을 기준으로 잡으면 "새" 누락이 줄어든다.
-      // 단순화: 슬러그 합계의 new 는 (visits에 그 슬러그 항목이 0개면 total, 아니면
-      // 가장 오래된 last_visited 기준 새 댓글 수)로 계산.
       const visits = await env.DB.prepare(
         `SELECT scripture_slug, MIN(last_visited) AS oldest_visit
          FROM user_visits WHERE user_id = ?
-         GROUP BY scripture_slug`,
-      ).bind(uid).all<{ scripture_slug: string; oldest_visit: string }>();
-      const oldestBySlug = new Map<string, string>();
+         GROUP BY scripture_slug`
+      ).bind(uid).all();
+      const oldestBySlug = new Map();
       for (const v of visits.results ?? []) oldestBySlug.set(v.scripture_slug, v.oldest_visit);
-
       for (const slug of Object.keys(totals)) {
         const oldest = oldestBySlug.get(slug);
         if (!oldest) {
@@ -1473,49 +1261,30 @@ async function visitsBadges(req: Request, env: Env): Promise<Response> {
           `SELECT COUNT(*) AS n FROM comments
            WHERE target_type='verse' AND status='published'
              AND substr(target_id, 1, instr(target_id, ':') - 1) = ?
-             AND created_at > ?`,
-        ).bind(slug, oldest).first<{ n: number }>();
+             AND created_at > ?`
+        ).bind(slug, oldest).first();
         totals[slug].new = nr?.n ?? 0;
       }
     } else {
-      // 비로그인: total만 응답, new=0. 클라이언트가 localStorage로 다시 계산.
     }
-
     return json({ scriptures: totals, anonymous: !uid }, 200, cacheHeaders);
   }
-
-  // 단일 scripture 모드: chapter 단위 집계.
-  // verse 댓글 target_id 형식 = "<slug>:<anchor>".
-  //   - cheonjigaebyeokgyeong anchor = "vol-chap-sentenceNum" → 첫 두 segment가 chapter key.
-  //   - donggokbiseo anchor = 평면 숫자 → 모두 chapter "0".
-  //   - hwaeundang-silgi anchor = "chap-N" → 첫 segment가 chapter key.
-  // chapter 댓글 (target_type='chapter') target_id = "vol:chap" → chapter key = "vol-chap" (replace ":" with "-").
-  // 분할은 클라이언트가 chapter key를 SQL에 미리 전달하기 어렵기 때문에
-  // 행 단위로 자바스크립트에서 chapter key를 도출한다.
-
   const versePrefix = `${scripture}:`;
   const verseRows = await env.DB.prepare(
     `SELECT target_id, COUNT(*) AS n, MAX(created_at) AS latest
      FROM comments
      WHERE target_type='verse' AND status='published'
        AND target_id LIKE ? ESCAPE '\\'
-     GROUP BY target_id`,
-  ).bind(versePrefix.replace(/[%_]/g, "\\$&") + "%").all<{ target_id: string; n: number; latest: string }>();
-
-  // chapter-level 댓글은 천지개벽경에만 존재 (target_id = "vol:chap").
-  const chapterRows = scripture === "cheonjigaebyeokgyeong"
-    ? await env.DB.prepare(
-        `SELECT target_id, COUNT(*) AS n, MAX(created_at) AS latest
+     GROUP BY target_id`
+  ).bind(versePrefix.replace(/[%_]/g, "\\$&") + "%").all();
+  const chapterRows = scripture === "cheonjigaebyeokgyeong" ? await env.DB.prepare(
+    `SELECT target_id, COUNT(*) AS n, MAX(created_at) AS latest
          FROM comments
          WHERE target_type='chapter' AND status='published'
-         GROUP BY target_id`,
-      ).all<{ target_id: string; n: number; latest: string }>()
-    : { results: [] as { target_id: string; n: number; latest: string }[] };
-
-  function chapterKeyFromAnchor(anchor: string): string {
-    // anchor 형식별 chapter key 추출
+         GROUP BY target_id`
+  ).all() : { results: [] };
+  function chapterKeyFromAnchor(anchor) {
     if (scripture === "cheonjigaebyeokgyeong") {
-      // "vol-chap-sentenceNum" 또는 "preface-N"
       if (anchor.startsWith("preface")) return "preface";
       const m = anchor.match(/^(\d+)-(\d+)/);
       if (m) return `${m[1]}-${m[2]}`;
@@ -1528,12 +1297,9 @@ async function visitsBadges(req: Request, env: Env): Promise<Response> {
       if (m) return m[1];
       return anchor;
     }
-    // 평면 경전 (donggokbiseo)
     return "0";
   }
-
-  const chapters: Record<string, { total: number; new: number; latest: string | null }> = {};
-
+  const chapters = {};
   for (const r of verseRows.results ?? []) {
     const anchor = r.target_id.slice(versePrefix.length);
     if (!anchor) continue;
@@ -1548,19 +1314,15 @@ async function visitsBadges(req: Request, env: Env): Promise<Response> {
     chapters[key].total += r.n;
     if (!chapters[key].latest || r.latest > chapters[key].latest) chapters[key].latest = r.latest;
   }
-
   let scriptureTotal = 0;
   let scriptureNew = 0;
-
   if (uid) {
-    // 회원 last_visited per (slug, chapter)
     const visits = await env.DB.prepare(
       `SELECT chapter_anchor, last_visited FROM user_visits
-       WHERE user_id = ? AND scripture_slug = ?`,
-    ).bind(uid, scripture).all<{ chapter_anchor: string; last_visited: string }>();
-    const visitMap = new Map<string, string>();
+       WHERE user_id = ? AND scripture_slug = ?`
+    ).bind(uid, scripture).all();
+    const visitMap = new Map();
     for (const v of visits.results ?? []) visitMap.set(v.chapter_anchor, v.last_visited);
-
     for (const [key, entry] of Object.entries(chapters)) {
       scriptureTotal += entry.total;
       const lv = visitMap.get(key);
@@ -1569,20 +1331,16 @@ async function visitsBadges(req: Request, env: Env): Promise<Response> {
         scriptureNew += entry.total;
         continue;
       }
-      // chapter 안의 새 댓글 수: 정확히는 chapter별 verse/chapter 댓글 created_at > lv 카운트.
-      // 효율을 위해 latest만 비교해 "있다/없다" 판단 후, 있다면 정확 카운트.
       if (!entry.latest || entry.latest <= lv) {
         entry.new = 0;
         continue;
       }
-      // 정확 카운트
       const verseN = await env.DB.prepare(
         `SELECT COUNT(*) AS n FROM comments
          WHERE target_type='verse' AND status='published'
            AND target_id LIKE ? ESCAPE '\\'
-           AND created_at > ?`,
-      ).bind(`${versePrefix.replace(/[%_]/g, "\\$&")}${chapterKeyPattern(scripture, key)}`, lv)
-        .first<{ n: number }>();
+           AND created_at > ?`
+      ).bind(`${versePrefix.replace(/[%_]/g, "\\$&")}${chapterKeyPattern(scripture, key)}`, lv).first();
       let n = verseN?.n ?? 0;
       if (scripture === "cheonjigaebyeokgyeong") {
         const m = key.match(/^(\d+)-(\d+)$/);
@@ -1591,8 +1349,8 @@ async function visitsBadges(req: Request, env: Env): Promise<Response> {
             `SELECT COUNT(*) AS n FROM comments
              WHERE target_type='chapter' AND status='published'
                AND target_id = ?
-               AND created_at > ?`,
-          ).bind(`${m[1]}:${m[2]}`, lv).first<{ n: number }>();
+               AND created_at > ?`
+          ).bind(`${m[1]}:${m[2]}`, lv).first();
           n += chN?.n ?? 0;
         }
       }
@@ -1602,19 +1360,15 @@ async function visitsBadges(req: Request, env: Env): Promise<Response> {
   } else {
     for (const entry of Object.values(chapters)) scriptureTotal += entry.total;
   }
-
-  const out: Record<string, { total: number; new: number }> = {};
+  const out = {};
   for (const [k, v] of Object.entries(chapters)) out[k] = { total: v.total, new: v.new };
-
   return json({
     chapters: out,
     scripture_total: { total: scriptureTotal, new: scriptureNew },
-    anonymous: !uid,
+    anonymous: !uid
   }, 200, cacheHeaders);
 }
-
-// chapter key → SQL LIKE 패턴 (verse anchor prefix). 효율적인 LIKE.
-function chapterKeyPattern(scripture: string, chapterKey: string): string {
+function chapterKeyPattern(scripture, chapterKey) {
   if (scripture === "cheonjigaebyeokgyeong") {
     if (chapterKey === "preface") return "preface-%";
     return `${chapterKey}-%`;
@@ -1624,29 +1378,23 @@ function chapterKeyPattern(scripture: string, chapterKey: string): string {
     if (chapterKey === "appendix") return "appendix-%";
     return `${chapterKey}-%`;
   }
-  return "%"; // 평면: 모두 chapter 0
+  return "%";
 }
-
-// ───────────────────── uploads ─────────────────────
-
 const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
-const MAX_IMAGE_BYTES = 2.5 * 1024 * 1024; // 2.5 MB hard cap; client resizes to ≤1600px webp Q85 first.
+const MAX_IMAGE_BYTES = 2.5 * 1024 * 1024;
 const UPLOAD_RATE_LIMIT_PER_HOUR = 30;
-
-function extFromContentType(ct: string): string {
+function extFromContentType(ct) {
   if (ct === "image/jpeg") return "jpg";
   if (ct === "image/png") return "png";
   if (ct === "image/webp") return "webp";
   return "bin";
 }
-
-async function uploadImage(req: Request, env: Env): Promise<Response> {
+async function uploadImage(req, env) {
   const uid = await currentUserId(req, env);
   if (!uid) return json({ error: "not authenticated" }, 401);
   const u = await loadUser(env, uid);
   if (!u || !u.display_name) return json({ error: "닉네임 설정 필요" }, 403);
   if ((u.level ?? 0) < 1) return json({ error: "업로드 권한 없음" }, 403);
-
   const ct = req.headers.get("Content-Type") ?? "";
   if (!ALLOWED_IMAGE_TYPES.has(ct)) {
     return json({ error: "허용된 형식: jpeg/png/webp" }, 415);
@@ -1656,32 +1404,32 @@ async function uploadImage(req: Request, env: Env): Promise<Response> {
   if (Number.isFinite(len) && len > MAX_IMAGE_BYTES) {
     return json({ error: `파일이 너무 큼 (max ${Math.round(MAX_IMAGE_BYTES / 1024)} KB)` }, 413);
   }
-
-  // 클라이언트가 헤더로 sha256 hex(64자)를 보내면 dedup index에 등록한다.
-  // 동일 (uid, hash) 이미 있으면 기존 url을 그대로 반환하고 새 업로드는 skip.
   const hashHeader = req.headers.get("X-Upload-Hash");
   const widthHeader = req.headers.get("X-Image-Width");
   const heightHeader = req.headers.get("X-Image-Height");
   const hash = hashHeader && /^[0-9a-f]{64}$/i.test(hashHeader) ? hashHeader.toLowerCase() : null;
   const width = widthHeader ? Math.max(0, parseInt(widthHeader, 10)) : 0;
   const height = heightHeader ? Math.max(0, parseInt(heightHeader, 10)) : 0;
-
   if (hash) {
     const existing = await env.DB.prepare(
-      "SELECT url, width, height FROM user_uploaded_photos WHERE user_id=? AND hash=?",
-    ).bind(uid, hash).first<{ url: string; width: number; height: number }>();
+      "SELECT url, r2_key, width, height FROM user_uploaded_photos WHERE user_id=? AND hash=?"
+    ).bind(uid, hash).first();
     if (existing) {
-      return json({ ok: true, deduped: true, url: existing.url, width: existing.width, height: existing.height });
+      return json({
+        ok: true,
+        deduped: true,
+        url: existing.url,
+        key: existing.r2_key,
+        view_url: mediaUrl(env, existing.r2_key),
+        width: existing.width,
+        height: existing.height
+      });
     }
   }
-
   const buf = await req.arrayBuffer();
   if (buf.byteLength > MAX_IMAGE_BYTES) {
     return json({ error: `파일이 너무 큼 (max ${Math.round(MAX_IMAGE_BYTES / 1024)} KB)` }, 413);
   }
-
-  // Rate limit: count user's uploads in the current hour by listing prefix.
-  // Acceptable for low traffic; can move to KV-backed counters later.
   const now = new Date();
   const yyyy = String(now.getUTCFullYear());
   const mm = String(now.getUTCMonth() + 1).padStart(2, "0");
@@ -1692,105 +1440,61 @@ async function uploadImage(req: Request, env: Env): Promise<Response> {
   if ((list.objects?.length ?? 0) >= UPLOAD_RATE_LIMIT_PER_HOUR) {
     return json({ error: "업로드 한도 초과 (시간당)" }, 429);
   }
-
   const ext = extFromContentType(ct);
   const id = uuid();
   const key = `${userPrefix}${id}.${ext}`;
-
   await env.UPLOADS.put(key, buf, {
     httpMetadata: { contentType: ct, cacheControl: "public, max-age=31536000, immutable" },
-    customMetadata: { uid, originalSize: String(buf.byteLength), ...(hash ? { hash } : {}) },
+    customMetadata: { uid, originalSize: String(buf.byteLength), ...hash ? { hash } : {} }
   });
-
   const base = (env.UPLOADS_PUBLIC_BASE || "").replace(/\/$/, "");
   const url = `${base}/${key}`;
-
   if (hash) {
-    // INSERT OR IGNORE — 동시성 race에서도 안전. 충돌 시 기존 url 유지.
     await env.DB.prepare(
       `INSERT OR IGNORE INTO user_uploaded_photos
          (user_id, hash, url, r2_key, width, height, size_bytes, content_type)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
     ).bind(uid, hash, url, key, width, height, buf.byteLength, ct).run();
   }
-
-  return json({ ok: true, url, key, bytes: buf.byteLength, contentType: ct });
+  return json({ ok: true, url, key, view_url: mediaUrl(env, key), width, height, bytes: buf.byteLength, contentType: ct });
 }
-
-async function checkUpload(req: Request, env: Env): Promise<Response> {
+async function checkUpload(req, env) {
   const uid = await currentUserId(req, env);
   if (!uid) return json({ error: "not authenticated" }, 401);
-  const body = await req.json().catch(() => ({})) as { hash?: string };
+  const body = await req.json().catch(() => ({}));
   const hash = body.hash;
   if (!hash || !/^[0-9a-f]{64}$/i.test(hash)) {
     return json({ error: "invalid hash" }, 400);
   }
   const row = await env.DB.prepare(
-    "SELECT url, width, height FROM user_uploaded_photos WHERE user_id=? AND hash=?",
-  ).bind(uid, hash.toLowerCase()).first<{ url: string; width: number; height: number }>();
+    "SELECT url, width, height FROM user_uploaded_photos WHERE user_id=? AND hash=?"
+  ).bind(uid, hash.toLowerCase()).first();
   if (!row) return json({ exists: false });
   return json({ exists: true, url: row.url, width: row.width, height: row.height });
 }
-
-// ───────────────────── events (사용자 개인 일정) ─────────────────────
-
-interface EventRow {
-  id: string;
-  user_id: string;
-  title: string;
-  start_date: string;
-  end_date: string | null;
-  all_day: number;
-  category: string | null;
-  is_annual: number;
-  is_lunar: number;
-  is_public: number;
-  memo: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-interface EventRowWithOwner extends EventRow {
-  owner_name: string | null;
-  is_mine: number;
-}
-
 const EVENT_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const EVENT_TITLE_MAX = 200;
 const EVENT_CATEGORY_MAX = 40;
-const EVENT_MEMO_MAX = 2000;
+const EVENT_MEMO_MAX = 2e3;
 const EVENT_CATEGORIES = new Set(["기념일", "일정", "기타"]);
-
-function normalizeEventInput(raw: unknown): {
-  title?: string;
-  start_date?: string;
-  end_date?: string | null;
-  all_day?: number;
-  category?: string | null;
-  is_annual?: number;
-  is_lunar?: number;
-  is_public?: number;
-  memo?: string | null;
-  error?: string;
-} {
+function normalizeEventInput(raw) {
   if (!raw || typeof raw !== "object") return { error: "invalid body" };
-  const b = raw as Record<string, unknown>;
-  const out: ReturnType<typeof normalizeEventInput> = {};
-
-  if (b.title !== undefined) {
+  const b = raw;
+  const out = {};
+  if (b.title !== void 0) {
     if (typeof b.title !== "string") return { error: "title must be string" };
     const t = b.title.trim();
     if (!t) return { error: "title required" };
     if (t.length > EVENT_TITLE_MAX) return { error: `title too long (max ${EVENT_TITLE_MAX})` };
     out.title = t;
   }
-  if (b.start_date !== undefined) {
+  if (b.start_date !== void 0) {
     if (typeof b.start_date !== "string" || !EVENT_DATE_RE.test(b.start_date)) {
       return { error: "start_date must be YYYY-MM-DD" };
     }
     out.start_date = b.start_date;
   }
-  if (b.end_date !== undefined) {
+  if (b.end_date !== void 0) {
     if (b.end_date === null || b.end_date === "") {
       out.end_date = null;
     } else if (typeof b.end_date === "string" && EVENT_DATE_RE.test(b.end_date)) {
@@ -1799,10 +1503,10 @@ function normalizeEventInput(raw: unknown): {
       return { error: "end_date must be YYYY-MM-DD or null" };
     }
   }
-  if (b.all_day !== undefined) {
+  if (b.all_day !== void 0) {
     out.all_day = b.all_day ? 1 : 0;
   }
-  if (b.category !== undefined) {
+  if (b.category !== void 0) {
     if (b.category === null) {
       out.category = null;
     } else if (typeof b.category === "string") {
@@ -1814,10 +1518,10 @@ function normalizeEventInput(raw: unknown): {
       return { error: "category must be string or null" };
     }
   }
-  if (b.is_annual !== undefined) out.is_annual = b.is_annual ? 1 : 0;
-  if (b.is_lunar !== undefined) out.is_lunar = b.is_lunar ? 1 : 0;
-  if (b.is_public !== undefined) out.is_public = b.is_public ? 1 : 0;
-  if (b.memo !== undefined) {
+  if (b.is_annual !== void 0) out.is_annual = b.is_annual ? 1 : 0;
+  if (b.is_lunar !== void 0) out.is_lunar = b.is_lunar ? 1 : 0;
+  if (b.is_public !== void 0) out.is_public = b.is_public ? 1 : 0;
+  if (b.memo !== void 0) {
     if (b.memo === null) {
       out.memo = null;
     } else if (typeof b.memo === "string") {
@@ -1827,14 +1531,9 @@ function normalizeEventInput(raw: unknown): {
       return { error: "memo must be string or null" };
     }
   }
-
-  // 종료일은 시작일 이후여야 한다.
   if (out.start_date && out.end_date && out.end_date < out.start_date) {
     return { error: "end_date must be on or after start_date" };
   }
-  // 카테고리·옵션 정합성:
-  //  - 기념일: 항상 전체 공개 (증산교단 연례 기념일 등). is_public 입력 무시하고 1 로 강제.
-  //  - 일정/기타: 사용자 선택. 연례/음력 옵션은 사용 불가.
   if (out.category === "기념일") {
     out.is_public = 1;
   } else if (out.category === "일정" || out.category === "기타") {
@@ -1843,47 +1542,35 @@ function normalizeEventInput(raw: unknown): {
   }
   return out;
 }
-
-const EVENT_SELECT_OWN = `
-  SELECT id, user_id, title, start_date, end_date, all_day, category,
-         is_annual, is_lunar, is_public, memo, created_at, updated_at
-    FROM events
-`;
-
-const EVENT_SELECT_WITH_OWNER = `
+const EVENT_SELECT = `
   SELECT ev.id, ev.user_id, ev.title, ev.start_date, ev.end_date, ev.all_day,
          ev.category, ev.is_annual, ev.is_lunar, ev.is_public, ev.memo,
-         ev.created_at, ev.updated_at,
-         u.display_name AS owner_name,
-         CASE WHEN ev.user_id = ? THEN 1 ELSE 0 END AS is_mine
+         ev.created_at, ev.updated_at, ev.source_post_id
     FROM events ev
-    JOIN users u ON u.id = ev.user_id
 `;
-
-// GET /api/events?from=YYYY-MM-DD&to=YYYY-MM-DD[&scope=mine|all]
-// 응답: { events } — 사용자 own + scope=all 시 공개 일정도 포함.
-// is_annual 인 일정은 from/to 범위 무시하고 항상 반환 (클라이언트가 매년 발생일 계산).
-// is_lunar=1 이면 start_date 가 음력 'YYYY-MM-DD' 로 저장됨. 양력 변환·전개는 클라이언트 책임.
-async function listEvents(req: Request, env: Env): Promise<Response> {
+async function eventAdmin(req, env) {
   const uid = await currentUserId(req, env);
-  if (!uid) return json({ error: "not authenticated" }, 401);
+  if (!uid) return null;
+  const u = await loadUser(env, uid);
+  return u && u.level >= 4 ? { id: u.id } : null;
+}
+async function listEvents(req, env) {
+  const admin = await eventAdmin(req, env);
   const url = new URL(req.url);
   const from = url.searchParams.get("from");
   const to = url.searchParams.get("to");
-  const scope = url.searchParams.get("scope") ?? "all"; // 기본 all
+  const category = url.searchParams.get("category");
   if (from && !EVENT_DATE_RE.test(from)) return json({ error: "from must be YYYY-MM-DD" }, 400);
   if (to && !EVENT_DATE_RE.test(to)) return json({ error: "to must be YYYY-MM-DD" }, 400);
-
-  const conds: string[] = [];
-  const binds: unknown[] = [uid]; // CASE WHEN ev.user_id = ? 용
-  if (scope === "mine") {
-    conds.push("ev.user_id = ?");
-    binds.push(uid);
-  } else {
-    conds.push("(ev.user_id = ? OR ev.is_public = 1)");
-    binds.push(uid);
+  if (category && !EVENT_CATEGORIES.has(category)) return json({ error: "unknown category" }, 400);
+  const conds = [];
+  const binds = [];
+  if (!admin) conds.push("ev.is_public = 1");
+  if (category) {
+    conds.push("ev.category = ?");
+    binds.push(category);
   }
-  const rangeConds: string[] = ["ev.is_annual = 1"];
+  const rangeConds = [];
   if (from) {
     rangeConds.push("COALESCE(ev.end_date, ev.start_date) >= ?");
     binds.push(from);
@@ -1892,33 +1579,29 @@ async function listEvents(req: Request, env: Env): Promise<Response> {
     rangeConds.push("ev.start_date <= ?");
     binds.push(to);
   }
-  // 연례 or 범위 통과
-  if (rangeConds.length > 1) {
-    conds.push(`(${rangeConds[0]} OR (${rangeConds.slice(1).join(" AND ")}))`);
-  }
-  const sql = `${EVENT_SELECT_WITH_OWNER} WHERE ${conds.join(" AND ")} ORDER BY ev.start_date ASC, ev.created_at ASC LIMIT 1000`;
-
-  const rs = await env.DB.prepare(sql).bind(...binds).all<EventRowWithOwner>();
-  return json({ events: rs.results ?? [] });
+  if (rangeConds.length) conds.push(`(ev.is_annual = 1 OR (${rangeConds.join(" AND ")}))`);
+  const where = conds.length ? `WHERE ${conds.join(" AND ")}` : "";
+  const rs = await env.DB.prepare(`${EVENT_SELECT} ${where} ORDER BY ev.start_date ASC, ev.created_at ASC LIMIT 1000`).bind(...binds).all();
+  const events = (rs.results ?? []).map((r) => ({ ...r, owner_name: null, is_mine: admin ? 1 : 0 }));
+  return json({ events, can_edit: !!admin });
 }
-
-async function createEvent(req: Request, env: Env): Promise<Response> {
+async function createEvent(req, env) {
   const uid = await currentUserId(req, env);
   if (!uid) return json({ error: "not authenticated" }, 401);
+  const admin = await eventAdmin(req, env);
+  if (!admin) return json({ error: "일정은 운영자만 추가할 수 있습니다" }, 403);
   const raw = await req.json().catch(() => ({}));
   const parsed = normalizeEventInput(raw);
   if (parsed.error) return json({ error: parsed.error }, 400);
-  if (!parsed.title || !parsed.start_date) {
-    return json({ error: "title and start_date required" }, 400);
-  }
+  if (!parsed.title || !parsed.start_date) return json({ error: "title and start_date required" }, 400);
   const id = uuid();
   await env.DB.prepare(
     `INSERT INTO events (id, user_id, title, start_date, end_date, all_day,
                           category, is_annual, is_lunar, is_public, memo)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(
     id,
-    uid,
+    admin.id,
     parsed.title,
     parsed.start_date,
     parsed.end_date ?? null,
@@ -1927,92 +1610,81 @@ async function createEvent(req: Request, env: Env): Promise<Response> {
     parsed.is_annual ?? 0,
     parsed.is_lunar ?? 0,
     parsed.is_public ?? 0,
-    parsed.memo ?? null,
+    parsed.memo ?? null
   ).run();
-
-  const row = await env.DB.prepare(
-    `${EVENT_SELECT_OWN} WHERE id=?`,
-  ).bind(id).first<EventRow>();
+  const row = await env.DB.prepare(`${EVENT_SELECT} WHERE ev.id=?`).bind(id).first();
   return json({ event: row }, 201);
 }
-
-async function updateEvent(req: Request, env: Env, id: string): Promise<Response> {
+async function updateEvent(req, env, id) {
   const uid = await currentUserId(req, env);
   if (!uid) return json({ error: "not authenticated" }, 401);
-  const existing = await env.DB.prepare(
-    "SELECT user_id FROM events WHERE id=?",
-  ).bind(id).first<{ user_id: string }>();
+  const admin = await eventAdmin(req, env);
+  if (!admin) return json({ error: "일정은 운영자만 수정할 수 있습니다" }, 403);
+  const existing = await env.DB.prepare("SELECT id FROM events WHERE id=?").bind(id).first();
   if (!existing) return json({ error: "not found" }, 404);
-  if (existing.user_id !== uid) return json({ error: "forbidden" }, 403);
-
   const raw = await req.json().catch(() => ({}));
   const parsed = normalizeEventInput(raw);
   if (parsed.error) return json({ error: parsed.error }, 400);
-
-  const sets: string[] = [];
-  const binds: unknown[] = [];
-  if (parsed.title !== undefined) { sets.push("title=?"); binds.push(parsed.title); }
-  if (parsed.start_date !== undefined) { sets.push("start_date=?"); binds.push(parsed.start_date); }
-  if (parsed.end_date !== undefined) { sets.push("end_date=?"); binds.push(parsed.end_date); }
-  if (parsed.all_day !== undefined) { sets.push("all_day=?"); binds.push(parsed.all_day); }
-  if (parsed.category !== undefined) { sets.push("category=?"); binds.push(parsed.category); }
-  if (parsed.is_annual !== undefined) { sets.push("is_annual=?"); binds.push(parsed.is_annual); }
-  if (parsed.is_lunar !== undefined) { sets.push("is_lunar=?"); binds.push(parsed.is_lunar); }
-  if (parsed.is_public !== undefined) { sets.push("is_public=?"); binds.push(parsed.is_public); }
-  if (parsed.memo !== undefined) { sets.push("memo=?"); binds.push(parsed.memo); }
+  const sets = [];
+  const binds = [];
+  if (parsed.title !== void 0) {
+    sets.push("title=?");
+    binds.push(parsed.title);
+  }
+  if (parsed.start_date !== void 0) {
+    sets.push("start_date=?");
+    binds.push(parsed.start_date);
+  }
+  if (parsed.end_date !== void 0) {
+    sets.push("end_date=?");
+    binds.push(parsed.end_date);
+  }
+  if (parsed.all_day !== void 0) {
+    sets.push("all_day=?");
+    binds.push(parsed.all_day);
+  }
+  if (parsed.category !== void 0) {
+    sets.push("category=?");
+    binds.push(parsed.category);
+  }
+  if (parsed.is_annual !== void 0) {
+    sets.push("is_annual=?");
+    binds.push(parsed.is_annual);
+  }
+  if (parsed.is_lunar !== void 0) {
+    sets.push("is_lunar=?");
+    binds.push(parsed.is_lunar);
+  }
+  if (parsed.is_public !== void 0) {
+    sets.push("is_public=?");
+    binds.push(parsed.is_public);
+  }
+  if (parsed.memo !== void 0) {
+    sets.push("memo=?");
+    binds.push(parsed.memo);
+  }
   if (sets.length === 0) return json({ error: "nothing to update" }, 400);
   sets.push("updated_at=datetime('now')");
   binds.push(id);
   await env.DB.prepare(`UPDATE events SET ${sets.join(", ")} WHERE id=?`).bind(...binds).run();
-
-  const row = await env.DB.prepare(
-    `${EVENT_SELECT_OWN} WHERE id=?`,
-  ).bind(id).first<EventRow>();
+  const row = await env.DB.prepare(`${EVENT_SELECT} WHERE ev.id=?`).bind(id).first();
   return json({ event: row });
 }
-
-async function deleteEvent(req: Request, env: Env, id: string): Promise<Response> {
+async function deleteEvent(req, env, id) {
   const uid = await currentUserId(req, env);
   if (!uid) return json({ error: "not authenticated" }, 401);
-  const existing = await env.DB.prepare(
-    "SELECT user_id FROM events WHERE id=?",
-  ).bind(id).first<{ user_id: string }>();
+  const admin = await eventAdmin(req, env);
+  if (!admin) return json({ error: "일정은 운영자만 삭제할 수 있습니다" }, 403);
+  const existing = await env.DB.prepare("SELECT id FROM events WHERE id=?").bind(id).first();
   if (!existing) return json({ error: "not found" }, 404);
-  if (existing.user_id !== uid) return json({ error: "forbidden" }, 403);
   await env.DB.prepare("DELETE FROM events WHERE id=?").bind(id).run();
   return json({ ok: true });
 }
-
-// ───────────────────── news ─────────────────────
-// 사이트 공지/업데이트/릴리스/로드맵 — 운영자(level>=4) CMS.
-// body_md 원본 + body_html 캐시(생성·수정 시 갱신). 일반 회원·비회원은 발행본만 조회.
-
 const NEWS_CATEGORIES = new Set(["notice", "update", "release", "roadmap"]);
 const NEWS_TITLE_MAX = 200;
 const NEWS_SUMMARY_MAX = 500;
-const NEWS_BODY_MAX = 200_000;
+const NEWS_BODY_MAX = 2e5;
 const NEWS_SLUG_RE = /^[A-Za-z0-9가-힣_\-]+$/;
-
-interface NewsRow {
-  id: string;
-  slug: string;
-  title: string;
-  category: string;
-  body_md: string;
-  body_html: string;
-  summary: string | null;
-  draft: number;
-  pinned: number;
-  published_at: string | null;
-  author_id: string;
-  created_at: string;
-  updated_at: string;
-}
-
-interface NewsRowWithAuthor extends NewsRow {
-  author_name: string | null;
-}
-
 const NEWS_SELECT = `
   SELECT n.id, n.slug, n.title, n.category, n.body_md, n.body_html, n.summary,
          n.draft, n.pinned, n.published_at, n.author_id, n.created_at, n.updated_at,
@@ -2020,52 +1692,32 @@ const NEWS_SELECT = `
     FROM news n
     LEFT JOIN users u ON u.id = n.author_id
 `;
-
-function slugifyNews(s: string): string {
-  return s
-    .trim()
-    .toLowerCase()
-    .replace(/[\s_]+/g, "-")
-    .replace(/[^a-z0-9가-힣\-]/g, "")
-    .replace(/-+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 80);
+function slugifyNews(s) {
+  return s.trim().toLowerCase().replace(/[\s_]+/g, "-").replace(/[^a-z0-9가-힣\-]/g, "").replace(/-+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80);
 }
-
-interface NewsInput {
-  title?: string;
-  category?: string;
-  body_md?: string;
-  summary?: string | null;
-  slug?: string;
-  draft?: number;
-  pinned?: number;
-  error?: string;
-}
-
-function normalizeNewsInput(raw: unknown): NewsInput {
+function normalizeNewsInput(raw) {
   if (!raw || typeof raw !== "object") return { error: "body must be JSON object" };
-  const b = raw as Record<string, unknown>;
-  const out: NewsInput = {};
-  if (b.title !== undefined) {
+  const b = raw;
+  const out = {};
+  if (b.title !== void 0) {
     if (typeof b.title !== "string") return { error: "title must be string" };
     const t = b.title.trim();
     if (!t) return { error: "title required" };
     if (t.length > NEWS_TITLE_MAX) return { error: `title too long (max ${NEWS_TITLE_MAX})` };
     out.title = t;
   }
-  if (b.category !== undefined) {
+  if (b.category !== void 0) {
     if (typeof b.category !== "string" || !NEWS_CATEGORIES.has(b.category)) {
       return { error: `category must be one of: ${[...NEWS_CATEGORIES].join(", ")}` };
     }
     out.category = b.category;
   }
-  if (b.body_md !== undefined) {
+  if (b.body_md !== void 0) {
     if (typeof b.body_md !== "string") return { error: "body_md must be string" };
     if (b.body_md.length > NEWS_BODY_MAX) return { error: `body_md too long (max ${NEWS_BODY_MAX})` };
     out.body_md = b.body_md;
   }
-  if (b.summary !== undefined) {
+  if (b.summary !== void 0) {
     if (b.summary === null) {
       out.summary = null;
     } else if (typeof b.summary === "string") {
@@ -2076,7 +1728,7 @@ function normalizeNewsInput(raw: unknown): NewsInput {
       return { error: "summary must be string or null" };
     }
   }
-  if (b.slug !== undefined) {
+  if (b.slug !== void 0) {
     if (typeof b.slug !== "string") return { error: "slug must be string" };
     const s = b.slug.trim();
     if (!s) return { error: "slug must not be empty" };
@@ -2084,31 +1736,24 @@ function normalizeNewsInput(raw: unknown): NewsInput {
     if (!NEWS_SLUG_RE.test(s)) return { error: "slug 형식이 잘못되었습니다 (영문/숫자/한글/_-)" };
     out.slug = s;
   }
-  if (b.draft !== undefined) out.draft = b.draft ? 1 : 0;
-  if (b.pinned !== undefined) out.pinned = b.pinned ? 1 : 0;
+  if (b.draft !== void 0) out.draft = b.draft ? 1 : 0;
+  if (b.pinned !== void 0) out.pinned = b.pinned ? 1 : 0;
   return out;
 }
-
-// 충돌 없는 slug 확보 — base, base-2, base-3 ... excludeId 는 수정 시 자기 자신 제외.
-async function ensureUniqueSlug(env: Env, base: string, excludeId: string | null): Promise<string> {
+async function ensureUniqueSlug(env, base, excludeId) {
   for (let i = 0; i < 100; i++) {
     const cand = i === 0 ? base : `${base}-${i + 1}`;
-    const row = excludeId
-      ? await env.DB.prepare("SELECT 1 FROM news WHERE slug = ? AND id <> ?").bind(cand, excludeId).first()
-      : await env.DB.prepare("SELECT 1 FROM news WHERE slug = ?").bind(cand).first();
+    const row = excludeId ? await env.DB.prepare("SELECT 1 FROM news WHERE slug = ? AND id <> ?").bind(cand, excludeId).first() : await env.DB.prepare("SELECT 1 FROM news WHERE slug = ?").bind(cand).first();
     if (!row) return cand;
   }
   return `${base}-${Date.now()}`;
 }
-
-// GET /api/news?category=notice&include_drafts=1&limit=100
-async function listNews(req: Request, env: Env): Promise<Response> {
+async function listNews(req, env) {
   const url = new URL(req.url);
   const cat = url.searchParams.get("category");
   const includeDrafts = url.searchParams.get("include_drafts") === "1";
   const limitRaw = parseInt(url.searchParams.get("limit") ?? "100", 10);
   const limit = Math.min(Math.max(Number.isFinite(limitRaw) ? limitRaw : 100, 1), 500);
-
   let isAdmin = false;
   if (includeDrafts) {
     const uid = await currentUserId(req, env);
@@ -2118,27 +1763,24 @@ async function listNews(req: Request, env: Env): Promise<Response> {
     isAdmin = true;
   }
   if (cat && !NEWS_CATEGORIES.has(cat)) return json({ error: "invalid category" }, 400);
-
-  const where: string[] = [];
-  const binds: unknown[] = [];
+  const where = [];
+  const binds = [];
   if (!isAdmin) where.push("n.draft = 0");
-  if (cat) { where.push("n.category = ?"); binds.push(cat); }
-
+  if (cat) {
+    where.push("n.category = ?");
+    binds.push(cat);
+  }
   const sql = `${NEWS_SELECT}
     ${where.length ? "WHERE " + where.join(" AND ") : ""}
     ORDER BY n.pinned DESC,
              COALESCE(n.published_at, n.updated_at) DESC,
              n.created_at DESC
     LIMIT ?`;
-  const rs = await env.DB.prepare(sql).bind(...binds, limit).all<NewsRowWithAuthor>();
+  const rs = await env.DB.prepare(sql).bind(...binds, limit).all();
   return json({ news: rs.results ?? [] });
 }
-
-// GET /api/news/:slug — 발행본만 일반 노출, 드래프트는 admin 만.
-async function getNews(req: Request, env: Env, slug: string): Promise<Response> {
-  const row = await env.DB.prepare(`${NEWS_SELECT} WHERE n.slug = ? LIMIT 1`)
-    .bind(slug)
-    .first<NewsRowWithAuthor>();
+async function getNews(req, env, slug) {
+  const row = await env.DB.prepare(`${NEWS_SELECT} WHERE n.slug = ? LIMIT 1`).bind(slug).first();
   if (!row) return json({ error: "not found" }, 404);
   if (row.draft === 1) {
     const uid = await currentUserId(req, env);
@@ -2148,90 +1790,100 @@ async function getNews(req: Request, env: Env, slug: string): Promise<Response> 
   }
   return json({ news: row });
 }
-
-// POST /api/news (admin level>=4)
-async function createNews(req: Request, env: Env): Promise<Response> {
+async function createNews(req, env) {
   const uid = await currentUserId(req, env);
   if (!uid) return json({ error: "unauthenticated" }, 401);
   const me = await loadUser(env, uid);
   if (!me || me.level < 4) return json({ error: "forbidden" }, 403);
-
   const raw = await req.json().catch(() => null);
   const parsed = normalizeNewsInput(raw);
   if (parsed.error) return json({ error: parsed.error }, 400);
-  if (!parsed.title || !parsed.category || parsed.body_md === undefined) {
+  if (!parsed.title || !parsed.category || parsed.body_md === void 0) {
     return json({ error: "title, category, body_md required" }, 400);
   }
-
   const base = parsed.slug ?? slugifyNews(parsed.title) ?? `news-${Date.now()}`;
   const slug = await ensureUniqueSlug(env, base || `news-${Date.now()}`, null);
   const id = uuid();
   const draft = parsed.draft ?? 0;
-  const publishedAt = draft === 0 ? new Date().toISOString().replace(/\.\d+Z$/, "Z") : null;
+  const publishedAt = draft === 0 ? (new Date()).toISOString().replace(/\.\d+Z$/, "Z") : null;
   const html = renderNewsMarkdown(parsed.body_md);
-
   await env.DB.prepare(
     `INSERT INTO news (id, slug, title, category, body_md, body_html, summary, draft, published_at, author_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(
-    id, slug, parsed.title, parsed.category, parsed.body_md, html,
-    parsed.summary ?? null, draft, publishedAt, uid,
+    id,
+    slug,
+    parsed.title,
+    parsed.category,
+    parsed.body_md,
+    html,
+    parsed.summary ?? null,
+    draft,
+    publishedAt,
+    uid
   ).run();
-
-  const row = await env.DB.prepare(`${NEWS_SELECT} WHERE n.id = ?`).bind(id).first<NewsRowWithAuthor>();
+  const row = await env.DB.prepare(`${NEWS_SELECT} WHERE n.id = ?`).bind(id).first();
   return json({ news: row }, 201);
 }
-
-// PUT /api/news/:id (admin)
-async function updateNews(req: Request, env: Env, id: string): Promise<Response> {
+async function updateNews(req, env, id) {
   const uid = await currentUserId(req, env);
   if (!uid) return json({ error: "unauthenticated" }, 401);
   const me = await loadUser(env, uid);
   if (!me || me.level < 4) return json({ error: "forbidden" }, 403);
-
   const existing = await env.DB.prepare(
-    "SELECT id, slug, draft FROM news WHERE id = ?",
-  ).bind(id).first<{ id: string; slug: string; draft: number }>();
+    "SELECT id, slug, draft FROM news WHERE id = ?"
+  ).bind(id).first();
   if (!existing) return json({ error: "not found" }, 404);
-
   const raw = await req.json().catch(() => null);
   const parsed = normalizeNewsInput(raw);
   if (parsed.error) return json({ error: parsed.error }, 400);
-
-  const sets: string[] = [];
-  const binds: unknown[] = [];
-  if (parsed.title !== undefined) { sets.push("title=?"); binds.push(parsed.title); }
-  if (parsed.category !== undefined) { sets.push("category=?"); binds.push(parsed.category); }
-  if (parsed.body_md !== undefined) {
-    sets.push("body_md=?"); binds.push(parsed.body_md);
-    sets.push("body_html=?"); binds.push(renderNewsMarkdown(parsed.body_md));
+  const sets = [];
+  const binds = [];
+  if (parsed.title !== void 0) {
+    sets.push("title=?");
+    binds.push(parsed.title);
   }
-  if (parsed.summary !== undefined) { sets.push("summary=?"); binds.push(parsed.summary); }
-  if (parsed.slug !== undefined && parsed.slug !== existing.slug) {
+  if (parsed.category !== void 0) {
+    sets.push("category=?");
+    binds.push(parsed.category);
+  }
+  if (parsed.body_md !== void 0) {
+    sets.push("body_md=?");
+    binds.push(parsed.body_md);
+    sets.push("body_html=?");
+    binds.push(renderNewsMarkdown(parsed.body_md));
+  }
+  if (parsed.summary !== void 0) {
+    sets.push("summary=?");
+    binds.push(parsed.summary);
+  }
+  if (parsed.slug !== void 0 && parsed.slug !== existing.slug) {
     const newSlug = await ensureUniqueSlug(env, parsed.slug, id);
-    sets.push("slug=?"); binds.push(newSlug);
+    sets.push("slug=?");
+    binds.push(newSlug);
   }
-  if (parsed.draft !== undefined) {
-    sets.push("draft=?"); binds.push(parsed.draft);
+  if (parsed.draft !== void 0) {
+    sets.push("draft=?");
+    binds.push(parsed.draft);
     if (parsed.draft === 0 && existing.draft === 1) {
-      sets.push("published_at=?"); binds.push(new Date().toISOString().replace(/\.\d+Z$/, "Z"));
+      sets.push("published_at=?");
+      binds.push((new Date()).toISOString().replace(/\.\d+Z$/, "Z"));
     } else if (parsed.draft === 1) {
       sets.push("published_at=NULL");
     }
   }
-  if (parsed.pinned !== undefined) { sets.push("pinned=?"); binds.push(parsed.pinned); }
+  if (parsed.pinned !== void 0) {
+    sets.push("pinned=?");
+    binds.push(parsed.pinned);
+  }
   if (sets.length === 0) return json({ error: "nothing to update" }, 400);
   sets.push("updated_at=datetime('now')");
   binds.push(id);
-
   await env.DB.prepare(`UPDATE news SET ${sets.join(", ")} WHERE id=?`).bind(...binds).run();
-
-  const row = await env.DB.prepare(`${NEWS_SELECT} WHERE n.id = ?`).bind(id).first<NewsRowWithAuthor>();
+  const row = await env.DB.prepare(`${NEWS_SELECT} WHERE n.id = ?`).bind(id).first();
   return json({ news: row });
 }
-
-// DELETE /api/news/:id (admin) — hard delete
-async function deleteNews(req: Request, env: Env, id: string): Promise<Response> {
+async function deleteNews(req, env, id) {
   const uid = await currentUserId(req, env);
   if (!uid) return json({ error: "unauthenticated" }, 401);
   const me = await loadUser(env, uid);
@@ -2241,47 +1893,31 @@ async function deleteNews(req: Request, env: Env, id: string): Promise<Response>
   await env.DB.prepare("DELETE FROM news WHERE id = ?").bind(id).run();
   return json({ ok: true });
 }
-
-// ── Minimal markdown renderer (block + inline) ──
-// Block: heading (#~####), unordered list (- *), ordered list (N.), blockquote (>),
-//        fenced code (```), horizontal rule (---), paragraph.
-// Inline: `code`, **bold**, *italic*, [text](url). 모든 텍스트는 HTML 이스케이프 후 변환.
-// 대형 의존성 없이 운영자 작성 뉴스 톤에 충분한 수준.
-function escapeHtmlNews(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
+function escapeHtmlNews(s) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
-
-function renderNewsInline(s: string): string {
+function renderNewsInline(s) {
   let out = escapeHtmlNews(s);
-  // inline code 먼저 (안의 * 등 보호)
   out = out.replace(/`([^`]+)`/g, (_m, code) => `<code>${code}</code>`);
-  // 링크 [text](url) — 안전 URL 만 (http/https/site-relative)
   out = out.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_m, text, url) => {
     const safe = /^(https?:\/\/|\/)/i.test(url) ? url : "#";
     return `<a href="${safe}" rel="noopener">${text}</a>`;
   });
-  // bold **text**
   out = out.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
-  // italic *text* (단독 *, ** 와 충돌 회피)
   out = out.replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, "$1<em>$2</em>");
   return out;
 }
-
-function renderNewsMarkdown(md: string): string {
+function renderNewsMarkdown(md) {
   const lines = md.replace(/\r\n/g, "\n").split("\n");
-  const blocks: string[] = [];
-  let buf: string[] = [];
-  let fence: string[] | null = null;
-
+  const blocks = [];
+  let buf = [];
+  let fence = null;
   const flush = () => {
-    if (buf.length) { blocks.push(renderBlock(buf.join("\n"))); buf = []; }
+    if (buf.length) {
+      blocks.push(renderBlock(buf.join("\n")));
+      buf = [];
+    }
   };
-
   for (const line of lines) {
     if (fence !== null) {
       if (/^```\s*$/.test(line)) {
@@ -2309,11 +1945,8 @@ function renderNewsMarkdown(md: string): string {
   flush();
   return blocks.join("\n");
 }
-
-function renderBlock(block: string): string {
+function renderBlock(block) {
   const lines = block.split("\n");
-
-  // Heading (단일 라인만)
   if (lines.length === 1) {
     const h = lines[0].match(/^(#{1,4})\s+(.+)$/);
     if (h) {
@@ -2322,68 +1955,70 @@ function renderBlock(block: string): string {
     }
     if (/^(---|\*\*\*|___)\s*$/.test(lines[0])) return "<hr>";
   }
-
-  // Unordered list
   if (lines.every((l) => /^[-*]\s+/.test(l))) {
     const items = lines.map((l) => `<li>${renderNewsInline(l.replace(/^[-*]\s+/, ""))}</li>`).join("");
     return `<ul>${items}</ul>`;
   }
-
-  // Ordered list
   if (lines.every((l) => /^\d+\.\s+/.test(l))) {
     const items = lines.map((l) => `<li>${renderNewsInline(l.replace(/^\d+\.\s+/, ""))}</li>`).join("");
     return `<ol>${items}</ol>`;
   }
-
-  // Blockquote
   if (lines.every((l) => /^>\s?/.test(l))) {
-    const inner = lines.map((l) => l.replace(/^>\s?/, "")).join("\n");
-    return `<blockquote><p>${renderNewsInline(inner.replace(/\n/g, " "))}</p></blockquote>`;
+    const inner2 = lines.map((l) => l.replace(/^>\s?/, "")).join("\n");
+    return `<blockquote><p>${renderNewsInline(inner2.replace(/\n/g, " "))}</p></blockquote>`;
   }
-
-  // Paragraph (soft break = <br>)
   const inner = lines.map((l) => renderNewsInline(l)).join("<br>\n");
   return `<p>${inner}</p>`;
 }
-
-// ───────────────────── posts (게시판/SNS) ─────────────────────
-
-const ALLOWED_BOARDS = new Set([
-  "notice", // 공지
-  "jsnews", // 법종교 소식
-  "sns", // 도생 사진 피드
-  "album", // 갤러리(앨범)
-  "book", // 경전·도서
-  "mantra", // 주문·수행
-  "ritual", // 의식·예법
-  "etc", // 기타 자료
-  "help", // 문의·제안
-]);
 const POST_PAGE_SIZE = 20;
-
-interface PostAuthorJoin {
-  id: string;
-  board: string;
-  category: string | null;
-  title: string;
-  body_html?: string;
-  body_md?: string;
-  attachments: string | null;
-  cover_image: string | null;
-  view_count: number;
-  is_pinned: number;
-  status: string;
-  created_at: string;
-  updated_at: string;
-  author_uid: string;
-  author_name: string | null;
-  author_avatar: string | null;
-  author_affiliation: string | null;
-  author_level: number;
-  comment_count: number;
+function canSeePost(board, authorId, viewer) {
+  if (!PRIVATE_BOARDS.has(board)) return true;
+  return !!viewer && (viewer.id === authorId || viewer.level >= 4);
 }
-
-function parseAttachments(raw: string | null): any[] {
+async function viewerOf(req, env) {
+  const uid = await currentUserId(req, env);
+  if (!uid) return null;
+  const u = await loadUser(env, uid);
+  return u ? { id: uid, level: u.level ?? 0 } : null;
+}
+const NEWS_BOARD = "news";
+function newsExtras(raw) {
+  const out = {};
+  if (raw.notice !== void 0) out.notice = !!raw.notice;
+  if (raw.period !== void 0) {
+    if (raw.period === null || !raw.period?.start) out.period = null;
+    else {
+      const start = String(raw.period.start);
+      const end = raw.period.end ? String(raw.period.end) : null;
+      if (!EVENT_DATE_RE.test(start) || end && !EVENT_DATE_RE.test(end)) return { error: "기간은 YYYY-MM-DD 형식이어야 합니다" };
+      if (end && end < start) return { error: "끝나는 날이 시작하는 날보다 앞입니다" };
+      out.period = { start, end: end && end !== start ? end : null };
+    }
+  }
+  return out;
+}
+function newsExtraStmts(env, postId, uid, title, x) {
+  const st = [];
+  if (x.notice !== void 0) st.push(env.DB.prepare("UPDATE posts SET is_pinned=? WHERE id=?").bind(x.notice ? 1 : 0, postId));
+  if (x.period !== void 0) {
+    st.push(env.DB.prepare("DELETE FROM events WHERE source_post_id=?").bind(postId));
+    if (x.period) {
+      st.push(
+        env.DB.prepare(
+          `INSERT INTO events (id, user_id, title, start_date, end_date, category, is_annual, is_lunar, is_public, source_post_id)
+           VALUES (?, ?, ?, ?, ?, '일정', 0, 0, 1, ?)`
+        ).bind(uuid(), uid, title, x.period.start, x.period.end, postId)
+      );
+    }
+  }
+  return st;
+}
+async function privatePostOf(env, targetType, targetId) {
+  if (targetType !== "post") return null;
+  const p = await env.DB.prepare("SELECT board, author_id FROM posts WHERE id=?").bind(targetId).first();
+  return p && PRIVATE_BOARDS.has(p.board) ? p : null;
+}
+function parseAttachments(raw) {
   if (!raw) return [];
   try {
     const p = JSON.parse(raw);
@@ -2392,21 +2027,24 @@ function parseAttachments(raw: string | null): any[] {
     return [];
   }
 }
-
-function shapePost(r: PostAuthorJoin, includeBody: boolean) {
+function shapePost(r, includeBody) {
   return {
     id: r.id,
     board: r.board,
     category: r.category,
     title: r.title,
-    ...(includeBody
-      ? { body_html: r.body_html ?? "", body_md: r.body_md ?? "" }
-      : {}),
+    ...includeBody ? { body_html: r.body_html ?? "", body_md: r.body_md ?? "" } : {},
     attachments: parseAttachments(r.attachments),
     cover_image: r.cover_image,
     view_count: r.view_count,
     comment_count: r.comment_count ?? 0,
     is_pinned: r.is_pinned === 1,
+    // 목록용 본문 앞부분(오리알터 피드 카드) — 목록에서만 채운다
+    ...r.excerpt != null ? { excerpt: r.excerpt } : {},
+    // 소식 일정 기간(달력에 들어간 일정) — 없으면 null
+    period: r.ev_start ? { start: r.ev_start, end: r.ev_end ?? null } : null,
+    // 최근 댓글 한 건(오리알터 피드 카드 아래 미리보기 — 밴드처럼)
+    ...r.lc_body != null ? { last_comment: { body: r.lc_body, author: r.lc_author ?? "회원", created_at: toIsoUtc(r.lc_at) } } : {},
     created_at: toIsoUtc(r.created_at),
     updated_at: toIsoUtc(r.updated_at),
     author: {
@@ -2414,31 +2052,33 @@ function shapePost(r: PostAuthorJoin, includeBody: boolean) {
       avatar_url: r.author_avatar,
       affiliation: r.author_affiliation,
       level: r.author_level,
+      branch: r.author_branch ?? null
+      // 교인 인증 지부 코드(src/data/branches.ts)
     },
-    author_id: r.author_uid,
+    author_id: r.author_uid
   };
 }
-
-const POST_COMMENT_COUNT_SQL =
-  "(SELECT COUNT(*) FROM comments c WHERE c.target_type='post' AND c.target_id=p.id AND c.status='published')";
-
-/** GET /api/posts?board=&category=&before=&q=&has_image=1&limit= — 비로그인 열람 가능. */
-async function listPosts(req: Request, env: Env): Promise<Response> {
+const POST_COMMENT_COUNT_SQL = "(SELECT COUNT(*) FROM comments c WHERE c.target_type='post' AND c.target_id=p.id AND c.status='published')";
+async function listPosts(req, env) {
   const url = new URL(req.url);
   const board = url.searchParams.get("board");
   const category = url.searchParams.get("category");
-  const before = url.searchParams.get("before"); // created_at 커서
-  const q = (url.searchParams.get("q") ?? "").trim();
+  const before = url.searchParams.get("before");
+  const qs = url.searchParams.getAll("q").map((t) => t.trim()).filter(Boolean).slice(0, 5);
   const hasImage = url.searchParams.get("has_image") === "1";
   const limit = Math.min(
     50,
-    Math.max(1, Number(url.searchParams.get("limit")) || POST_PAGE_SIZE),
+    Math.max(1, Number(url.searchParams.get("limit")) || POST_PAGE_SIZE)
   );
-
-  const where: string[] = ["p.status='published'"];
-  const binds: any[] = [];
+  const where = ["p.status='published'"];
+  const binds = [];
+  const viewer = await viewerOf(req, env);
+  if (!viewer) where.push(`p.board NOT IN (${PRIVATE_BOARDS_SQL})`);
+  else if (viewer.level < 4) {
+    where.push(`(p.board NOT IN (${PRIVATE_BOARDS_SQL}) OR p.author_id = ?)`);
+    binds.push(viewer.id);
+  }
   if (board) {
-    // 콤마 다중 보드 (예: sns,album)
     const boards = board.split(",").map((b) => b.trim()).filter((b) => ALLOWED_BOARDS.has(b));
     if (boards.length === 0) return json({ error: "invalid board" }, 400);
     where.push(`p.board IN (${boards.map(() => "?").join(",")})`);
@@ -2448,81 +2088,199 @@ async function listPosts(req: Request, env: Env): Promise<Response> {
     where.push("p.category=?");
     binds.push(category);
   }
-  if (hasImage) where.push("p.cover_image IS NOT NULL");
-  if (q) {
-    where.push("(p.title LIKE ? OR p.body_md LIKE ?)");
-    binds.push(`%${q}%`, `%${q}%`);
+  const author = url.searchParams.get("author");
+  if (author) {
+    where.push("p.author_id=?");
+    binds.push(author);
   }
-  // 커서: 고정글은 항상 상단(첫 페이지). 커서가 있으면 고정글 제외 + created_at < before
-  if (before) {
+  if (hasImage) where.push("p.cover_image IS NOT NULL");
+  for (const t of qs) {
+    where.push("(p.title LIKE ? OR p.body_md LIKE ?)");
+    binds.push(`%${t}%`, `%${t}%`);
+  }
+  const pageNo = Math.max(0, Math.floor(Number(url.searchParams.get("page")) || 0));
+  if (before && !pageNo) {
     where.push("p.is_pinned=0 AND p.created_at < ?");
     binds.push(before);
   }
-
+  const from = !pageNo && !before ? url.searchParams.get("from") : null;
+  let fromOrder = "";
+  if (from) {
+    const fr = await env.DB.prepare("SELECT created_at FROM posts WHERE id=? AND status='published'").bind(from).first();
+    if (fr) {
+      where.push("p.is_pinned=0 AND p.created_at <= ?");
+      binds.push(fr.created_at);
+      fromOrder = "CASE WHEN p.id = ? THEN 0 ELSE 1 END, ";
+    }
+  }
   const rows = await env.DB.prepare(
     `SELECT p.id, p.board, p.category, p.title, p.attachments, p.cover_image,
             p.view_count, p.is_pinned, p.status, p.created_at, p.updated_at,
+            substr(p.body_md, 1, 1200) AS excerpt, mp.branch AS author_branch,
+            lc.body AS lc_body, lc.created_at AS lc_at, lcu.display_name AS lc_author,
+            (SELECT e.start_date FROM events e WHERE e.source_post_id = p.id LIMIT 1) AS ev_start,
+            (SELECT e.end_date FROM events e WHERE e.source_post_id = p.id LIMIT 1) AS ev_end,
             u.id AS author_uid, u.display_name AS author_name, u.avatar_url AS author_avatar,
             u.affiliation AS author_affiliation, u.level AS author_level,
             ${POST_COMMENT_COUNT_SQL} AS comment_count
      FROM posts p JOIN users u ON u.id = p.author_id
+     LEFT JOIN member_profiles mp ON mp.user_id = u.id
+     LEFT JOIN comments lc ON lc.id = (
+       SELECT c2.id FROM comments c2 WHERE c2.target_type='post' AND c2.target_id=p.id AND c2.status='published' AND c2.parent_id IS NULL
+       ORDER BY c2.created_at DESC LIMIT 1)
+     LEFT JOIN users lcu ON lcu.id = lc.user_id
      WHERE ${where.join(" AND ")}
-     ORDER BY p.is_pinned DESC, p.created_at DESC
-     LIMIT ?`,
-  ).bind(...binds, limit + 1).all<PostAuthorJoin>();
-
+     ORDER BY ${fromOrder}p.is_pinned DESC, p.created_at DESC
+     LIMIT ? OFFSET ?`
+  ).bind(...binds, ...fromOrder ? [from] : [], limit + 1, pageNo ? (pageNo - 1) * limit : 0).all();
+  let total = null;
+  if (pageNo) {
+    const c = await env.DB.prepare(`SELECT COUNT(*) AS n FROM posts p WHERE ${where.join(" AND ")}`).bind(...binds).first();
+    total = c?.n ?? 0;
+  }
   const results = rows.results ?? [];
   const hasMore = results.length > limit;
   const page = results.slice(0, limit);
   const nextCursor = hasMore ? page[page.length - 1]?.created_at ?? null : null;
-
   return json({
     posts: page.map((r) => shapePost(r, false)),
-    next: nextCursor,
+    next: pageNo ? null : nextCursor,
     has_more: hasMore,
+    ...pageNo ? { page: pageNo, total, pages: Math.max(1, Math.ceil((total ?? 0) / limit)) } : {}
   });
 }
-
-/** POST /api/posts — 작성 (level>=1, 닉네임 필요). */
-async function createPost(req: Request, env: Env): Promise<Response> {
+async function listPostAuthors(req, env) {
+  const url = new URL(req.url);
+  const board = url.searchParams.get("board") ?? "";
+  if (!ALLOWED_BOARDS.has(board) || PRIVATE_BOARDS.has(board)) return json({ error: "invalid board" }, 400);
+  const limit = Math.min(30, Math.max(1, Number(url.searchParams.get("limit")) || 10));
+  const offset = Math.max(0, Number(url.searchParams.get("offset")) || 0);
+  const rs = await env.DB.prepare(
+    `SELECT u.id, u.display_name, u.avatar_url, mp.branch, MAX(p.created_at) AS last_at, COUNT(*) AS posts
+       FROM posts p JOIN users u ON u.id = p.author_id
+       LEFT JOIN member_profiles mp ON mp.user_id = u.id
+      WHERE p.board = ? AND p.status = 'published'
+      GROUP BY u.id
+      ORDER BY last_at DESC
+      LIMIT ? OFFSET ?`
+  ).bind(board, limit + 1, offset).all();
+  const rows = rs.results ?? [];
+  return json({
+    authors: rows.slice(0, limit).map((r) => ({ ...r, last_at: toIsoUtc(r.last_at) })),
+    has_more: rows.length > limit
+  });
+}
+async function preparePostBlocks(env, raw, req, uid, existingBlocksJson = null) {
+  const normalized = normalizeBlocks(raw, { allowMedia: false, allowKey: true });
+  if (!normalized.length) throw new BlockError("본문이 비어 있습니다. 블록을 하나 이상 채워 주세요");
+  const prev = parseStoredBlocks(existingBlocksJson) ?? [];
+  const keep = new Set(allKeys(prev));
+  const keepPoints = new Set(allPointIds(prev));
+  const blocks = await resolveBlocks(env.DB, normalized, siteHosts(env, req), { owner: uid, keep }, { keep: keepPoints });
+  const json_ = JSON.stringify(blocks);
+  if (json_.length > 6e4) throw new BlockError("본문이 너무 깁니다");
+  const { html, rctx } = await renderRowBlocks(env, blocks);
+  const attachments = [];
+  for (const b of blocks) {
+    if (b.type === "image") {
+      for (const it of imageItems(b)) {
+        const k = it.key ? rctx.keys.get(it.key) : void 0;
+        if (k) attachments.push({ type: "image", url: k.url, ...k.width ? { width: k.width, height: k.height } : {} });
+      }
+    } else if (b.type === "video" && b.video_id) {
+      attachments.push({ type: "video", provider: "youtube", videoId: b.video_id, url: `https://www.youtube.com/watch?v=${b.video_id}` });
+    }
+  }
+  const cover = attachments.find((a) => a.type === "image")?.url ?? null;
+  return { blocks, json: json_, html, plain: plainFromBlocks(blocks, rctx), attachments, cover };
+}
+function legacyPostBlocks(env, bodyMd, attachments) {
+  const out = [];
+  let n = 0;
+  const id = () => `legacy${++n}xx`;
+  if (bodyMd.trim()) out.push({ id: id(), type: "text", text: bodyMd });
+  const base = (env.UPLOADS_PUBLIC_BASE || "").replace(/\/$/, "");
+  for (const a of attachments) {
+    if (a?.type === "video" && a.videoId) out.push({ id: id(), type: "video", video_id: a.videoId });
+    if (a?.type === "image" && typeof a.url === "string" && base && a.url.startsWith(base + "/")) {
+      out.push({ id: id(), type: "image", items: [{ key: a.url.slice(base.length + 1) }] });
+    }
+  }
+  return out;
+}
+async function createPost(req, env) {
   const uid = await currentUserId(req, env);
   if (!uid) return json({ error: "not authenticated" }, 401);
   const u = await loadUser(env, uid);
   if (!u || !u.display_name) return json({ error: "닉네임 설정 필요" }, 403);
   if ((u.level ?? 0) < 1) return json({ error: "글쓰기 권한 없음" }, 403);
-
-  const body = await req.json().catch(() => ({})) as {
-    board?: string;
-    category?: string | null;
-    title?: string;
-    body?: string;
-    attachments?: unknown;
-  };
+  const body = await req.json().catch(() => ({}));
   const board = body.board ?? "";
   if (!ALLOWED_BOARDS.has(board)) return json({ error: "invalid board" }, 400);
-  // 공지·법종교소식은 운영자(level>=4)만
-  if ((board === "notice" || board === "jsnews") && (u.level ?? 0) < 4) {
+  if (OPERATOR_BOARDS.has(board) && (u.level ?? 0) < 4) {
     return json({ error: "운영자만 작성 가능" }, 403);
   }
-  const title = (body.title ?? "").trim();
-  if (title.length === 0 || title.length > 200) {
+  if ((u.level ?? 0) < (BOARD_MIN_LEVEL[board] ?? 1)) {
+    return json({ error: "교인 인증 회원만 쓸 수 있습니다" }, 403);
+  }
+  let title = (body.title ?? "").trim();
+  const titleOptional = TITLE_OPTIONAL_BOARDS.has(board);
+  if (!titleOptional && title.length === 0 || title.length > 200) {
     return json({ error: "제목은 1~200자여야 합니다" }, 400);
+  }
+  const nx = board === NEWS_BOARD ? newsExtras(body) : {};
+  if (nx.error) return json({ error: nx.error }, 400);
+  let libSeries = null;
+  if (board === LIBRARY_BOARD) {
+    const lf = await normLibraryPostFields(env.DB, body);
+    if ("error" in lf) return json({ error: lf.error }, 400);
+    body.category = lf.category;
+    libSeries = lf.series_id;
+  }
+  const id = uuid();
+  if (body.blocks !== void 0) {
+    let pb;
+    try {
+      pb = await preparePostBlocks(env, body.blocks, req, uid);
+    } catch (e) {
+      if (e instanceof BlockError) return json({ error: e.message }, 400);
+      throw e;
+    }
+    if (!title) title = autoTitleFromBlocks(pb);
+    await env.DB.batch([
+      env.DB.prepare(
+        `INSERT INTO posts (id, board, category, title, body_md, body_html, body_blocks, author_id, attachments, cover_image, series_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).bind(
+        id,
+        board,
+        body.category ?? null,
+        title,
+        pb.plain,
+        pb.html,
+        pb.json,
+        uid,
+        pb.attachments.length ? JSON.stringify(pb.attachments) : null,
+        pb.cover,
+        libSeries
+      ),
+      ...refIndexStmts(env, "post", id, pb.blocks),
+      ...newsExtraStmts(env, id, uid, title, nx)
+    ]);
+    return json({ ok: true, id });
   }
   const text = (body.body ?? "").trim();
   const attachments = sanitizeAttachments(body.attachments, env);
   if (text.length === 0 && attachments.length === 0) {
     return json({ error: "본문 또는 첨부가 필요합니다" }, 400);
   }
-  if (text.length > 20000) return json({ error: "본문이 너무 깁니다" }, 400);
-
-  const id = uuid();
+  if (!title) return json({ error: "제목은 1~200자여야 합니다" }, 400);
+  if (text.length > 2e4) return json({ error: "본문이 너무 깁니다" }, 400);
   const attJson = attachments.length > 0 ? JSON.stringify(attachments) : null;
-  const cover = attachments.find((a) => a.type === "image") as
-    | { url: string }
-    | undefined;
+  const cover = attachments.find((a) => a.type === "image");
   await env.DB.prepare(
     `INSERT INTO posts (id, board, category, title, body_md, body_html, author_id, attachments, cover_image)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(
     id,
     board,
@@ -2532,53 +2290,113 @@ async function createPost(req: Request, env: Env): Promise<Response> {
     renderNewsMarkdown(text),
     uid,
     attJson,
-    cover?.url ?? null,
+    cover?.url ?? null
   ).run();
-
   return json({ ok: true, id });
 }
-
-/** GET /api/posts/:id — 상세 + 조회수 증가. 비로그인 열람 가능. */
-async function getPost(req: Request, env: Env, id: string): Promise<Response> {
+async function getPost(req, env, id) {
   const r = await env.DB.prepare(
-    `SELECT p.id, p.board, p.category, p.title, p.body_md, p.body_html, p.attachments, p.cover_image,
+    `SELECT p.id, p.board, p.category, p.series_id, p.title, p.body_md, p.body_html, p.body_blocks, p.attachments, p.cover_image,
             p.view_count, p.is_pinned, p.status, p.created_at, p.updated_at,
             u.id AS author_uid, u.display_name AS author_name, u.avatar_url AS author_avatar,
-            u.affiliation AS author_affiliation, u.level AS author_level,
+            u.affiliation AS author_affiliation, u.level AS author_level, mp.branch AS author_branch,
+            (SELECT e.start_date FROM events e WHERE e.source_post_id = p.id LIMIT 1) AS ev_start,
+            (SELECT e.end_date FROM events e WHERE e.source_post_id = p.id LIMIT 1) AS ev_end,
             ${POST_COMMENT_COUNT_SQL} AS comment_count
      FROM posts p JOIN users u ON u.id = p.author_id
-     WHERE p.id=? AND p.status='published'`,
-  ).bind(id).first<PostAuthorJoin>();
+     LEFT JOIN member_profiles mp ON mp.user_id = u.id
+     WHERE p.id=? AND p.status='published'`
+  ).bind(id).first();
   if (!r) return json({ error: "not found" }, 404);
-
+  if (PRIVATE_BOARDS.has(r.board) && !canSeePost(r.board, r.author_uid, await viewerOf(req, env))) {
+    return json({ error: "not found" }, 404);
+  }
   await env.DB.prepare("UPDATE posts SET view_count = view_count + 1 WHERE id=?").bind(id).run();
   const shaped = shapePost(r, true);
   shaped.view_count += 1;
+  shaped.series_id = r.series_id ?? null;
+  const stored = parseStoredBlocks(r.body_blocks);
+  if (stored) {
+    const { html, rctx } = await renderRowBlocks(env, stored);
+    shaped.body_html = html;
+    shaped.blocks = blocksForEditor(stored, rctx);
+    shaped.has_blocks = true;
+  } else {
+    const legacy = legacyPostBlocks(env, r.body_md ?? "", shaped.attachments);
+    const { rctx } = await renderRowBlocks(env, legacy);
+    shaped.blocks = blocksForEditor(legacy, rctx);
+    shaped.has_blocks = false;
+  }
   return json({ post: shaped });
 }
-
-/** PATCH /api/posts/:id — 수정 (작성자 또는 level>=4). */
-async function updatePost(req: Request, env: Env, id: string): Promise<Response> {
+function autoTitleFromBlocks(pb) {
+  const first = pb.plain.split("\n").map((l) => l.trim()).find(Boolean) ?? "";
+  const photos = pb.attachments.filter((a) => a.type === "image").length;
+  return first ? first.length > 40 ? first.slice(0, 40) + "…" : first : photos ? `사진 ${photos}장` : "오리알터";
+}
+async function updatePost(req, env, id) {
   const uid = await currentUserId(req, env);
   if (!uid) return json({ error: "not authenticated" }, 401);
   const u = await loadUser(env, uid);
   const post = await env.DB.prepare(
-    "SELECT author_id, status FROM posts WHERE id=?",
-  ).bind(id).first<{ author_id: string; status: string }>();
+    "SELECT author_id, status, board, body_blocks, category, series_id, title FROM posts WHERE id=?"
+  ).bind(id).first();
   if (!post || post.status === "deleted") return json({ error: "not found" }, 404);
   const isOwner = post.author_id === uid;
   const isAdmin = (u?.level ?? 0) >= 4;
   if (!isOwner && !isAdmin) return json({ error: "forbidden" }, 403);
-
-  const body = await req.json().catch(() => ({})) as {
-    title?: string;
-    body?: string;
-    category?: string | null;
-    attachments?: unknown;
-  };
-  const title = (body.title ?? "").trim();
+  if (OPERATOR_BOARDS.has(post.board) && !isAdmin) return json({ error: "운영자만 수정할 수 있습니다" }, 403);
+  const body = await req.json().catch(() => ({}));
+  let title = (body.title ?? "").trim();
+  if (!title && TITLE_OPTIONAL_BOARDS.has(post.board)) title = post.title ?? "";
   if (title.length === 0 || title.length > 200) {
     return json({ error: "제목은 1~200자여야 합니다" }, 400);
+  }
+  const nx = post.board === NEWS_BOARD ? newsExtras(body) : {};
+  if (nx.error) return json({ error: nx.error }, 400);
+  const newsStmts = post.board === NEWS_BOARD ? [
+    ...newsExtraStmts(env, id, uid, title, nx),
+    ...nx.period === void 0 ? [env.DB.prepare("UPDATE events SET title=?, updated_at=datetime('now') WHERE source_post_id=?").bind(title, id)] : []
+  ] : [];
+  let libSeries = post.series_id;
+  if (post.board === LIBRARY_BOARD) {
+    const lf = await normLibraryPostFields(
+      env.DB,
+      { category: body.category, series_id: "series_id" in body ? body.series_id : post.series_id },
+      post.category ?? LIBRARY_BOARD
+    );
+    if ("error" in lf) return json({ error: lf.error }, 400);
+    body.category = lf.category;
+    libSeries = lf.series_id;
+  }
+  if (body.blocks !== void 0) {
+    let pb;
+    try {
+      pb = await preparePostBlocks(env, body.blocks, req, uid, post.body_blocks);
+    } catch (e) {
+      if (e instanceof BlockError) return json({ error: e.message }, 400);
+      throw e;
+    }
+    if (!(body.title ?? "").trim() && TITLE_OPTIONAL_BOARDS.has(post.board)) title = autoTitleFromBlocks(pb);
+    await env.DB.batch([
+      env.DB.prepare(
+        `UPDATE posts SET title=?, body_md=?, body_html=?, body_blocks=?, category=?, attachments=?, cover_image=?, series_id=?, updated_at=datetime('now')
+         WHERE id=?`
+      ).bind(
+        title,
+        pb.plain,
+        pb.html,
+        pb.json,
+        body.category ?? null,
+        pb.attachments.length ? JSON.stringify(pb.attachments) : null,
+        pb.cover,
+        libSeries,
+        id
+      ),
+      ...refIndexStmts(env, "post", id, pb.blocks),
+      ...newsStmts
+    ]);
+    return json({ ok: true });
   }
   const text = (body.body ?? "").trim();
   const attachments = sanitizeAttachments(body.attachments, env);
@@ -2586,43 +2404,43 @@ async function updatePost(req: Request, env: Env, id: string): Promise<Response>
     return json({ error: "본문 또는 첨부가 필요합니다" }, 400);
   }
   const attJson = attachments.length > 0 ? JSON.stringify(attachments) : null;
-  const cover = attachments.find((a) => a.type === "image") as { url: string } | undefined;
-  await env.DB.prepare(
-    `UPDATE posts SET title=?, body_md=?, body_html=?, category=?, attachments=?, cover_image=?, updated_at=datetime('now')
-     WHERE id=?`,
-  ).bind(title, text, renderNewsMarkdown(text), body.category ?? null, attJson, cover?.url ?? null, id).run();
-
+  const cover = attachments.find((a) => a.type === "image");
+  await env.DB.batch([
+    env.DB.prepare(
+      `UPDATE posts SET title=?, body_md=?, body_html=?, body_blocks=NULL, category=?, attachments=?, cover_image=?, updated_at=datetime('now')
+       WHERE id=?`
+    ).bind(title, text, renderNewsMarkdown(text), body.category ?? null, attJson, cover?.url ?? null, id),
+    env.DB.prepare("DELETE FROM content_refs WHERE from_type='post' AND from_id=?").bind(id)
+  ]);
   return json({ ok: true });
 }
-
-/** DELETE /api/posts/:id — 삭제 (작성자 또는 level>=4). soft delete. */
-async function deletePost(req: Request, env: Env, id: string): Promise<Response> {
+async function deletePost(req, env, id) {
   const uid = await currentUserId(req, env);
   if (!uid) return json({ error: "not authenticated" }, 401);
   const u = await loadUser(env, uid);
   const post = await env.DB.prepare(
-    "SELECT author_id FROM posts WHERE id=?",
-  ).bind(id).first<{ author_id: string }>();
+    "SELECT author_id, board FROM posts WHERE id=?"
+  ).bind(id).first();
   if (!post) return json({ error: "not found" }, 404);
   const isOwner = post.author_id === uid;
   const isAdmin = (u?.level ?? 0) >= 4;
   if (!isOwner && !isAdmin) return json({ error: "forbidden" }, 403);
-
-  await env.DB.prepare(
-    "UPDATE posts SET status='deleted', updated_at=datetime('now') WHERE id=?",
-  ).bind(id).run();
+  if (OPERATOR_BOARDS.has(post.board) && !isAdmin) return json({ error: "운영자만 삭제할 수 있습니다" }, 403);
+  await env.DB.batch([
+    env.DB.prepare("UPDATE posts SET status='deleted', updated_at=datetime('now') WHERE id=?").bind(id),
+    // 소식 글에서 온 달력 일정도 함께 지운다
+    env.DB.prepare("DELETE FROM events WHERE source_post_id=?").bind(id)
+  ]);
   return json({ ok: true });
 }
-
-/** POST /api/posts/:id/pin — 고정 토글 (level>=4). */
-async function pinPost(req: Request, env: Env, id: string): Promise<Response> {
+async function pinPost(req, env, id) {
   const uid = await currentUserId(req, env);
   if (!uid) return json({ error: "not authenticated" }, 401);
   const u = await loadUser(env, uid);
   if ((u?.level ?? 0) < 4) return json({ error: "forbidden" }, 403);
   const post = await env.DB.prepare(
-    "SELECT is_pinned FROM posts WHERE id=?",
-  ).bind(id).first<{ is_pinned: number }>();
+    "SELECT is_pinned FROM posts WHERE id=?"
+  ).bind(id).first();
   if (!post) return json({ error: "not found" }, 404);
   const next = post.is_pinned === 1 ? 0 : 1;
   await env.DB.prepare("UPDATE posts SET is_pinned=? WHERE id=?").bind(next, id).run();

@@ -10,3 +10,11 @@ KAKAO_CLIENT_SECRET=""   # 보안 강화 사용 시에만
 # 구글 (보조)
 GOOGLE_CLIENT_ID=""
 GOOGLE_CLIENT_SECRET=""
+
+# 사이트·업로드
+SITE_ORIGIN="http://localhost:4321"
+UPLOADS_PUBLIC_BASE=""
+
+# 유튜브 채널 영상 목록(미디어 페이지)
+YOUTUBE_API_KEY=""
+YOUTUBE_CHANNEL_ID=""

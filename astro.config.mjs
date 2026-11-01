@@ -9,6 +9,16 @@ export default defineConfig({
   // 운영 도메인 — sitemap·RSS 절대 URL 생성에 사용. 도메인 변경 시 여기 한 곳만 수정.
   site: 'https://jsbeob.com',
 
+  // 옛 커뮤니티 게시판 주소 → 자료실로 이전 (복원 근거: 배포본 config digest의 redirects)
+  redirects: {
+    '/community/book': '/archive/book/',
+    '/community/mantra': '/archive/mantra/',
+    '/community/ritual': '/archive/',
+    '/community/etc': '/archive/etc/',
+    '/community/orialter': '/community/',
+    '/community/news': '/community/#news',
+  },
+
   integrations: [
     svelte(),
     sitemap({

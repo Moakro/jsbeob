@@ -1,59 +1,28 @@
-name = "jsbeob-api"
+# 게시판·인증·자료 API Worker.
+# 복원(2026-11-01): 배포본 Worker 이름·바인딩 기준. 운영 Worker 이름은 jsbeob-api-preview 이다.
+# 사이트 Worker(jsbeob, 루트 wrangler.jsonc)가 service binding "API" 로 이 Worker를 호출하므로
+# 9월 버전의 jsbeob.com/api/* routes 블록은 쓰지 않는다.
+name = "jsbeob-api-preview"
 main = "index.ts"
 compatibility_date = "2026-04-01"
 compatibility_flags = ["nodejs_compat"]
 
-# D1: `wrangler d1 create jsbeob-db` 실행 후 출력된 database_id 를 아래에 채운다.
 [[d1_databases]]
 binding = "DB"
 database_name = "jsbeob-db"
-database_id = "PLACEHOLDER_RUN_wrangler_d1_create"
+database_id = "2a52dfc6-5fbb-444e-9dbf-b8676833008c"
 
-# 회원 업로드 사진용 R2. `wrangler r2 bucket create jsbeob-uploads`.
-# 공개 커스텀 도메인(예: img.jsbeob.com) → UPLOADS_PUBLIC_BASE.
+# 회원 업로드 사진·미디어용 R2.
 [[r2_buckets]]
 binding = "UPLOADS"
 bucket_name = "jsbeob-uploads"
 
-# jsbeob.com zone 에 attach. 와일드카드로 Pages 라우팅보다 우선.
-[[routes]]
-pattern = "jsbeob.com/api/auth/*"
-zone_name = "jsbeob.com"
-
-[[routes]]
-pattern = "jsbeob.com/api/posts*"
-zone_name = "jsbeob.com"
-
-[[routes]]
-pattern = "jsbeob.com/api/comments*"
-zone_name = "jsbeob.com"
-
-[[routes]]
-pattern = "jsbeob.com/api/me*"
-zone_name = "jsbeob.com"
-
-[[routes]]
-pattern = "jsbeob.com/api/admin/*"
-zone_name = "jsbeob.com"
-
-[[routes]]
-pattern = "jsbeob.com/api/upload/*"
-zone_name = "jsbeob.com"
-
-[[routes]]
-pattern = "jsbeob.com/api/events*"
-zone_name = "jsbeob.com"
-
-[[routes]]
-pattern = "jsbeob.com/api/news*"
-zone_name = "jsbeob.com"
-
 [observability]
 enabled = true
 
-# 공개(비밀 아님) 변수. 시크릿은 `wrangler secret put` 으로 별도 설정:
-#   GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, KAKAO_REST_API_KEY,
-#   KAKAO_CLIENT_SECRET(선택), AUTH_SECRET(32자 이상 랜덤)
-[vars]
-SITE_ORIGIN = "https://jsbeob.com"
-UPLOADS_PUBLIC_BASE = "https://img.jsbeob.com"
+# 운영값은 Cloudflare 대시보드(Workers → jsbeob-api-preview → 설정)에 있다. 여기에 값을 넣지 않는다.
+#   일반 변수: SITE_ORIGIN, UPLOADS_PUBLIC_BASE, YOUTUBE_CHANNEL_ID, GOOGLE_CLIENT_ID
+#   시크릿(`wrangler secret put`): AUTH_SECRET, YOUTUBE_API_KEY,
+#     GOOGLE_CLIENT_SECRET, KAKAO_CLIENT_SECRET, KAKAO_REST_API_KEY
+#     (2026-11 현재 뒤의 세 개는 일반 변수로 등록돼 있음 → 시크릿 전환 권장)
+# 로컬 개발 값은 .dev.vars (.dev.vars.example 참고, git 제외).

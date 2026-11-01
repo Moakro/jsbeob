@@ -1,11 +1,6 @@
--- jsbeob (증산법종교) D1 schema (SQLite)
--- All timestamps are ISO-8601 strings stored in UTC.
-
--- ──────────────── users ────────────────
--- 멀티 프로바이더(카카오 메인 + 구글). google_id / kakao_id 중 하나 이상 채워짐.
--- google_name (프로바이더가 준 실명/닉네임)은 감사 목적으로 1회 저장하되
--- 클라이언트 응답에는 절대 노출하지 않는다(노출용은 display_name).
-CREATE TABLE IF NOT EXISTS users (
+-- jsbeob-db 스키마 — 2026-11-01 운영 D1(jsbeob-db)에서 'wrangler d1 export --no-data'로 받은 그대로.
+-- 새 DB: npx wrangler d1 execute jsbeob-db --local --file=schema.sql
+CREATE TABLE users (
   id            TEXT PRIMARY KEY,                 -- internal UUID
   provider      TEXT,                             -- 'kakao' | 'google' (마지막 로그인 수단)
   google_id     TEXT UNIQUE,                      -- google "sub" claim (nullable)
@@ -21,24 +16,14 @@ CREATE TABLE IF NOT EXISTS users (
   updated_at    TEXT NOT NULL DEFAULT (datetime('now')),
   last_seen_at  TEXT
 );
-CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
-CREATE INDEX IF NOT EXISTS idx_users_display_name ON users(display_name);
-
--- 닉네임 변경 이력 — 도주 방지
-CREATE TABLE IF NOT EXISTS display_name_history (
+CREATE TABLE display_name_history (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id     TEXT NOT NULL REFERENCES users(id),
   old_name    TEXT,
   new_name    TEXT NOT NULL,
   changed_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
-CREATE INDEX IF NOT EXISTS idx_dnh_user ON display_name_history(user_id);
-
--- ──────────────── posts (게시판/SNS 게시글) ────────────────
--- jsbeob 핵심: 회원이 직접 작성하는 독립 게시판.
---   board: notice|jsnews|sns(사진피드)|album|book|mantra|ritual|etc|help
---   attachments: JSON [{type:'image',url,w,h} | {type:'video',url(youtube)}]
-CREATE TABLE IF NOT EXISTS posts (
+CREATE TABLE posts (
   id            TEXT PRIMARY KEY,                  -- UUID
   board         TEXT NOT NULL,
   category      TEXT,                              -- 보드 내 세부 분류 (선택)
@@ -54,15 +39,8 @@ CREATE TABLE IF NOT EXISTS posts (
   status        TEXT NOT NULL DEFAULT 'published', -- published|hidden|deleted
   created_at    TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
-);
-CREATE INDEX IF NOT EXISTS idx_posts_board ON posts(board, status, is_pinned DESC, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_posts_author ON posts(author_id, created_at DESC);
-
--- ──────────────── comments ────────────────
--- target_type / target_id 형태. jsbeob 는 게시글 댓글이 핵심:
---   target_type='post'    → target_id = posts.id
-CREATE INDEX IF NOT EXISTS idx_posts_cover ON posts(status, cover_image, created_at DESC);
-CREATE TABLE IF NOT EXISTS comments (
+, body_blocks TEXT, series_id TEXT REFERENCES series(id));
+CREATE TABLE comments (
   id                  TEXT PRIMARY KEY,                  -- UUID
   target_type         TEXT NOT NULL,
   target_id           TEXT NOT NULL,
@@ -78,15 +56,7 @@ CREATE TABLE IF NOT EXISTS comments (
   created_at          TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at          TEXT NOT NULL DEFAULT (datetime('now'))
 );
-CREATE INDEX IF NOT EXISTS idx_comments_target ON comments(target_type, target_id, status, created_at);
-CREATE INDEX IF NOT EXISTS idx_comments_user ON comments(user_id, created_at);
-CREATE INDEX IF NOT EXISTS idx_comments_parent ON comments(parent_id);
-CREATE INDEX IF NOT EXISTS idx_comments_pinned ON comments(target_type, target_id, is_pinned, created_at);
-CREATE INDEX IF NOT EXISTS idx_comments_promoted ON comments(promoted_to_note_id);
-
--- 사용자별 사진 dedup. 동일 사용자가 같은 sha256 재업로드 시
--- 기존 url 반환하고 새 업로드를 막는다. orphan cleanup은 별도 트랙.
-CREATE TABLE IF NOT EXISTS user_uploaded_photos (
+CREATE TABLE user_uploaded_photos (
   user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   hash         TEXT NOT NULL,
   url          TEXT NOT NULL,
@@ -98,19 +68,14 @@ CREATE TABLE IF NOT EXISTS user_uploaded_photos (
   created_at   TEXT NOT NULL DEFAULT (datetime('now')),
   PRIMARY KEY (user_id, hash)
 );
-
--- ──────────────── reactions (도움됨) ────────────────
-CREATE TABLE IF NOT EXISTS reactions (
+CREATE TABLE reactions (
   comment_id  TEXT NOT NULL REFERENCES comments(id) ON DELETE CASCADE,
   user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   type        TEXT NOT NULL,                     -- helpful (확장 여지)
   created_at  TEXT NOT NULL DEFAULT (datetime('now')),
   PRIMARY KEY (comment_id, user_id, type)
 );
-CREATE INDEX IF NOT EXISTS idx_reactions_comment ON reactions(comment_id, type);
-
--- ──────────────── flags (신고) ────────────────
-CREATE TABLE IF NOT EXISTS flags (
+CREATE TABLE flags (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
   comment_id  TEXT NOT NULL REFERENCES comments(id) ON DELETE CASCADE,
   user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -120,11 +85,7 @@ CREATE TABLE IF NOT EXISTS flags (
   resolved_at TEXT,
   created_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
-CREATE INDEX IF NOT EXISTS idx_flags_comment ON flags(comment_id);
-CREATE INDEX IF NOT EXISTS idx_flags_status ON flags(status);
-
--- ──────────────── nickname review queue (Phase 2 hook) ────────────────
-CREATE TABLE IF NOT EXISTS nickname_review_queue (
+CREATE TABLE nickname_review_queue (
   id             INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id        TEXT NOT NULL REFERENCES users(id),
   nickname       TEXT NOT NULL,
@@ -135,31 +96,14 @@ CREATE TABLE IF NOT EXISTS nickname_review_queue (
   decided_at     TEXT,
   created_at     TEXT NOT NULL DEFAULT (datetime('now'))
 );
-CREATE INDEX IF NOT EXISTS idx_nickname_queue_status ON nickname_review_queue(status, created_at);
-
--- ──────────────── user_visits ────────────────
--- 회원별 (경전, 장) 마지막 방문 시각. "새 댓글 수" 계산에 사용.
--- 비로그인 사용자는 클라이언트 localStorage로 동일 형식 fallback.
-CREATE TABLE IF NOT EXISTS user_visits (
+CREATE TABLE user_visits (
   user_id        TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   scripture_slug TEXT NOT NULL,
   chapter_anchor TEXT NOT NULL,   -- "vol-chap" (예: "2-3") · 평면 경전은 "0"
   last_visited   TEXT NOT NULL DEFAULT (datetime('now')),
   PRIMARY KEY (user_id, scripture_slug, chapter_anchor)
 );
-CREATE INDEX IF NOT EXISTS idx_user_visits_user
-  ON user_visits(user_id, scripture_slug);
-
--- ──────────────── events (사용자 개인 일정) ────────────────
--- 달력 사이드바 "N월 일정" 섹션 데이터 소스 + 사이트 전체 공개 일정.
--- start_date / end_date 는 ISO 'YYYY-MM-DD'.
---   is_lunar=0 → 양력 / is_lunar=1 → 음력 (start_date 자체가 음력)
---   end_date NULL 이면 단일 일자
--- category enum: 기념일·일정·기타
--- is_annual: 매년 반복(기념일+연례). 양력/음력 기준은 is_lunar 가 결정.
--- is_public: 사이트 전체 공개(일정/기타+공개). 작성자만 수정·삭제.
--- all_day: 호환 컬럼 — 폼에서 제거되어 신규 row 는 사용 안 함.
-CREATE TABLE IF NOT EXISTS events (
+CREATE TABLE events (
   id          TEXT PRIMARY KEY,
   user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   title       TEXT NOT NULL,
@@ -173,17 +117,8 @@ CREATE TABLE IF NOT EXISTS events (
   memo        TEXT,
   created_at  TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
-);
-CREATE INDEX IF NOT EXISTS idx_events_user_month ON events(user_id, start_date);
-CREATE INDEX IF NOT EXISTS idx_events_public_month ON events(is_public, start_date) WHERE is_public = 1;
-CREATE INDEX IF NOT EXISTS idx_events_user_annual ON events(user_id, is_annual) WHERE is_annual = 1;
-
--- ──────────────── news ────────────────
--- 사이트 공지/업데이트/릴리스/로드맵. 운영자(level>=4) 가 CMS UI 에서 작성·수정·발행.
--- 일반 회원·비회원은 발행된(draft=0) 글만 조회.
--- body_md = 마크다운 원문 (편집 시 원본 유지).
--- body_html = 워커 inline renderer 가 생성·수정 시 갱신하는 캐시 (출력 즉시 사용).
-CREATE TABLE IF NOT EXISTS news (
+, source_post_id TEXT);
+CREATE TABLE news (
   id           TEXT PRIMARY KEY,
   slug         TEXT NOT NULL UNIQUE,
   title        TEXT NOT NULL,
@@ -198,17 +133,229 @@ CREATE TABLE IF NOT EXISTS news (
   created_at   TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
 );
-CREATE INDEX IF NOT EXISTS idx_news_published ON news(draft, published_at DESC);
-CREATE INDEX IF NOT EXISTS idx_news_category ON news(category, published_at DESC);
-CREATE INDEX IF NOT EXISTS idx_news_pinned ON news(pinned DESC, published_at DESC);
-
--- ──────────────── sessions ────────────────
--- Auth.js 세션 (JWT 사용 시엔 비워둠. DB 세션 모드 대비)
-CREATE TABLE IF NOT EXISTS sessions (
+CREATE TABLE sessions (
   id          TEXT PRIMARY KEY,
   user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   expires_at  TEXT NOT NULL,
   created_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
-CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
-CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
+CREATE TABLE member_profiles (
+  user_id     TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  branch      TEXT NOT NULL,                      -- 지부·분원 코드 (src/data/branches.ts)
+  created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+, real_name TEXT);
+CREATE TABLE media (
+  id           TEXT PRIMARY KEY,
+  r2_key       TEXT NOT NULL UNIQUE,
+  sha256       TEXT NOT NULL UNIQUE,           -- 같은 사진 중복 업로드 방지
+  content_type TEXT NOT NULL,
+  width        INTEGER NOT NULL,
+  height       INTEGER NOT NULL,
+  size_bytes   INTEGER NOT NULL,
+  alt          TEXT,                           -- 대체 텍스트
+  caption      TEXT,                           -- 기본 설명
+  credit       TEXT,                           -- 촬영자·출처
+  taken_at     TEXT,                           -- 촬영 시기('1985', '1990년대' 등 자유 형식)
+  source_url   TEXT,                           -- 구사이트·피카사 원본 주소(이관 추적)
+  uploaded_by  TEXT REFERENCES users(id),
+  status       TEXT NOT NULL DEFAULT 'active', -- active|deleted
+  created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE articles (
+  id            TEXT PRIMARY KEY,
+  section       TEXT NOT NULL,       -- about | library
+  kind          TEXT NOT NULL,       -- about: person|doctrine|history|org|branches|anthem|directions|overview
+                                     -- library: book|mantra|ritual|etc
+  slug          TEXT NOT NULL,
+  title         TEXT NOT NULL,
+  title_hanja   TEXT,
+  summary       TEXT,
+  body_md       TEXT NOT NULL DEFAULT '',
+  body_html     TEXT NOT NULL DEFAULT '',  -- 서버 렌더 캐시
+  hero_media_id TEXT REFERENCES media(id),
+  meta          TEXT,                -- JSON. 종류별 보조 필드(인물: birth, aliases)
+  sort_order    INTEGER NOT NULL DEFAULT 0,
+  status        TEXT NOT NULL DEFAULT 'draft',  -- draft|published|hidden
+  published_at  TEXT,
+  created_by    TEXT REFERENCES users(id),
+  updated_by    TEXT REFERENCES users(id),
+  created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at    TEXT NOT NULL DEFAULT (datetime('now')), body_blocks TEXT, thumb_media_id TEXT REFERENCES media(id), thumb_crop TEXT, pinned INTEGER NOT NULL DEFAULT 0, featured INTEGER NOT NULL DEFAULT 0, parent_id TEXT REFERENCES articles(id),
+  UNIQUE (section, slug)
+);
+CREATE TABLE places (
+  id              TEXT PRIMARY KEY,
+  slug            TEXT NOT NULL UNIQUE,
+  kind            TEXT NOT NULL,          -- jeongak | landmark | branch | etc
+  name            TEXT NOT NULL,
+  name_hanja      TEXT,
+  summary         TEXT,
+  body_md         TEXT NOT NULL DEFAULT '',
+  body_html       TEXT NOT NULL DEFAULT '',
+  built           TEXT,                   -- 건립 시기
+  lat             REAL,
+  lng             REAL,
+  location_hidden INTEGER NOT NULL DEFAULT 0,  -- 1 = 위치 비공개·미상
+  geojson         TEXT,                   -- 선택: 구역·경로 등
+  branch_code     TEXT,                   -- 선택: 지부 위치일 때 src/data/branches.ts 코드
+  hero_media_id   TEXT REFERENCES media(id),
+  sort_order      INTEGER NOT NULL DEFAULT 0,
+  status          TEXT NOT NULL DEFAULT 'draft',
+  created_by      TEXT REFERENCES users(id),
+  updated_by      TEXT REFERENCES users(id),
+  created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+, body_blocks TEXT, thumb_media_id TEXT REFERENCES media(id), thumb_crop TEXT);
+CREATE TABLE media_links (
+  owner_type TEXT NOT NULL,          -- article | place
+  owner_id   TEXT NOT NULL,
+  media_id   TEXT NOT NULL REFERENCES media(id) ON DELETE CASCADE,
+  role       TEXT NOT NULL DEFAULT 'gallery',
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  caption    TEXT,                   -- 이 자리에서만 쓰는 설명(없으면 media.caption)
+  PRIMARY KEY (owner_type, owner_id, media_id)
+);
+CREATE TABLE content_revisions (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner_type TEXT NOT NULL,          -- article | place
+  owner_id   TEXT NOT NULL,
+  action     TEXT NOT NULL DEFAULT 'update',  -- update | delete
+  snapshot   TEXT NOT NULL,          -- JSON
+  edited_by  TEXT REFERENCES users(id),
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE content_refs (
+  from_type  TEXT NOT NULL,          -- article | place | post
+  from_id    TEXT NOT NULL,
+  block_id   TEXT NOT NULL,
+  to_type    TEXT NOT NULL,          -- article | place | post
+  to_id      TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (from_type, from_id, block_id)
+);
+CREATE TABLE map_points (
+  id          TEXT PRIMARY KEY,
+  kind        TEXT NOT NULL,          -- jeongak | branch | affiliated (법종교) / sacred | general (외부)
+  name        TEXT NOT NULL,
+  name_hanja  TEXT,
+  summary     TEXT,                   -- 지도 카드 짧은 설명
+  lat         REAL NOT NULL,
+  lng         REAL NOT NULL,
+  place_id    TEXT UNIQUE REFERENCES places(id) ON DELETE SET NULL,  -- 연결된 전각 자료(선택)
+  branch_code TEXT,                   -- 지부·분원이면 src/data/branches.ts 코드(선택)
+  sort_order  INTEGER NOT NULL DEFAULT 0,
+  status      TEXT NOT NULL DEFAULT 'draft',  -- draft | published | hidden
+  created_by  TEXT REFERENCES users(id),
+  updated_by  TEXT REFERENCES users(id),
+  created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE tags (
+  id          TEXT PRIMARY KEY,
+  slug        TEXT NOT NULL UNIQUE,
+  name        TEXT NOT NULL,
+  color       TEXT NOT NULL DEFAULT '#7A8592',
+  icon        TEXT NOT NULL DEFAULT 'pin',   -- src/lib/map-categories.ts TAG_ICONS 의 key
+  description TEXT,
+  on_map      INTEGER NOT NULL DEFAULT 0,    -- 1 = 지도 버튼으로 보임(지도용 태그)
+  sort_order  INTEGER NOT NULL DEFAULT 0,    -- 지도 버튼 순서
+  status      TEXT NOT NULL DEFAULT 'active', -- active | hidden
+  created_by  TEXT REFERENCES users(id),
+  updated_by  TEXT REFERENCES users(id),
+  created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE tag_links (
+  tag_id      TEXT NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+  owner_type  TEXT NOT NULL,                 -- point | article | place
+  owner_id    TEXT NOT NULL,
+  sort_order  INTEGER NOT NULL DEFAULT 0,    -- 태그 안 순서
+  created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (tag_id, owner_type, owner_id)
+);
+CREATE TABLE home_tiles (
+  id           TEXT PRIMARY KEY,
+  title        TEXT NOT NULL,
+  subtitle     TEXT,
+  href         TEXT NOT NULL,
+  media_id     TEXT REFERENCES media(id),
+  glyph        TEXT,                        -- 사진이 없을 때 타일 글자(예: 甑山)
+  count_source TEXT,
+  count_unit   TEXT,                        -- 개수 뒤에 붙는 말(곳·분·편)
+  sort_order   INTEGER NOT NULL DEFAULT 0,
+  status       TEXT NOT NULL DEFAULT 'active', -- active | hidden
+  updated_by   TEXT REFERENCES users(id),
+  created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE media_videos (
+  video_id   TEXT PRIMARY KEY,          -- 유튜브 영상 id(11자)
+  featured   INTEGER NOT NULL DEFAULT 0,
+  hidden     INTEGER NOT NULL DEFAULT 0,
+  updated_by TEXT REFERENCES users(id),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE home_hero (
+  slot       TEXT PRIMARY KEY,                     -- 'mobile'
+  media_id   TEXT NOT NULL REFERENCES media(id),
+  updated_by TEXT REFERENCES users(id),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE library_categories (
+  key         TEXT PRIMARY KEY,
+  label       TEXT NOT NULL,
+  type        TEXT NOT NULL CHECK (type IN ('article', 'post')),
+  list_order  TEXT NOT NULL DEFAULT 'alpha' CHECK (list_order IN ('alpha', 'toc', 'recent')),
+  as_book     INTEGER NOT NULL DEFAULT 0,
+  sort_order  INTEGER NOT NULL DEFAULT 0,
+  created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+, place TEXT NOT NULL DEFAULT 'main' CHECK (place IN ('main', 'side')), intro TEXT);
+CREATE TABLE series (
+  id          TEXT PRIMARY KEY,
+  title       TEXT NOT NULL,
+  created_by  TEXT REFERENCES users(id),
+  created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+DELETE FROM sqlite_sequence;
+CREATE INDEX idx_users_email ON users(email);
+CREATE INDEX idx_users_display_name ON users(display_name);
+CREATE INDEX idx_dnh_user ON display_name_history(user_id);
+CREATE INDEX idx_posts_board ON posts(board, status, is_pinned DESC, created_at DESC);
+CREATE INDEX idx_posts_author ON posts(author_id, created_at DESC);
+CREATE INDEX idx_posts_cover ON posts(status, cover_image, created_at DESC);
+CREATE INDEX idx_comments_target ON comments(target_type, target_id, status, created_at);
+CREATE INDEX idx_comments_user ON comments(user_id, created_at);
+CREATE INDEX idx_comments_parent ON comments(parent_id);
+CREATE INDEX idx_comments_pinned ON comments(target_type, target_id, is_pinned, created_at);
+CREATE INDEX idx_comments_promoted ON comments(promoted_to_note_id);
+CREATE INDEX idx_reactions_comment ON reactions(comment_id, type);
+CREATE INDEX idx_flags_comment ON flags(comment_id);
+CREATE INDEX idx_flags_status ON flags(status);
+CREATE INDEX idx_nickname_queue_status ON nickname_review_queue(status, created_at);
+CREATE INDEX idx_user_visits_user
+  ON user_visits(user_id, scripture_slug);
+CREATE INDEX idx_events_user_month ON events(user_id, start_date);
+CREATE INDEX idx_events_public_month ON events(is_public, start_date) WHERE is_public = 1;
+CREATE INDEX idx_events_user_annual ON events(user_id, is_annual) WHERE is_annual = 1;
+CREATE INDEX idx_news_published ON news(draft, published_at DESC);
+CREATE INDEX idx_news_category ON news(category, published_at DESC);
+CREATE INDEX idx_news_pinned ON news(pinned DESC, published_at DESC);
+CREATE INDEX idx_sessions_user ON sessions(user_id);
+CREATE INDEX idx_sessions_expires ON sessions(expires_at);
+CREATE INDEX idx_member_profiles_branch ON member_profiles(branch);
+CREATE INDEX idx_media_status ON media(status, created_at DESC);
+CREATE INDEX idx_articles_list ON articles(section, kind, status, sort_order);
+CREATE INDEX idx_places_list ON places(kind, status, sort_order);
+CREATE INDEX idx_media_links_media ON media_links(media_id);
+CREATE INDEX idx_revisions_owner ON content_revisions(owner_type, owner_id, created_at DESC);
+CREATE INDEX idx_content_refs_to ON content_refs(to_type, to_id);
+CREATE INDEX idx_map_points_list ON map_points(status, kind, sort_order);
+CREATE INDEX idx_tag_links_owner ON tag_links(owner_type, owner_id);
+CREATE INDEX idx_posts_lib ON posts(board, category, status, created_at DESC);
+CREATE INDEX idx_posts_series ON posts(series_id, status, created_at);
+CREATE INDEX idx_events_source_post ON events(source_post_id);
+CREATE INDEX idx_articles_parent ON articles(parent_id, sort_order);

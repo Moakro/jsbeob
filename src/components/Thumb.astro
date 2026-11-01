@@ -2,15 +2,19 @@
 /**
  * 카드 썸네일. 이미지가 있으면 이미지, 없으면 한자/글자를 활용한
  * 장식 듀오톤 플레이스홀더(웹진 톤). seed로 색을 분산.
+ * crop(초점·확대)이 있으면 이미지를 그 위치로 맞춰 자른다.
  */
+import { cropStyle, type Crop } from "../lib/crop";
+
 interface Props {
   src?: string | null;
   glyph?: string | null; // 한자 또는 글자
   alt?: string;
   seed?: string; // 색 변형용 (보통 slug/name)
   ratio?: string; // aspect-ratio (기본 16/10)
+  crop?: Crop | null;
 }
-const { src, glyph, alt = "", seed = "", ratio = "16 / 10" } = Astro.props;
+const { src, glyph, alt = "", seed = "", ratio = "16 / 10", crop } = Astro.props;
 
 const PALETTES = [
   ["#a8352a", "#7e241c"], // 단심 주홍
@@ -26,7 +30,9 @@ const mark = (glyph ?? alt ?? "").trim().slice(0, 2);
 
 {
   src ? (
-    <img class="thumb" src={src} alt={alt} loading="lazy" style={`aspect-ratio:${ratio}`} />
+    <div class="thumb thumb-img" style={`aspect-ratio:${ratio}`}>
+      <img src={src} alt={alt} loading="lazy" style={cropStyle(crop)} />
+    </div>
   ) : (
     <div
       class="thumb thumb-ph"
@@ -41,8 +47,18 @@ const mark = (glyph ?? alt ?? "").trim().slice(0, 2);
 <style>
   .thumb {
     width: 100%;
-    object-fit: cover;
     display: block;
+  }
+  .thumb-img {
+    position: relative;
+    overflow: hidden;
+  }
+  .thumb-img img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
   }
   .thumb-ph {
     position: relative;

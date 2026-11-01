@@ -4,10 +4,14 @@
     "module": "es2022",
     "moduleResolution": "bundler",
     "lib": ["ES2022"],
-    "strict": true,
+    // 복원(2026-11-01): 번들에서 되살린 코드라 원래 타입 주석이 없다 → strict 해제.
+    "strict": false,
+    "noImplicitAny": false,
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "types": ["@cloudflare/workers-types"]
   },
-  "include": ["index.ts"]
+  "include": ["*.ts", "../src/data/branches.ts"]
 }
