@@ -644,6 +644,7 @@
         onclick={gripClick}><span aria-hidden="true"></span></button
       >
     {/if}
+    <!-- 복원: 배포본 템플릿의 공백으로 보아 이 자리에 주석이 둘 있었다 -->
     <!-- 지도에서 연 장소 카드는 머리에 장소 이름 -->
     <header class="sd-top" class:is-place={mapMode && view === "card" && !!current}>
       {#if mapMode && view === "card" && current}
@@ -887,7 +888,7 @@
     -webkit-tap-highlight-color: transparent;
   }
   @keyframes scrim-in {
-    0% {
+    from {
       opacity: 0;
     }
   }
@@ -970,7 +971,7 @@
     overflow: hidden;
   }
   @keyframes sd-in {
-    0% {
+    from {
       transform: translate(24px);
       opacity: 0;
     }
@@ -989,7 +990,7 @@
     transition: none;
   }
   @keyframes sheet-in {
-    0% {
+    from {
       transform: translateY(100%);
     }
   }

@@ -1,15 +1,16 @@
 ---
+// import 순서는 배포본 서버 번들의 모듈 실행 순서를 따랐다 — Astro 가 이 순서로 페이지 CSS <link> 순서를 정한다.
 import Base from "../../layouts/Base.astro";
 import { postHref } from "../../lib/api";
-import { listRecentNews, listRecentPhotos } from "../../lib/content";
+import OrialterFeed from "../board/OrialterFeed.svelte";
+import OrialterSearch from "../board/OrialterSearch.svelte";
+import OrialterMembers from "../board/OrialterMembers.svelte";
+import NewsPanel from "../board/NewsPanel.svelte";
 import AlbumGrid from "../board/AlbumGrid.svelte";
 import CommunityModals from "../board/CommunityModals.svelte";
 import NewsModal from "../board/NewsModal.svelte";
-import NewsPanel from "../board/NewsPanel.svelte";
 import NewsRows from "../board/NewsRows.astro";
-import OrialterFeed from "../board/OrialterFeed.svelte";
-import OrialterMembers from "../board/OrialterMembers.svelte";
-import OrialterSearch from "../board/OrialterSearch.svelte";
+import { listRecentNews, listRecentPhotos } from "../../lib/content";
 const {
   openId = null,
   newsOpenId = null,

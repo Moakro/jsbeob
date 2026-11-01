@@ -1231,7 +1231,7 @@
       transform 0.12s ease;
   }
   @keyframes km-ai-shift {
-    0%,
+    from,
     to {
       background-position: 0% 50%;
     }
@@ -1475,7 +1475,7 @@
     animation: km-toast-in 0.2s ease;
   }
   @keyframes km-toast-in {
-    0% {
+    from {
       opacity: 0;
       transform: translate(-50%, 6px);
     }
@@ -1682,7 +1682,7 @@
     animation: km-hop 0.42s cubic-bezier(0.28, 0.84, 0.42, 1) 3 both;
   }
   @keyframes -global-km-hop {
-    0%,
+    from,
     to {
       transform: translateY(0);
     }
@@ -1731,7 +1731,7 @@
     animation: km-here-pulse 1.6s ease-out 3 forwards;
   }
   @keyframes -global-km-here-pulse {
-    0% {
+    from {
       transform: translate(-50%, -50%) scale(0.5);
       opacity: 0.85;
     }

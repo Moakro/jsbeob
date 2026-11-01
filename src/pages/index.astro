@@ -1,5 +1,14 @@
 ---
+// import 순서는 배포본 서버 번들의 모듈 실행 순서를 따랐다 — Astro 가 이 순서로 페이지 CSS <link> 순서를 정한다.
 import Base from "../layouts/Base.astro";
+import HeroSearch from "../components/HeroSearch.svelte";
+import Thumb from "../components/Thumb.astro";
+import VideoCard from "../components/media/VideoCard.astro";
+import UpcomingDays from "../components/home/UpcomingDays.svelte";
+import HomeMiniMap from "../components/home/HomeMiniMap.svelte";
+import FeedRows from "../components/home/FeedRows.astro";
+import NewsModal from "../components/board/NewsModal.svelte";
+import NewsRows from "../components/board/NewsRows.astro";
 import {
   getHomeHero,
   listHomeTiles,
@@ -8,14 +17,6 @@ import {
   listRecentOrialter,
   listVideos,
 } from "../lib/content";
-import HeroSearch from "../components/HeroSearch.svelte";
-import Thumb from "../components/Thumb.astro";
-import NewsModal from "../components/board/NewsModal.svelte";
-import NewsRows from "../components/board/NewsRows.astro";
-import FeedRows from "../components/home/FeedRows.astro";
-import HomeMiniMap from "../components/home/HomeMiniMap.svelte";
-import UpcomingDays from "../components/home/UpcomingDays.svelte";
-import VideoCard from "../components/media/VideoCard.astro";
 const HERO_VIDEOS = [
   {
     id: "vATQ6bAp2Xw",
@@ -862,7 +863,7 @@ const posterSm = heroPhoto ? `url(${JSON.stringify(heroPhoto.url)})` : `url(/her
       scroll-snap-type: x mandatory;
       padding-bottom: 6px;
     }
-    .media-row > * {
+    .media-row > :global(*) {
       scroll-snap-align: start;
     }
   }

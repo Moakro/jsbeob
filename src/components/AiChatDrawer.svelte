@@ -418,7 +418,7 @@
     fill: #fff;
   }
   @keyframes ai-shift {
-    0%,
+    from,
     to {
       background-position: 0% 50%;
     }
@@ -481,7 +481,7 @@
     animation: ai-ping 1.4s cubic-bezier(0, 0, 0.2, 1) infinite;
   }
   @keyframes ai-ping {
-    0% {
+    from {
       transform: scale(1);
       opacity: 0.7;
     }
@@ -554,7 +554,7 @@
     animation: ai-breathe 1.4s ease-in-out infinite;
   }
   @keyframes ai-breathe {
-    0%,
+    from,
     to {
       box-shadow: 0 0 #e0a91b80;
     }

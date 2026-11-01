@@ -30,7 +30,7 @@ const { title, hanja, parent, sub } = Astro.props;
     margin-top: 0;
   }
   :global(.subtabs) ~ .ptitle,
-  :global(.subtabs) ~ * .ptitle {
+  :global(.subtabs) ~ :global(*) .ptitle {
     margin-top: 22px;
   }
   .parent {
@@ -61,7 +61,7 @@ const { title, hanja, parent, sub } = Astro.props;
       margin-top: 0;
     }
     :global(.subtabs) ~ .ptitle,
-    :global(.subtabs) ~ * .ptitle {
+    :global(.subtabs) ~ :global(*) .ptitle {
       margin-top: 18px;
     }
     h1 {

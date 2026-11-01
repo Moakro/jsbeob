@@ -75,8 +75,7 @@
     <p class="state err">{error}</p>
   {:else if meta?.private && !me}
     <p class="state">
-      <a href={`/login/?next=${encodeURIComponent(`${boardBase(board)}/`)}`}>로그인</a>하면 문의를 남기고
-      답변을 볼 수 있습니다.
+      <a href={`/login/?next=${encodeURIComponent(`${boardBase(board)}/`)}`}>로그인</a>하면 문의를 남기고 답변을 볼 수 있습니다.
     </p>
   {:else if posts.length === 0}
     <p class="state">

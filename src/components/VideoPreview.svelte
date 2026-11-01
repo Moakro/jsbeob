@@ -114,7 +114,7 @@
     animation: vp-in 0.18s ease-out;
   }
   @keyframes vp-in {
-    0% {
+    from {
       transform: translateY(10px);
       opacity: 0;
     }

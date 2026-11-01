@@ -149,8 +149,7 @@
         <p class="dim">지도 키가 없어 위치를 정할 수 없습니다.</p>
       {/if}
       <p class="dim">
-        지도에 보이는 기존 장소와 겹치지 않는지 확인해 주세요. 태그는 지도 탭에서 붙입니다(태그가 없으면 흰색
-        문서 마커).
+        지도에 보이는 기존 장소와 겹치지 않는지 확인해 주세요. 태그는 지도 탭에서 붙입니다(태그가 없으면 흰색 문서 마커).
       </p>
       <div class="row">
         <button type="button" class="btn-s primary" disabled={saving} onclick={create}

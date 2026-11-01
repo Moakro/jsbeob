@@ -827,6 +827,8 @@
               {/each}
             {/if}
           </div>
+          <!-- 복원: 배포본 템플릿의 공백으로 보아 이 자리에 주석이 둘 있었다 -->
+          <!-- 조회수 · 수정 -->
           <div class="stats om-foot">
             <span>조회 {post.view_count}</span>
             {#if canEdit(post)}

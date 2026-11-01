@@ -79,6 +79,16 @@ const nextLink = next ? { href: href(next), label: chapterLabel(next) } : null;
   <DocPager prev={prevLink} next={nextLink} />
 </Base>
 
+<!-- 검색 결과로 들어온 경우(?q=) 본문의 검색어 강조 — Pagefind 인덱스와 함께 생성되는 스크립트 -->
+<script is:inline type="module">
+  const q = new URLSearchParams(location.search).get("q");
+  if (q) {
+    import("/pagefind/pagefind-highlight.js")
+      .then((m) => new m.default({ highlightParam: "q" }))
+      .catch(() => {});
+  }
+</script>
+
 <style>
   .scripture {
     max-width: 760px;

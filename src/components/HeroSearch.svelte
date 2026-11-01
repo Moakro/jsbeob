@@ -492,7 +492,7 @@
     animation: hs-down 0.15s ease;
   }
   @keyframes hs-down {
-    0% {
+    from {
       opacity: 0;
       transform: translateY(-6px);
     }

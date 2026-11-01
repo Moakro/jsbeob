@@ -517,8 +517,7 @@
               <button type="button" class="link" onclick={() => clearPoint(b)}>다시 고르기</button>
             </div>
             <p class="hint">
-              방문자 화면에는 이 장소의 썸네일이 보이고, 누르면 이 글의 지도 블록 장소 전부가 번호 마커로 뜨는
-              지도가 열립니다.
+              방문자 화면에는 이 장소의 썸네일이 보이고, 누르면 이 글의 지도 블록 장소 전부가 번호 마커로 뜨는 지도가 열립니다.
             </p>
           {:else}
             <div class="row">
@@ -553,8 +552,7 @@
             <input placeholder="링크 주소 (https://…)" inputmode="url" maxlength="2000" bind:value={b.url} />
             <input placeholder="표시할 문구" maxlength="200" bind:value={b.label} />
             <p class="hint">
-              사이트 안의 주소를 붙여 넣으면 저장할 때 사이트 자료로 연결되고, 제목은 자료의 현재 제목으로
-              표시됩니다.
+              사이트 안의 주소를 붙여 넣으면 저장할 때 사이트 자료로 연결되고, 제목은 자료의 현재 제목으로 표시됩니다.
             </p>
           {/if}
         {/if}
