@@ -230,7 +230,7 @@ const posterSm = heroPhoto ? `url(${JSON.stringify(heroPhoto.url)})` : `url(/her
 </Base>{" "}
 <script>
   // 복원: 배포본 번들(압축)에서 되살린 스크립트 — 변수 이름은 압축 결과 그대로다.
-  import { confirmDialog as J } from "./confirm.BS53EbfV.js";
+  import { confirmDialog as J } from "../lib/confirm";
   globalThis.process ??= {};
   globalThis.process.env ??= {};
   document.querySelectorAll("[data-feed-id]").forEach((e) =>
