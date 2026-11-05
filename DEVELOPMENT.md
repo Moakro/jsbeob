@@ -36,6 +36,13 @@ pnpm dev:login   # 로컬 D1 에 운영자(level 4) 계정을 만들고 세션 �
 ## 데이터
 
 - 로컬 D1·R2 는 `jsbeob-api/.wrangler/` 에 있다(git 제외). 처음엔 비어 있다.
+- 운영 데이터 사본으로 채우기(운영은 읽기만):
+  1. `npx wrangler d1 export jsbeob-db --remote -c wrangler.toml --no-schema --output <파일>`
+  2. 로컬 wrangler 는 긴 INSERT 를 못 받으므로(SQLITE_TOOBIG), API 를 멈춘 뒤
+     `jsbeob-api/.wrangler/state/v3/d1/miniflare-D1DatabaseObject/*.sqlite` 에 sqlite3 로 직접 넣는다.
+  3. 사진은 DB 의 `r2_key`(media·user_uploaded_photos)를 `wrangler r2 object get … --remote` 로 받아 `… put --local`.
+  4. 다 넣은 뒤 내보낸 파일은 지운다(회원 개인정보 포함). 그다음 `pnpm dev:login` 을 다시 실행한다.
+- 미디어(유튜브) 영상 목록은 `jsbeob-api/.dev.vars` 에 `YOUTUBE_API_KEY`·`YOUTUBE_CHANNEL_ID` 가 있어야 나온다.
 - 스키마를 바꾸면 `jsbeob-api/migrations/` 에 SQL 을 추가하고 `schema.sql` 도 맞춘다.
 
 ## 배포 — 운영에 바로 반영된다
