@@ -42,7 +42,8 @@ pnpm dev:login   # 로컬 D1 에 운영자(level 4) 계정을 만들고 세션 �
      `jsbeob-api/.wrangler/state/v3/d1/miniflare-D1DatabaseObject/*.sqlite` 에 sqlite3 로 직접 넣는다.
   3. 사진은 DB 의 `r2_key`(media·user_uploaded_photos)를 `wrangler r2 object get … --remote` 로 받아 `… put --local`.
   4. 다 넣은 뒤 내보낸 파일은 지운다(회원 개인정보 포함). 그다음 `pnpm dev:login` 을 다시 실행한다.
-- 미디어(유튜브) 영상 목록은 `jsbeob-api/.dev.vars` 에 `YOUTUBE_API_KEY`·`YOUTUBE_CHANNEL_ID` 가 있어야 나온다.
+- 미디어(유튜브) 영상: `jsbeob-api/.dev.vars` 에 `YOUTUBE_CHANNEL_ID="UCZGie9U3cRiqc72GknqESgA"`(공개 값)만 있어도 RSS 로 최근 15편이 나온다.
+  `YOUTUBE_API_KEY`(Google Cloud 의 YouTube Data API v3 키)를 넣으면 전체 목록·옛 대표 영상까지 운영과 같아진다. 바꾼 뒤 `pnpm dev:api` 재시작.
 - 스키마를 바꾸면 `jsbeob-api/migrations/` 에 SQL 을 추가하고 `schema.sql` 도 맞춘다.
 
 ## 배포 — 운영에 바로 반영된다
