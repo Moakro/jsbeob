@@ -22,7 +22,10 @@ if (!entry)
   });
 const all = await listArticles(Astro.request, "about");
 // 지부·분원 글: 본문(소개 문구) 아래에 지부·분원 표를 카드로 붙인다 (2026-11-06)
-const branches = entry.kind === "branches" ? await listBranches(Astro.request) : [];
+const isBranches = entry.kind === "branches";
+const branches = isBranches ? await listBranches(Astro.request) : [];
+// 지부·분원 페이지의 "편집"은 지부·분원 관리 탭으로(소개 문구는 관리 목록의 '소개 글 편집')
+const editHref = isBranches ? "/admin/#branches" : `/admin/#article/${id}`;
 const { title, title_hanja, summary, hero, gallery = [], body_html = "", status, id } = entry;
 const href = (slug) => `/about/${slug}/`;
 const side = all
@@ -47,7 +50,7 @@ const listLabel = `${ABOUT_KINDS[entry.kind] ?? "소개"} 목록`;
 
 <Base title={title} description={summary ?? void 0} tight>
   {" "}
-  <PreviewNotice status={status} editHref={`/admin/#article/${id}`} />{" "}
+  <PreviewNotice status={status} editHref={editHref} />{" "}
   {status === "published" && (
     <div hidden data-page-feed data-kind="article" data-id={id} data-title={title}></div>
   )}
@@ -55,10 +58,11 @@ const listLabel = `${ABOUT_KINDS[entry.kind] ?? "소개"} 목록`;
   <div class:list={[{ "doc-split": split }]}>
     <div class="doc-main">
       <article class="doc">
-        <PageTitle title={title} hanja={title_hanja} /> <AdminEditLink href={`/admin/#article/${id}`} />{" "}
+        <PageTitle title={title} hanja={title_hanja} /> <AdminEditLink href={editHref} />{" "}
         {summary && <p class="summary">{summary}</p>} <LeadImage image={hero} alt={title} />{" "}
-        <Prose html={body_html} /> <ContentGallery items={gallery} fallbackAlt={title} />
+        {/* 지부·분원: 카드 목록을 본문보다 먼저 — 본문에는 청장년회·여성회 같은 기관 안내만 남긴다 */}
         {branches.length > 0 && <BranchList items={branches} />}
+        <Prose html={body_html} /> <ContentGallery items={gallery} fallbackAlt={title} />
       </article>
     </div>
     {split && <SideList label={listLabel} items={side} />}
