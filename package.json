@@ -7,7 +7,8 @@
     "node": ">=22.12.0"
   },
   "scripts": {
-    "dev": "astro dev",
+    "dev": "node scripts/dev.mjs",
+    "dev:site": "astro dev",
     "dev:api": "cd jsbeob-api && wrangler dev -c wrangler.toml --port 8788",
     "dev:login": "node scripts/dev-login.mjs",
     "db:local:init": "cd jsbeob-api && wrangler d1 execute jsbeob-db --local -c wrangler.toml --file=schema.sql",

@@ -16,11 +16,11 @@ cp .env.example .env                                     # 지도: PUBLIC_KAKAO_
 ## 매번
 
 ```bash
-pnpm dev:api    # 터미널 1 — API, http://localhost:8788 (로컬 D1·R2)
-pnpm dev        # 터미널 2 — 사이트, http://localhost:4321
+pnpm dev        # API(:8788, 로컬 D1·R2) + 사이트(:4321) 함께. Ctrl+C 한 번에 둘 다 멈춤
 ```
 
-순서는 상관없다. 사이트가 먼저 떠 있으면 API 가 뜨는 순간 연결된다.
+하나만 띄우려면 `pnpm dev:api` / `pnpm dev:site`. 8788 에 API 가 이미 떠 있으면 `pnpm dev` 는 그것을 그대로 쓴다.
+API 없이 사이트만 뜨면 홈은 비고, 전각·소개·자료실·지도는 `Worker "jsbeob-api-preview" not found` 500 이 난다.
 
 ## 관리자 화면(/admin/) 로그인
 
