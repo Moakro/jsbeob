@@ -1,0 +1,172 @@
+---
+// 소개 > 지부·분원 — 지부·분원 표(관리 화면 '지부·분원' 탭)를 카드로 보여 준다. (2026-11-06)
+// 지부장·연락처는 전부 공개(운영 결정 2026-11-06).
+import { formatPhone, telHref } from "../../lib/phone";
+
+interface Props {
+  items: any[];
+}
+const { items } = Astro.props;
+const groups = (["지부", "분원"] as const)
+  .map((kind) => ({ kind, items: items.filter((b) => b.kind === kind) }))
+  .filter((g) => g.items.length);
+const kakaoLink = (b: any) =>
+  b.lat != null && b.lng != null
+    ? `https://map.kakao.com/link/map/${encodeURIComponent(b.name)},${b.lat},${b.lng}`
+    : b.address
+      ? `https://map.kakao.com/?q=${encodeURIComponent(b.address)}`
+      : null;
+---
+
+{
+  groups.length > 0 && (
+    <div class="branches">
+      <p class="map-link">
+        <a href="/map/?tag=branches">지도에서 모두 보기 →</a>
+      </p>
+      {groups.map((g) => (
+        <section>
+          <h2>
+            {g.kind} <small>{g.items.length}곳</small>
+          </h2>
+          <ul>
+            {g.items.map((b) => (
+              <li id={`branch-${b.code}`}>
+                {b.photo ? (
+                  <img src={b.photo.url} alt={`${b.name} 사진`} loading="lazy" width={b.photo.width} height={b.photo.height} />
+                ) : (
+                  <span class="ph" aria-hidden="true">
+                    {b.name.replace(/\s*(지부|분원)$/, "")}
+                  </span>
+                )}
+                <div class="info">
+                  <h3>{b.name}</h3>
+                  <dl>
+                    {b.head_name && (
+                      <>
+                        <dt>{g.kind}장</dt>
+                        <dd>{b.head_name}</dd>
+                      </>
+                    )}
+                    {b.phone && (
+                      <>
+                        <dt>연락처</dt>
+                        <dd>
+                          <a href={telHref(b.phone)}>{formatPhone(b.phone)}</a>
+                        </dd>
+                      </>
+                    )}
+                    {b.address && (
+                      <>
+                        <dt>주소</dt>
+                        <dd>
+                          {b.address}
+                          {b.address_detail && ` ${b.address_detail}`}
+                          {kakaoLink(b) && (
+                            <a class="go" href={kakaoLink(b)} target="_blank" rel="noopener">
+                              카카오맵
+                            </a>
+                          )}
+                        </dd>
+                      </>
+                    )}
+                  </dl>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ))}
+    </div>
+  )
+}
+
+<style>
+  .branches {
+    margin-top: 1.6em;
+  }
+  .map-link {
+    margin: 0 0 4px;
+    text-align: right;
+    font-size: 0.9rem;
+  }
+  h2 {
+    font-size: 1.1rem;
+    margin: 22px 0 10px;
+    padding-bottom: 6px;
+    border-bottom: 2px solid var(--color-fg);
+  }
+  h2 small {
+    color: var(--color-muted);
+    font-size: 0.85rem;
+    font-weight: 500;
+  }
+  ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 12px;
+  }
+  li {
+    display: flex;
+    gap: 14px;
+    padding: 12px;
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-md);
+    background: var(--color-surface);
+    scroll-margin-top: calc(var(--header-h) + 16px);
+  }
+  img,
+  .ph {
+    flex: none;
+    width: 110px;
+    height: 82px;
+    object-fit: cover;
+    border-radius: var(--radius-sm);
+  }
+  .ph {
+    display: grid;
+    place-items: center;
+    background: var(--color-surface-2);
+    color: var(--color-muted);
+    font-weight: 700;
+  }
+  .info {
+    min-width: 0;
+  }
+  h3 {
+    margin: 0 0 6px;
+    font-size: 1rem;
+  }
+  dl {
+    margin: 0;
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 3px 10px;
+    font-size: 0.88rem;
+  }
+  dt {
+    color: var(--color-muted);
+  }
+  dd {
+    margin: 0;
+    word-break: keep-all;
+  }
+  .go {
+    margin-left: 6px;
+    font-size: 0.8rem;
+    white-space: nowrap;
+  }
+  @media (max-width: 480px) {
+    ul {
+      grid-template-columns: 1fr;
+    }
+    img,
+    .ph {
+      width: 88px;
+      height: 66px;
+    }
+  }
+</style>

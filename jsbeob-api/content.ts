@@ -536,7 +536,7 @@ async function adminSavePoint(req, env, ctx, id, uid) {
   const status = typeof raw.status === "string" && STATUSES.has(raw.status) ? raw.status : "draft";
   const sortOrder = Number.isFinite(Number(raw.sort_order)) ? Math.trunc(Number(raw.sort_order)) : 0;
   const branch = raw.kind === "branch" ? str(raw.branch_code, 40) : null;
-  if (branch && !ctx.branchCodes.has(branch)) throw new InputError("지부 코드가 잘못되었습니다");
+  if (branch && !(await ctx.branchCodes()).has(branch)) throw new InputError("지부 코드가 잘못되었습니다");
   const placeId = str(raw.place_id, 64);
   if (placeId) {
     const p = await env.DB.prepare("SELECT id FROM places WHERE id=?").bind(placeId).first();
@@ -1084,7 +1084,7 @@ async function adminSave(req, env, ctx, type, id, uid) {
       geojson = JSON.stringify(g);
     }
     const branch = str(raw.branch_code, 40);
-    if (branch && !ctx.branchCodes.has(branch)) throw new InputError("지부 코드가 잘못되었습니다");
+    if (branch && !(await ctx.branchCodes()).has(branch)) throw new InputError("지부 코드가 잘못되었습니다");
     const dup = await env.DB.prepare("SELECT id FROM places WHERE slug=? AND id<>?").bind(c.slug, itemId).first();
     if (dup) return json({ error: "같은 주소(slug)의 장소가 이미 있습니다" }, 409);
     const vals = [

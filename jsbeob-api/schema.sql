@@ -359,3 +359,23 @@ CREATE INDEX idx_posts_lib ON posts(board, category, status, created_at DESC);
 CREATE INDEX idx_posts_series ON posts(series_id, status, created_at);
 CREATE INDEX idx_events_source_post ON events(source_post_id);
 CREATE INDEX idx_articles_parent ON articles(parent_id, sort_order);
+-- 2026-11-06 지부·분원 (migrations/2026-11-06-branches.sql — 처음 18곳 시드는 그 파일에)
+CREATE TABLE branches (
+  code           TEXT PRIMARY KEY,               -- 영문 소문자·숫자·- (예: seoul)
+  kind           TEXT NOT NULL,                  -- 지부 | 분원
+  name           TEXT NOT NULL,                  -- 예: 서울 지부
+  head_name      TEXT,                           -- 지부장·분원장
+  phone          TEXT,                           -- 숫자만 (표시할 때 하이픈)
+  postcode       TEXT,                           -- 우편번호(카카오 우편번호 서비스)
+  address        TEXT,                           -- 도로명(또는 지번) 주소
+  address_detail TEXT,                           -- 상세 주소(동·호 등)
+  lat            REAL,
+  lng            REAL,
+  photo_media_id TEXT REFERENCES media(id),
+  map_point_id   TEXT,                           -- 자동으로 맞추는 지도 장소(map_points.id)
+  sort_order     INTEGER NOT NULL DEFAULT 0,
+  status         TEXT NOT NULL DEFAULT 'published', -- published | draft | hidden
+  updated_by     TEXT REFERENCES users(id),
+  created_at     TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at     TEXT NOT NULL DEFAULT (datetime('now'))
+);

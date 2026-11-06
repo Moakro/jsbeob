@@ -44,6 +44,15 @@ export const adminApi = {
   updatePoint: (id: string, input: unknown) => req(`/api/admin/points/${encodeURIComponent(id)}`, jsonBody("PUT", input)),
   removePoint: (id: string) => req(`/api/admin/points/${encodeURIComponent(id)}`, { method: "DELETE" }),
 
+  // 지부·분원 (2026-11-06) — code 는 회원 소속이 참조하므로 새로 만들 때만 정한다
+  listBranches: () => req("/api/admin/branches"),
+  getBranch: (code: string) => req(`/api/admin/branches/${encodeURIComponent(code)}`),
+  createBranch: (input: unknown) => req("/api/admin/branches", jsonBody("POST", input)),
+  updateBranch: (code: string, input: unknown) =>
+    req(`/api/admin/branches/${encodeURIComponent(code)}`, jsonBody("PUT", input)),
+  removeBranch: (code: string) => req(`/api/admin/branches/${encodeURIComponent(code)}`, { method: "DELETE" }),
+  orderBranches: (codes: string[]) => req("/api/admin/branches/order", jsonBody("PUT", { codes })),
+
   listTags: () => req("/api/admin/tags"),
   getTag: (id: string) => req(`/api/admin/tags/${encodeURIComponent(id)}`),
   createTag: (input: unknown) => req("/api/admin/tags", jsonBody("POST", input)),

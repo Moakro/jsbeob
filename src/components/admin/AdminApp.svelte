@@ -2,6 +2,7 @@
   // 관리자 화면(/admin/) — 해시 라우팅으로 섹션 탭·편집기를 오간다. 운영자(level 4)만.
   //   #about · #jeongak · #archive · #map · #media · #photos · #tags · #home · #members
   //   #article/<id|new>?section=&parent=  ·  #place/<id|new>  ·  #point/<id|new>?place=  ·  #tag/<id|new>
+  //   #branches · #branch/<code|new> (지부·분원, 2026-11-06)
   // 저장하지 않은 변경(window.__jbAdminDirty)이 있으면 이동 전에 묻는다.
   // 복원(2026-11-01): 배포본 _astro/AdminApp.*.js 를 근거로 다시 썼다. 하위 컴포넌트 파일 이름은 추정.
   import { onMount } from "svelte";
@@ -18,6 +19,7 @@
   import HomeTiles from "./HomeTiles.svelte";
   import MediaVideos from "./MediaVideos.svelte";
   import MembersAdmin from "./MembersAdmin.svelte";
+  import BranchesAdmin from "./BranchesAdmin.svelte";
 
   let me = $state<any>(null);
   let ready = $state(false);
@@ -33,6 +35,7 @@
     enabled: ENABLED.has(n.slug),
   }));
   const EXTRA_TABS = [
+    { key: "branches", label: "지부·분원" }, // 2026-11-06
     { key: "photos", label: "사진 창고" },
     { key: "tags", label: "태그" },
     { key: "home", label: "홈 편성" },
@@ -64,6 +67,7 @@
     if (head === "point" && id)
       return { view: "point", id: id === "new" ? null : id, placeId: params.get("place"), key: raw };
     if (head === "tag" && id) return { view: "tag", id: id === "new" ? null : id, key: raw };
+    if (head === "branch" && id) return { view: "branch", id: id === "new" ? null : id, key: raw };
     const tab = ALIAS[head] ?? head;
     return { view: "list", tab: TABS.has(tab) ? tab : "about", key: raw };
   });
@@ -74,6 +78,8 @@
         ? "map"
         : route.view === "tag"
           ? "tags"
+          : route.view === "branch"
+            ? "branches"
           : route.type === "place"
             ? "jeongak"
             : route.section === "library"
@@ -141,6 +147,10 @@
       <PointEditor id={route.id} placeId={route.placeId} />
     {:else if route.view === "tag"}
       <TagsAdmin id={route.id} />
+    {:else if route.view === "branch"}
+      <BranchesAdmin code={route.id} />
+    {:else if route.tab === "branches"}
+      <BranchesAdmin />
     {:else if route.tab === "tags"}
       <TagsAdmin />
     {:else if route.tab === "home"}

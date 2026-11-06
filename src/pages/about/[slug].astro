@@ -1,7 +1,7 @@
 ---
 import Base from "../../layouts/Base.astro";
 import { ABOUT_KINDS } from "../../lib/content-types";
-import { getArticle, listArticles } from "../../lib/content";
+import { getArticle, listArticles, listBranches } from "../../lib/content";
 import AboutSubnav from "../../components/content/AboutSubnav.astro";
 import AdminEditLink from "../../components/content/AdminEditLink.astro";
 import ContentGallery from "../../components/content/ContentGallery.astro";
@@ -11,6 +11,7 @@ import PageTitle from "../../components/content/PageTitle.astro";
 import PreviewNotice from "../../components/content/PreviewNotice.astro";
 import Prose from "../../components/content/Prose.astro";
 import SideList from "../../components/content/SideList.astro";
+import BranchList from "../../components/content/BranchList.astro";
 export const prerender = false;
 const preview = Astro.url.searchParams.get("preview") === "1";
 const entry = await getArticle(Astro.request, "about", Astro.params.slug, preview);
@@ -20,6 +21,8 @@ if (!entry)
     headers: { "Content-Type": "text/plain; charset=utf-8" },
   });
 const all = await listArticles(Astro.request, "about");
+// 지부·분원 글: 본문(소개 문구) 아래에 지부·분원 표를 카드로 붙인다 (2026-11-06)
+const branches = entry.kind === "branches" ? await listBranches(Astro.request) : [];
 const { title, title_hanja, summary, hero, gallery = [], body_html = "", status, id } = entry;
 const href = (slug) => `/about/${slug}/`;
 const side = all
@@ -55,6 +58,7 @@ const listLabel = `${ABOUT_KINDS[entry.kind] ?? "소개"} 목록`;
         <PageTitle title={title} hanja={title_hanja} /> <AdminEditLink href={`/admin/#article/${id}`} />{" "}
         {summary && <p class="summary">{summary}</p>} <LeadImage image={hero} alt={title} />{" "}
         <Prose html={body_html} /> <ContentGallery items={gallery} fallbackAlt={title} />
+        {branches.length > 0 && <BranchList items={branches} />}
       </article>
     </div>
     {split && <SideList label={listLabel} items={side} />}

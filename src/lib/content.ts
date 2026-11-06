@@ -122,3 +122,7 @@ export {
   scriptureHref,
   sortForCategory,
 } from "./library";
+
+/** 지부·분원 공개 목록 (2026-11-06) — 소개 > 지부·분원 페이지 */
+export const listBranches = async (request: Request): Promise<any[]> =>
+  (await contentGet("/api/content/branches", request))?.items ?? [];

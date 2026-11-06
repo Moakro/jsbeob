@@ -15,10 +15,14 @@
   let error = $state<string | null>(null);
   let ready = $state(false);
 
-  const branchGroups = ["지부", "분원"].map((kind) => ({
-    label: kind,
-    options: BRANCHES.filter((b) => b.kind === kind).map((b) => ({ value: b.code, label: b.name })),
-  }));
+  // 지부·분원 목록은 관리 화면에서 고치는 branches 표(/api/content/branches)에서 읽는다. 못 읽으면 코드 목록. (2026-11-06)
+  let branchList = $state<{ code: string; name: string; kind: string }[]>(BRANCHES);
+  const branchGroups = $derived(
+    ["지부", "분원"].map((kind) => ({
+      label: kind,
+      options: branchList.filter((b) => b.kind === kind).map((b) => ({ value: b.code, label: b.name })),
+    })),
+  );
 
   function nextParam(): string {
     if (typeof window === "undefined") return "/";
@@ -26,6 +30,12 @@
   }
 
   onMount(async () => {
+    fetch("/api/content/branches")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d?.items?.length) branchList = d.items;
+      })
+      .catch(() => {});
     try {
       const r = await api.me();
       me = r.user;

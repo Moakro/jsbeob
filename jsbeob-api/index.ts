@@ -30,11 +30,11 @@ export interface Env {
 // 복원: 2026-11-01 배포본(jsbeob-api-preview) 번들에서 복원. 원본 TS 타입 정보는 번들에서 사라져
 // 대부분 생략되었다(tsconfig strict:false). 동작은 배포본과 같다.
 import { ALLOWED_BOARDS, BOARD_MIN_LEVEL, OPERATOR_BOARDS, PRIVATE_BOARDS, PRIVATE_BOARDS_SQL, TITLE_OPTIONAL_BOARDS } from "./boards";
-import { BRANCH_CODES } from "../src/data/branches";
 import { LIBRARY_BOARD, handleLibrary, normLibraryPostFields } from "./library";
 import { BlockError, allKeys, allPointIds, blocksForEditor, imageItems, normalizeBlocks, parseStoredBlocks, plainFromBlocks, resolveBlocks, s } from "./blocks";
 import { handleContent, mediaUrl, refIndexStmts, renderRowBlocks, siteHosts } from "./content";
 import { handleMedia } from "./media";
+import { branchCodeSet, handleBranches } from "./branch";
 
 const COOKIE_NAME = "jb_session";
 const SESSION_TTL = 60 * 60 * 24 * 30;
@@ -79,6 +79,15 @@ export default {
         }
       });
       if (libRes) return libRes;
+      const branchRes = await handleBranches(req, env, path, {
+        adminUser: async (r) => {
+          const uid = await currentUserId(r, env);
+          if (!uid) return null;
+          const u = await loadUser(env, uid);
+          return u && u.level >= 4 ? { id: u.id, level: u.level } : null;
+        }
+      });
+      if (branchRes) return branchRes;
       const contentRes = await handleContent(req, env, path, {
         adminUser: async (r) => {
           const uid = await currentUserId(r, env);
@@ -86,7 +95,8 @@ export default {
           const u = await loadUser(env, uid);
           return u && u.level >= 4 ? { id: u.id, level: u.level } : null;
         },
-        branchCodes: BRANCH_CODES
+        // 지부 코드는 branches 표에서(관리 화면에서 추가한 지부 포함) — 필요할 때만 읽는다
+        branchCodes: () => branchCodeSet(env)
       });
       if (contentRes) return contentRes;
       const mediaRes = await handleMedia(req, env, path, {
@@ -478,7 +488,7 @@ async function setNickname(req, env) {
     if (!memberRealName || memberRealName.length < 2 || memberRealName.length > 20 || !/^[\p{L} ]+$/u.test(memberRealName)) {
       return json({ error: "실명을 확인해 주세요 (2~20자, 문자만)" }, 400);
     }
-    if (!BRANCH_CODES.has(memberBranch)) {
+    if (!(await branchCodeSet(env)).has(memberBranch)) {
       return json({ error: "지부/분원을 선택해 주세요" }, 400);
     }
   }
