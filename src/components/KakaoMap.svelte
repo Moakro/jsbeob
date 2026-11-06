@@ -578,7 +578,19 @@
     closeResults();
     if (!map || !kakaoNs) return;
     const c = initial ?? DEFAULT_CENTER;
-    panTo(c[0], c[1]);
+    // 중심과 함께 확대 수준도 처음 값(level, 지도 페이지는 MAP_HOME.level)으로 되돌린다 (2026-11-06)
+    // 카테고리 맞춤과 같은 순서: 축소는 먼저 하고 이동, 확대는 이동한 뒤에.
+    const seq = ++fitSeq; // 진행 중이던 카테고리 맞춤 애니메이션은 취소
+    const target = level;
+    const ZOOM_MS = 380;
+    const zoom = (then?: () => void) => {
+      if (seq !== fitSeq) return;
+      if (map.getLevel() === target) return then?.();
+      map.setLevel(target, { animate: { duration: ZOOM_MS } });
+      setTimeout(() => seq === fitSeq && then?.(), ZOOM_MS + 60);
+    };
+    if (target > map.getLevel()) zoom(() => panTo(c[0], c[1]));
+    else panTo(c[0], c[1], () => zoom());
   }
 
   function onDocClick(e: MouseEvent) {
