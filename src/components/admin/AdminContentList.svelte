@@ -88,14 +88,18 @@
       <h3>{g.label} <small>{g.items.length}</small></h3>
       <ul>
         {#each g.items as it (it.id)}
+          {@const isBranches = type === "article" && it.kind === "branches"}
+          <!-- 지부·분원 글은 목록이 지부·분원 탭(branches 표)에서 관리된다 — 이름을 누르면 그 탭으로, 소개 문구는 '소개 글 편집'으로 (2026-11-06) -->
           <li>
-            <a class="main" href={`#${type}/${it.id}`}>
+            <a class="main" href={isBranches ? "#branches" : `#${type}/${it.id}`}>
               {#if it.thumb}<img src={it.thumb} alt="" loading="lazy" />{:else}<span class="ph"></span>{/if}
               <span class="t"
                 >{it.title}
-                {#if it.hanja}<span class="hanja">{it.hanja}</span>{/if}</span
+                {#if it.hanja}<span class="hanja">{it.hanja}</span>{/if}
+                {#if isBranches}<small class="sub">지부·분원 관리 →</small>{/if}</span
               >
             </a>
+            {#if isBranches}<a class="view" href={`#${type}/${it.id}`}>소개 글 편집</a>{/if}
             {#if it.chapters}<span class="meta">{it.chapters}장</span>{/if}
             <span class={`badge ${it.status}`}>{STATUS[it.status] ?? it.status}</span>
             <span class="meta">순서 {it.sort}</span>
@@ -176,6 +180,12 @@
   .hanja {
     color: var(--color-muted);
     font-weight: 400;
+  }
+  .sub {
+    margin-left: 8px;
+    color: var(--color-primary);
+    font-size: 0.8rem;
+    font-weight: 500;
   }
   .badge {
     font-size: 0.74rem;
