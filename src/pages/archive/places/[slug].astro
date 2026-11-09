@@ -30,8 +30,10 @@ const rest = hero ? gallery : gallery.slice(1);
     <div hidden data-page-feed data-kind="place" data-id={id} data-title={name}></div>
   )}
   <article class="doc">
-    <PageTitle title={name} hanja={name_hanja} sub={built ? `건립 ${built}` : null} />{" "}
-    <AdminEditLink href={`/admin/#place/${id}`} /> {summary && <p class="summary">{summary}</p>}{" "}
+    <PageTitle title={name} hanja={name_hanja} sub={built ? `건립 ${built}` : null}>
+      <AdminEditLink href={`/admin/#place/${id}`} inline />
+    </PageTitle>{" "}
+    {summary && <p class="summary">{summary}</p>}{" "}
     <LeadImage image={lead} alt={name} /> <Prose html={body_html} />{" "}
     <ContentGallery items={rest} fallbackAlt={name} /> <PlaceLocation place={place} hrefPrefix="" />
   </article>

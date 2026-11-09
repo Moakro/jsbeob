@@ -163,14 +163,15 @@ const pageTitle = entry?.title ?? post?.title ?? "";
       {entry && (
         <Fragment>
           {" "}
-          <PageTitle title={entry.title} hanja={entry.title_hanja} />{" "}
+          <PageTitle title={entry.title} hanja={entry.title_hanja}>
+            <AdminEditLink href={`/admin/#article/${entry.id}`} inline />
+          </PageTitle>{" "}
           <PreviewNotice status={entry.status} editHref={`/admin/#article/${entry.id}`} />{" "}
           {entry.status === "published" && (
             <div hidden data-page-feed data-kind="article" data-id={entry.id} data-title={entry.title}></div>
           )}
           <article class="doc">
             {" "}
-            <AdminEditLink href={`/admin/#article/${entry.id}`} />{" "}
             {entry.summary && <p class="summary">{entry.summary}</p>} <Prose html={body_html} />{" "}
             {chapters.length > 0 && (
               <ol class="toc" aria-label="차례">

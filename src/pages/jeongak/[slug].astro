@@ -56,8 +56,10 @@ const split = side.length > 1;
   <div class:list={[{ "doc-split": split }]}>
     <div class="doc-main">
       <article class="doc">
-        <PageTitle title={name} hanja={name_hanja} sub={built ? `건립 ${built}` : null} />{" "}
-        <AdminEditLink href={`/admin/#place/${id}`} /> {summary && <p class="summary">{summary}</p>}{" "}
+        <PageTitle title={name} hanja={name_hanja} sub={built ? `건립 ${built}` : null}>
+          <AdminEditLink href={`/admin/#place/${id}`} inline />
+        </PageTitle>{" "}
+        {summary && <p class="summary">{summary}</p>}{" "}
         <LeadImage image={lead} alt={name} /> <Prose html={body_html} />{" "}
         <ContentGallery items={rest} fallbackAlt={name} />
       </article>

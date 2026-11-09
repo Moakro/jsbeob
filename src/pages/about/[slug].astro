@@ -58,7 +58,7 @@ const listLabel = `${ABOUT_KINDS[entry.kind] ?? "소개"} 목록`;
   <div class:list={[{ "doc-split": split }]}>
     <div class="doc-main">
       <article class="doc">
-        <PageTitle title={title} hanja={title_hanja} /> <AdminEditLink href={editHref} />{" "}
+        <PageTitle title={title} hanja={title_hanja}><AdminEditLink href={editHref} inline /></PageTitle>{" "}
         {summary && <p class="summary">{summary}</p>} <LeadImage image={hero} alt={title} />{" "}
         {/* 지부·분원: 카드 목록을 본문보다 먼저 — 본문에는 청장년회·여성회 같은 기관 안내만 남긴다 */}
         {branches.length > 0 && <BranchList items={branches} />}

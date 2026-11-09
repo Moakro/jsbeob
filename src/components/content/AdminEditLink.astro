@@ -1,8 +1,9 @@
 ---
-const { href, label = "편집" } = Astro.props;
+// inline: 제목 줄(PageTitle 슬롯) 오른쪽 끝에 붙인다 — 따로 한 줄을 차지하지 않게 (2026-11-09)
+const { href, label = "편집", inline = false } = Astro.props;
 ---
 
-<div class="admin-edit-row" data-admin-edit hidden>
+<div class:list={["admin-edit-row", { inline }]} data-admin-edit hidden>
   <a class="admin-edit" href={href}>
     {" "}
     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -34,6 +35,10 @@ const { href, label = "편집" } = Astro.props;
     display: flex;
     justify-content: flex-end;
     margin: 0 0 12px;
+  }
+  .admin-edit-row.inline {
+    margin: 0 0 0 auto;
+    align-self: center;
   }
   .admin-edit-row[hidden] {
     display: none;
