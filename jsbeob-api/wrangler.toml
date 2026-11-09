@@ -6,6 +6,8 @@ name = "jsbeob-api-preview"
 main = "index.ts"
 compatibility_date = "2026-04-01"
 compatibility_flags = ["nodejs_compat"]
+# 운영 일반 변수는 대시보드에만 있다(아래 주석) — 배포가 그 변수들을 지우지 않도록 유지한다 (2026-11-09)
+keep_vars = true
 
 [[d1_databases]]
 binding = "DB"
