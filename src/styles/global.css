@@ -222,6 +222,7 @@ img {
   font-size: 0.95rem;
   color: var(--color-fg);
   line-height: 1.55;
+  word-break: keep-all; /* 좁은 화면에서 낱말 중간('모/아')이 끊기지 않게 (2026-11-13) */
 }
 .site-confirm__actions {
   display: flex;

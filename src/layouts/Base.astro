@@ -207,6 +207,23 @@ const active = resolveSection(Astro.url.pathname);
         },
         { passive: !0 },
       );
+    </script>
+    <script>
+      // 헤더 [OLD] 배지 → 사이트 확인창(confirmDialog)을 먼저 띄우고, '이동'이면 옛 홈페이지 보관함으로 (2026-11-13 사용자 지시).
+      // 로그인 창·로그인 후 메뉴의 보관함 링크는 확인 없이 바로 간다. 새 탭 열기(Ctrl/⌘/Shift/가운데 클릭)는 그대로 둔다.
+      import { confirmDialog } from "../lib/confirm";
+      document.addEventListener("click", async (e) => {
+        const a = (e.target as Element | null)?.closest?.("a.hdr-old") as HTMLAnchorElement | null;
+        if (!a || e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+        e.preventDefault();
+        const ok = await confirmDialog({
+          title: "옛 홈페이지 보관함",
+          message: "이전 홈페이지(jsbeob.com)의 게시판 글을 모아 둔 '옛 홈페이지 보관함'으로 이동할까요?",
+          confirmText: "이동",
+          cancelText: "취소",
+        });
+        if (ok) window.location.href = a.href;
+      });
     </script> <!-- 인용 출처(사이트 자료)를 여는 사이드 드로어 — 페이지 어디서나 a[data-drawer-kind] 클릭을 받는다 -->{" "}
     <RefDrawer client:idle /> <!-- 이미지 참조 블록 썸네일 → 이미지 뷰어(모달) --> <ImageViewer client:idle />{" "}
     <!-- 본문 지도 블록(.blk-map) 썸네일 → 본문 장소 묶음 모달 지도(서랍 카드와 함께) -->{" "}
