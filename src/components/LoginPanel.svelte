@@ -2,6 +2,7 @@
   // 복원(2026-11-01): 배포본 SSR(Base 청크)·클라이언트(_astro/LoginPanel.*.js) 기준. 9월 버전에 next prop 추가.
   import { onMount } from "svelte";
   import { api } from "../lib/api";
+  import { SHOW_OLD_BADGE } from "../data/site-nav";
 
   /** 로그인 후 돌아갈 경로. 없으면 주소의 ?next= 를 쓴다. */
   let { next: nextProp = null }: { next?: string | null } = $props();
@@ -22,6 +23,10 @@
     <span class="ico">G</span> 구글로 시작하기
   </a>
   <p class="note">로그인하면 게시판에 글·댓글을 남길 수 있습니다.</p>
+  <!-- 옛 홈페이지(jsbeob.com) 게시판 글 보관함 (2026-11-12) -->
+  <a class="legacy" href="/legacy/"
+    >{#if SHOW_OLD_BADGE}<span class="old-badge" aria-hidden="true">OLD</span>{/if}옛 홈페이지 보관함</a
+  >
 </div>
 
 <style>
@@ -65,5 +70,21 @@
     font-size: 0.86rem;
     text-align: center;
     margin: 8px 0 0;
+  }
+  .legacy {
+    align-self: center;
+    margin-top: 4px;
+    padding-top: 12px;
+    border-top: 1px solid var(--color-rule);
+    width: 100%;
+    text-align: center;
+    font-size: 0.88rem;
+    color: var(--color-muted);
+  }
+  .legacy:hover {
+    color: var(--color-primary);
+  }
+  .legacy :global(.old-badge) {
+    margin-right: 6px;
   }
 </style>

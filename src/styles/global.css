@@ -690,6 +690,34 @@ img {
     gap: 16px;
   }
 }
+/* [OLD] 배지 — 옛 홈페이지 보관함 표시 (2026-11-13, 사이트 이전 후 일정 기간. 켜고 끄기: site-nav.ts SHOW_OLD_BADGE)
+   헤더 사이트 제목 오른쪽(링크)과 로그인 창·로그인 후 메뉴의 보관함 링크 앞(글자)에 같은 모양으로 쓴다. */
+.old-badge {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  padding: 1px 5px 0;
+  /* 테두리형: 글자·테두리는 같은 색, 바탕은 투명 (2026-11-13 사용자 지시) */
+  border: 1.5px solid currentColor;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--color-primary);
+  font-family: var(--font-body);
+  font-size: 0.66rem;
+  font-weight: 700;
+  line-height: 1.35;
+  letter-spacing: 0.06em;
+  vertical-align: 0.12em;
+  white-space: nowrap;
+}
+a.old-badge:hover {
+  color: var(--color-primary-deep);
+  text-decoration: none;
+}
+a.old-badge:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
 @keyframes hdr-tools-in {
   0% {
     opacity: 0;

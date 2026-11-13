@@ -4,6 +4,7 @@
   import { onMount } from "svelte";
   import { api, type MeUser } from "../lib/api";
   import { confirmDialog } from "../lib/confirm";
+  import { SHOW_OLD_BADGE } from "../data/site-nav";
 
   let user = $state<MeUser | null>(null);
   let loaded = $state(false);
@@ -89,6 +90,10 @@
           <a role="menuitem" href="/admin/" onclick={() => (open = false)}>사이트 관리</a>
         {/if}
         <button type="button" role="menuitem" onclick={logout}>로그아웃</button>
+        <!-- 옛 홈페이지(jsbeob.com) 게시판 글 보관함 (2026-11-12) -->
+        <a role="menuitem" class="legacy" href="/legacy/" onclick={() => (open = false)}
+          >{#if SHOW_OLD_BADGE}<span class="old-badge" aria-hidden="true">OLD</span>{/if}옛 홈페이지 보관함</a
+        >
       </div>
     {/if}
   </div>
@@ -210,6 +215,18 @@
     color: var(--color-fg);
     white-space: nowrap;
     cursor: pointer;
+  }
+  .auth-dropdown .legacy {
+    margin-top: 4px;
+    padding-top: 10px;
+    border-top: 1px solid var(--color-rule);
+    border-radius: 0 0 var(--radius-md) var(--radius-md);
+    color: var(--color-muted);
+    font-weight: 500;
+    font-size: 0.86rem;
+  }
+  .auth-dropdown .legacy :global(.old-badge) {
+    margin-right: 6px;
   }
   .auth-dropdown a:hover,
   .auth-dropdown button:hover,

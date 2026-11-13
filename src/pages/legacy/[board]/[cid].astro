@@ -1,0 +1,327 @@
+---
+// 옛 홈페이지 보관함 — 글 보기 (읽기 전용, 2026-11-12)
+import Base from "../../../layouts/Base.astro";
+import PageTitle from "../../../components/content/PageTitle.astro";
+import Prose from "../../../components/content/Prose.astro";
+import LegacySide from "../../../components/legacy/LegacySide.astro";
+import LegacySubTitle from "../../../components/legacy/LegacySubTitle.astro";
+import {
+  getLegacy,
+  legacyCategories,
+  legacyHref,
+  legacyGroups,
+  legacyBoardName,
+  legacyListHref,
+} from "../../../lib/content";
+export const prerender = false;
+
+const { board, cid } = Astro.params;
+const valid = /^[a-z]+$/.test(board ?? "") && /^\d+$/.test(cid ?? "");
+// lp: 아래 목록의 쪽(없으면 지금 글이 든 쪽)
+const lp = parseInt(Astro.url.searchParams.get("lp") ?? "", 10) || undefined;
+const [data, cats] = valid
+  ? await Promise.all([getLegacy(Astro.request, board!, cid!, lp), legacyCategories(Astro.request)])
+  : [null, []];
+if (!data)
+  return new Response("글을 찾을 수 없습니다.", { status: 404, headers: { "Content-Type": "text/plain; charset=utf-8" } });
+const { post, comments, list } = data;
+const md = (s: string | null) => (s ? s.slice(5, 10) : ""); // 옛 사이트처럼 월-일
+const lpHref = (n: number) => `${legacyHref(post.board, post.cid)}${n === list.own ? "" : `?lp=${n}`}#legacy-list`;
+const groups = legacyGroups(cats);
+const fmt = (s: string | null) => (s ? s.replace(/-/g, ".") : "");
+// 게시판 » 분류 (옛 사이트 표기 "오리알터 » 법종교소식") — 각각 그 목록으로
+const boardName = legacyBoardName(post.board);
+const boardHref = legacyListHref({ board: post.board });
+const listHref = legacyListHref({ board: post.board, category: post.category ?? undefined });
+const crumbs = [{ label: boardName, href: boardHref }, ...(post.category ? [{ label: post.category, href: listHref }] : [])];
+// 답댓글은 위 댓글 아래로
+const roots = comments.filter((c) => !c.parent_id || !comments.some((p) => p.id === c.parent_id));
+const kids = (id: number) => comments.filter((c) => c.parent_id === id);
+const ordered: { c: any; depth: number }[] = [];
+const walk = (c: any, depth: number) => {
+  ordered.push({ c, depth });
+  kids(c.id).forEach((k) => walk(k, depth + 1));
+};
+roots.forEach((c) => walk(c, 0));
+const plain = post.body_html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 140);
+---
+
+<Base title={`${post.title} · 옛 홈페이지 보관함`} description={plain || undefined} tight>
+  <!-- 보관함 제목은 목록과 같은 모양, 이 페이지의 h1 은 글 제목 -->
+  <div class="legacy-head"><PageTitle title="옛 홈페이지 보관함" as="p" /></div>
+  <div class="lib-split legacy-split">
+  <article class="doc legacy lib-main">
+    <LegacySubTitle as="div" parts={crumbs} />
+    <h1 class="post-title">{post.title}</h1>
+    <p class="meta">
+      {post.author && <span>{post.author}</span>}
+      <span>{fmt(post.created_at)}</span>
+      <span>조회 {Number(post.hits).toLocaleString("ko-KR")}</span>
+    </p>
+    <Prose html={post.body_html} />
+    {ordered.length > 0 && (
+      <section class="comments" aria-label="댓글">
+        <h2>댓글 {ordered.length}</h2>
+        <ul>
+          {ordered.map(({ c, depth }) => (
+            <li style={`--d:${Math.min(depth, 4)}`}>
+              <div class="who">
+                <strong>{c.author}</strong> <span>{fmt(c.created_at)}</span>
+              </div>
+              <div class="body" set:html={c.body_html} />
+            </li>
+          ))}
+        </ul>
+      </section>
+    )}
+    <!-- 아래 목록 — 옛 사이트처럼 같은 분류 글: 날짜(월-일)·분류·제목·댓글 수·조회수, 지금 글 강조, 쪽 번호 -->
+    <section class="blist" id="legacy-list" aria-label={`${crumbs.map((c) => c.label).join(" ")} 목록`}>
+      <h2 class="bl-h">
+        {crumbs.map((c, i) => (
+          <Fragment>
+            {i > 0 && <span aria-hidden="true">»</span>} <a href={c.href}>{c.label}</a>
+          </Fragment>
+        ))}
+      </h2>
+      <ul>
+        {list.items.map((r) => {
+          const on = r.board === post.board && r.cid === post.cid;
+          return (
+            <li class:list={[{ on }]}>
+              <a href={legacyHref(r.board, r.cid)} aria-current={on ? "page" : undefined}>
+                <span class="d" title={r.created_at}>{md(r.created_at)}</span>
+                {r.category && <span class="c">{r.category}</span>}
+                <span class="t">{r.title}</span>
+                {r.comment_count > 0 && (
+                  <span class="cm" aria-label={`댓글 ${r.comment_count}`}>
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16v12H8l-4 4V4z" /></svg>
+                    {r.comment_count}
+                  </span>
+                )}
+                <span class="h" aria-label={`조회 ${r.hits}`}>{Number(r.hits).toLocaleString("ko-KR")}</span>
+              </a>
+            </li>
+          );
+        })}
+      </ul>
+      {list.pages > 1 && (
+        <nav class="bl-pages" aria-label="목록 쪽">
+          {Array.from({ length: list.pages }, (_, i) => i + 1)
+            .filter((n) => n === 1 || n === list.pages || Math.abs(n - list.page) <= 3)
+            .map((n, i, arr) => (
+              <Fragment>
+                {i > 0 && n - arr[i - 1] > 1 && <span class="gap">…</span>}
+                {n === list.page ? (
+                  <span class="cur" aria-current="page">{n}</span>
+                ) : (
+                  <a href={lpHref(n)}>{n}</a>
+                )}
+              </Fragment>
+            ))}
+        </nav>
+      )}
+    </section>
+  </article>
+  <LegacySide groups={groups} board={post.board} category={post.category ?? ""} />
+  </div>
+</Base>
+
+<style>
+  .legacy-head :global(.ptitle) {
+    max-width: none;
+  }
+  .legacy-split {
+    margin-top: 0;
+  }
+  .post-title {
+    margin: 18px 0 8px;
+    font-size: 1.4rem;
+    line-height: 1.35;
+  }
+  .meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 14px;
+    margin: 0 0 18px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--color-rule);
+    color: var(--color-muted);
+    font-size: 0.9rem;
+  }
+  .legacy :global(.prose img) {
+    max-width: 100%;
+    height: auto;
+  }
+  .legacy :global(.prose iframe) {
+    max-width: 100%;
+    aspect-ratio: 16 / 9;
+    height: auto;
+  }
+  .comments {
+    margin-top: 32px;
+    border-top: 1px solid var(--color-rule);
+    padding-top: 16px;
+  }
+  .comments h2 {
+    font-size: 1rem;
+    margin: 0 0 10px;
+  }
+  .comments ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  .comments li {
+    margin-left: calc(var(--d) * 22px);
+    padding: 10px 0;
+    border-bottom: 1px solid var(--color-rule);
+  }
+  .comments .who {
+    font-size: 0.88rem;
+    margin-bottom: 4px;
+  }
+  .comments .who span {
+    color: var(--color-muted);
+    margin-left: 6px;
+  }
+  .comments .body {
+    font-size: 0.95rem;
+    line-height: 1.7;
+    overflow-wrap: anywhere;
+  }
+  /* 아래 목록 (옛 사이트 목록 모양) */
+  .blist {
+    margin-top: 40px;
+    scroll-margin-top: calc(var(--header-h, 64px) + 12px);
+  }
+  .bl-h {
+    margin: 0 0 6px;
+    font-family: var(--font-body);
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--color-primary);
+  }
+  .bl-h a {
+    color: inherit;
+  }
+  .bl-h span {
+    margin: 0 6px;
+    color: var(--color-muted);
+  }
+  .blist ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    border-top: 2px solid var(--color-fg);
+  }
+  .blist li {
+    border-bottom: 1px solid var(--color-rule);
+  }
+  .blist li a {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 38px;
+    padding: 6px 6px;
+    color: var(--color-ink);
+    font-size: 0.93rem;
+  }
+  .blist li a:hover {
+    background: var(--color-surface-2);
+    text-decoration: none;
+  }
+  .blist li a:hover .t {
+    color: var(--color-primary);
+  }
+  .blist li.on a {
+    background: var(--color-primary-bg);
+  }
+  .blist li.on .t {
+    font-weight: 700;
+    color: var(--color-primary);
+  }
+  .blist .d {
+    flex: none;
+    width: 3.2em;
+    color: var(--color-secondary, var(--color-muted));
+    font-size: 0.8rem;
+    font-variant-numeric: tabular-nums;
+  }
+  .blist .c {
+    flex: none;
+    padding: 2px 6px;
+    border-radius: 3px;
+    background: var(--color-muted);
+    color: #fff;
+    font-size: 0.72rem;
+    font-weight: 700;
+  }
+  .blist .t {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .blist .cm {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    color: var(--color-secondary, var(--color-primary));
+    font-size: 0.8rem;
+    font-weight: 700;
+  }
+  .blist .cm svg {
+    width: 15px;
+    height: 15px;
+    fill: currentColor;
+  }
+  .blist .h {
+    flex: none;
+    min-width: 3.4em;
+    padding: 1px 6px;
+    border-radius: 999px;
+    background: var(--color-surface-2);
+    border: 1px solid var(--color-rule);
+    color: var(--color-muted);
+    font-size: 0.72rem;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+  }
+  .bl-pages {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin: 14px 0 0;
+  }
+  .bl-pages a,
+  .bl-pages span {
+    min-width: 32px;
+    padding: 4px 8px;
+    text-align: center;
+    border-radius: var(--radius-md);
+    font-size: 0.88rem;
+  }
+  .bl-pages a {
+    border: 1px solid var(--color-rule);
+    background: var(--color-surface);
+  }
+  .bl-pages a:hover {
+    border-color: var(--color-primary);
+    text-decoration: none;
+  }
+  .bl-pages .cur {
+    background: var(--color-primary);
+    color: #fff;
+    font-weight: 700;
+  }
+  .bl-pages .gap {
+    color: var(--color-muted);
+  }
+  @media (max-width: 480px) {
+    .blist .c {
+      display: none;
+    }
+  }
+</style>

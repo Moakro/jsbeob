@@ -1,0 +1,155 @@
+---
+// 옛 홈페이지 보관함 사이드바 — 찾기 + 게시판별 분류 목록. 목록·글 보기에서 같이 쓴다 (2026-11-12)
+// groups: legacyGroups() 결과(게시판 › 분류), board·category: 지금 보는 게시판·분류(없으면 전체), q: 지금 검색어
+import { legacyListHref, type LegacyGroup } from "../../lib/content";
+const { groups = [], board = "", category = "", q = "" } = Astro.props as {
+  groups: LegacyGroup[];
+  board?: string;
+  category?: string;
+  q?: string;
+};
+const total = groups.reduce((s, g) => s + g.n, 0);
+const fmt = (n: number) => Number(n).toLocaleString("ko-KR");
+const boardName = groups.find((g) => g.board === board)?.name ?? "";
+const scope = [boardName, category].filter(Boolean).join(" › ");
+---
+
+<aside class="legacy-side" aria-label="옛 홈페이지 보관함 찾기·분류">
+  <section class="lib-sec">
+    <h2>찾기</h2>
+    <form class="search" method="get" action="/legacy/" role="search">
+      {board && <input type="hidden" name="board" value={board} />}
+      {category && <input type="hidden" name="category" value={category} />}
+      <input type="search" name="q" value={q} placeholder="제목·작성자" aria-label="제목·작성자 찾기" />
+      <button type="submit">찾기</button>
+    </form>
+    {scope && <p class="scope">‘{scope}’ 안에서 찾습니다.</p>}
+  </section>
+  <section class="lib-sec">
+    <h2>분류</h2>
+    <ul class="cats">
+      <li>
+        <a href={legacyListHref({})} class:list={[{ on: !board && !category }]} aria-current={!board && !category ? "page" : undefined}>
+          <span class="l">전체</span> <span class="n">{fmt(total)}</span>
+        </a>
+      </li>
+      {groups.map((g) => {
+        const gOn = g.board === board && !category;
+        return (
+          <li class="grp">
+            <a href={legacyListHref({ board: g.board })} class:list={["bd", { on: gOn }]} aria-current={gOn ? "page" : undefined}>
+              <span class="l">{g.name}</span> <span class="n">{fmt(g.n)}</span>
+            </a>
+            <ul>
+              {g.cats.map((c) => {
+                const on = g.board === board && c.category === category;
+                return (
+                  <li>
+                    <a href={legacyListHref({ board: g.board, category: c.category })} class:list={[{ on }]} aria-current={on ? "page" : undefined}>
+                      <span class="l">{c.category}</span> <span class="n">{fmt(c.n)}</span>
+                    </a>
+                  </li>
+                );
+              })}
+            </ul>
+          </li>
+        );
+      })}
+    </ul>
+  </section>
+</aside>
+
+<style>
+  .legacy-side {
+    min-width: 0;
+  }
+  /* 본문 옆에 놓일 때만 스크롤해도 위에 붙어 있게(sticky). 좁은 화면에선 본문 아래라 풀어 둔다 */
+  @media (min-width: 861px) {
+    .legacy-side {
+      position: sticky;
+      top: calc(var(--header-h) + 16px);
+    }
+  }
+  .search {
+    display: flex;
+    gap: 6px;
+    padding: 12px 0 8px;
+  }
+  .search input {
+    flex: 1;
+    min-width: 0;
+    padding: 7px 10px;
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-md);
+    background: #fff;
+    font: inherit;
+  }
+  .search button {
+    flex: none;
+    padding: 7px 12px;
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-md);
+    background: var(--color-surface-2);
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .search button:hover {
+    border-color: var(--color-primary);
+    color: var(--color-primary);
+  }
+  .scope {
+    margin: 0 0 8px;
+    color: var(--color-muted);
+    font-size: 0.82rem;
+  }
+  .cats {
+    list-style: none;
+    margin: 0;
+    padding: 4px 0;
+  }
+  .cats a {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 8px;
+    border-radius: var(--radius-md);
+    color: var(--color-ink);
+  }
+  .cats a:hover {
+    background: var(--color-surface-2);
+    text-decoration: none;
+  }
+  .cats a.on {
+    background: var(--color-primary-bg);
+    color: var(--color-primary);
+    font-weight: 700;
+  }
+  .cats .l {
+    flex: 1;
+  }
+  .cats .n {
+    color: var(--color-muted);
+    font-size: 0.82rem;
+    font-weight: 400;
+  }
+  /* 게시판(오리알터·시루학당) 줄은 굵게, 그 아래 분류는 들여 쓴다 */
+  .cats .grp {
+    margin-top: 6px;
+    padding-top: 6px;
+    border-top: 1px solid var(--color-rule);
+  }
+  .cats a.bd {
+    font-weight: 700;
+  }
+  .cats .grp ul {
+    list-style: none;
+    margin: 0;
+    padding: 0 0 0 14px;
+  }
+  .cats .grp ul a {
+    padding-top: 7px;
+    padding-bottom: 7px;
+    font-size: 0.94rem;
+  }
+</style>

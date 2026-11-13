@@ -126,3 +126,65 @@ export {
 /** 지부·분원 공개 목록 (2026-11-06) — 소개 > 지부·분원 페이지 */
 export const listBranches = async (request: Request): Promise<any[]> =>
   (await contentGet("/api/content/branches", request))?.items ?? [];
+
+/** 옛 홈페이지 보관함 (2026-11-12) — 읽기 전용 */
+export const legacyCategories = async (request: Request): Promise<any[]> =>
+  (await contentGet("/api/legacy/categories", request))?.items ?? [];
+
+export const listLegacy = async (
+  request: Request,
+  p: { board?: string; category?: string; q?: string; page?: number },
+): Promise<{ items: any[]; total: number; page: number; pages: number }> => {
+  const sp = new URLSearchParams();
+  if (p.board) sp.set("board", p.board);
+  if (p.category) sp.set("category", p.category);
+  if (p.q) sp.set("q", p.q);
+  if (p.page && p.page > 1) sp.set("page", String(p.page));
+  return (await contentGet(`/api/legacy/posts?${sp}`, request)) ?? { items: [], total: 0, page: 1, pages: 1 };
+};
+
+export const getLegacy = async (request: Request, board: string, cid: string, lp?: number) =>
+  await contentGet(
+    `/api/legacy/posts/${encodeURIComponent(board)}/${encodeURIComponent(cid)}${lp ? `?lp=${lp}` : ""}`,
+    request,
+  );
+
+/** 보관함 글 주소 */
+export const legacyHref = (board: string, cid: number | string) => `/legacy/${board}/${cid}/`;
+
+/** 보관함 게시판 — 옛 사이트의 게시판 이름과 분류 순서 그대로 (사용자 결정 2026-11-12: 오리알터(미디어방 제외)·시루학당) */
+export const LEGACY_BOARDS: { board: string; name: string; cats: string[] }[] = [
+  { board: "ort", name: "오리알터", cats: ["법종교소식", "법종교앨범", "오리알터풍경", "도생광장", "열린마당"] },
+  { board: "study", name: "시루학당", cats: ["주문과 수행", "경전 및 도서", "의식과 예법", "기타 자료실"] },
+];
+
+export const legacyBoardName = (board: string) => LEGACY_BOARDS.find((b) => b.board === board)?.name ?? board;
+
+export type LegacyGroup = { board: string; name: string; n: number; cats: { category: string; n: number }[] };
+
+/** /api/legacy/categories 결과([{board, category, n}])를 게시판별로 묶는다. 정해 둔 순서를 따르고, 모르는 것은 뒤에 붙인다. */
+export const legacyGroups = (rows: { board: string; category: string | null; n: number }[]): LegacyGroup[] => {
+  const order = [...LEGACY_BOARDS.map((b) => b.board), ...rows.map((r) => r.board)].filter((b, i, a) => a.indexOf(b) === i);
+  return order
+    .map((board) => {
+      const known = LEGACY_BOARDS.find((b) => b.board === board)?.cats ?? [];
+      const mine = rows.filter((r) => r.board === board);
+      const rank = (c: string) => (known.indexOf(c) < 0 ? 999 : known.indexOf(c));
+      const cats = mine
+        .map((r) => ({ category: r.category ?? "기타", n: Number(r.n) || 0 }))
+        .sort((a, b) => rank(a.category) - rank(b.category));
+      return { board, name: legacyBoardName(board), n: cats.reduce((s, c) => s + c.n, 0), cats };
+    })
+    .filter((g) => g.cats.length > 0);
+};
+
+/** 보관함 목록 주소 (게시판·분류·검색어·쪽) */
+export const legacyListHref = (o: { board?: string; category?: string; q?: string; page?: number }) => {
+  const p = new URLSearchParams();
+  if (o.board) p.set("board", o.board);
+  if (o.category) p.set("category", o.category);
+  if (o.q) p.set("q", o.q);
+  if (o.page && o.page > 1) p.set("page", String(o.page));
+  const s = p.toString();
+  return "/legacy/" + (s ? `?${s}` : "");
+};

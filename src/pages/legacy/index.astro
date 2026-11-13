@@ -1,0 +1,244 @@
+---
+// 옛 홈페이지 보관함 — jsbeob.com(옛 사이트) 게시판 글을 읽기 전용으로 모아 둔 곳 (2026-11-12)
+// 헤더는 새 사이트와 같다. 위에 '옛 홈페이지 보관함' 제목, 오른쪽에 찾기·분류 사이드바(글 보기와 같음).
+import Base from "../../layouts/Base.astro";
+import PageTitle from "../../components/content/PageTitle.astro";
+import LegacySide from "../../components/legacy/LegacySide.astro";
+import LegacySubTitle from "../../components/legacy/LegacySubTitle.astro";
+import {
+  legacyCategories,
+  listLegacy,
+  legacyHref,
+  legacyGroups,
+  legacyBoardName,
+  legacyListHref as link,
+} from "../../lib/content";
+export const prerender = false;
+
+const sp = Astro.url.searchParams;
+const q = (sp.get("q") ?? "").trim();
+const page = Math.max(1, parseInt(sp.get("page") ?? "1", 10) || 1);
+const category = (sp.get("category") ?? "").trim();
+const cats = await legacyCategories(Astro.request);
+const groups = legacyGroups(cats);
+// 게시판(board): 오리알터(ort)·시루학당(study). 예전 주소처럼 분류만 있으면 그 분류가 든 게시판으로 본다.
+let board = (sp.get("board") ?? "").trim();
+if (!board && category) board = cats.find((c) => c.category === category)?.board ?? "";
+const res = await listLegacy(Astro.request, { board, category, q, page });
+
+const fmtDate = (s: string | null) => (s ? s.slice(0, 10).replace(/-/g, ".") : "");
+// 소제목: 전체 글 / 오리알터 / 오리알터 » 법종교소식 (옛 사이트 표기)
+const parts = board
+  ? [
+      { label: legacyBoardName(board), href: category ? link({ board }) : null },
+      ...(category ? [{ label: category }] : []),
+    ]
+  : [{ label: category || "전체 글" }];
+// 분류를 고르지 않았으면 여러 분류가 날짜순으로 섞이므로 제목 앞에 분류 꼬리표를 단다. 분류를 고르면 소제목에 있으니 뺀다.
+const rows = res.items.map((r) => ({
+  href: legacyHref(r.board, r.cid),
+  title: r.title,
+  cat: category ? null : r.category,
+  comments: Number(r.comment_count) || 0,
+  meta: [r.author, fmtDate(r.created_at), `조회 ${Number(r.hits).toLocaleString("ko-KR")}`].filter(Boolean).join(" · "),
+}));
+
+// 쪽 번호: 현재 쪽 앞뒤 4쪽 + 처음·끝
+const nums: (number | null)[] = [];
+for (let i = 1; i <= res.pages; i++) {
+  if (i === 1 || i === res.pages || Math.abs(i - res.page) <= 4) nums.push(i);
+  else if (nums[nums.length - 1] !== null) nums.push(null);
+}
+---
+
+<Base title="옛 홈페이지 보관함" description="증산법종교 옛 홈페이지(jsbeob.com) 게시판 글 보관함" tight>
+  <div class="legacy-head"><PageTitle title="옛 홈페이지 보관함" /></div>
+  <div class="lib-split legacy-split">
+    <div class="lib-main">
+      <LegacySubTitle parts={parts} count={q ? null : res.total} />
+      {q && (
+        <p class="found">
+          ‘{q}’ 찾은 글 {res.total.toLocaleString("ko-KR")}건 <a href={link({ board, category })}>찾기 지우기</a>
+        </p>
+      )}
+      {rows.length ? (
+        <ul class="rows">
+          {rows.map((r) => (
+            <li>
+              <a href={r.href}>
+                <span class="t">
+                  {r.cat && <span class="cat">{r.cat}</span>}
+                  <span class="tt">{r.title}</span>
+                  {r.comments > 0 && (
+                    <span class="cc" aria-label={`댓글 ${r.comments}`}>
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M4 5h16v11H8l-4 4V5z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" />
+                      </svg>
+                      {r.comments}
+                    </span>
+                  )}
+                </span>
+                <span class="m">{r.meta}</span>
+              </a>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p class="none">글이 없습니다.</p>
+      )}
+      {res.pages > 1 && (
+        <nav class="pages" aria-label="쪽 넘기기">
+          {nums.map((n) =>
+            n === null ? (
+              <span class="gap">…</span>
+            ) : n === res.page ? (
+              <span class="cur" aria-current="page">{n}</span>
+            ) : (
+              <a href={link({ board, category, q, page: n })}>{n}</a>
+            ),
+          )}
+        </nav>
+      )}
+    </div>
+    <LegacySide groups={groups} board={board} category={category} q={q} />
+  </div>
+</Base>
+
+<style>
+  /* 큰 제목은 페이지 전체(본문+사이드바) 제목 — 밑줄을 전체 폭으로. 소제목은 왼쪽 단에만 */
+  .legacy-head :global(.ptitle) {
+    max-width: none;
+  }
+  .legacy-split {
+    margin-top: 0;
+  }
+  .found {
+    margin: 0;
+    padding: 10px 4px;
+    border-bottom: 1px solid var(--color-rule);
+    color: var(--color-muted);
+    font-size: 0.9rem;
+  }
+  .found a {
+    margin-left: 8px;
+  }
+  .cat {
+    flex: none;
+    padding: 1px 7px;
+    border: 1px solid var(--color-rule);
+    border-radius: 999px;
+    background: var(--color-surface);
+    color: var(--color-muted);
+    font-size: 0.75rem;
+    font-weight: 600;
+  }
+  .none {
+    color: var(--color-muted);
+  }
+  /* 목록 — 자료실 목록(LibRows)과 같은 모양에 댓글 수 아이콘을 더했다 */
+  .rows {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  .rows li {
+    border-bottom: 1px solid var(--color-rule);
+  }
+  .rows a {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 48px;
+    padding: 8px 4px;
+    color: var(--color-ink);
+  }
+  .rows a:hover {
+    text-decoration: none;
+  }
+  .rows a:hover .tt {
+    color: var(--color-primary);
+  }
+  .t {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .tt {
+    min-width: 0;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .cc {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    color: var(--color-primary);
+    font-size: 0.8rem;
+    font-weight: 600;
+  }
+  .cc svg {
+    width: 14px;
+    height: 14px;
+  }
+  .m {
+    flex: none;
+    color: var(--color-muted);
+    font-size: 0.82rem;
+  }
+  /* 좁은 화면: 분류·작성자·날짜 줄을 제목 아래로 */
+  @media (max-width: 640px) {
+    .rows a {
+      flex-wrap: wrap;
+      row-gap: 2px;
+    }
+    .t {
+      flex-basis: 100%;
+    }
+    .t {
+      align-items: flex-start;
+    }
+    .tt {
+      white-space: normal;
+    }
+    .cat,
+    .cc {
+      margin-top: 3px;
+    }
+  }
+  .pages {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    justify-content: center;
+    margin: 22px 0 8px;
+  }
+  .pages a,
+  .pages span {
+    min-width: 34px;
+    padding: 5px 8px;
+    text-align: center;
+    border-radius: var(--radius-md);
+    font-size: 0.92rem;
+  }
+  .pages a {
+    border: 1px solid var(--color-rule);
+    background: var(--color-surface);
+  }
+  .pages a:hover {
+    border-color: var(--color-primary);
+    text-decoration: none;
+  }
+  .pages .cur {
+    background: var(--color-primary);
+    color: #fff;
+    font-weight: 700;
+  }
+  .pages .gap {
+    color: var(--color-muted);
+  }
+</style>

@@ -8,6 +8,13 @@
 // 복원: 추정 — 배포본 Base 청크에서 HEADER_NAV 바로 앞에 있던 상수. 문의 게시판의 카카오 채널 링크(비어 있으면 숨김).
 export const KAKAO_CHANNEL_URL = "";
 
+/**
+ * 헤더 사이트 제목 오른쪽과 로그인 창·로그인 후 메뉴의 '옛 홈페이지 보관함' 링크에 붙는 [OLD] 배지 (2026-11-13).
+ * 사이트 이전(jsbeob.com → 새 사이트) 후 일정 기간만 보인다 — 기간이 끝나면 false 로 바꾸면 배지가 모두 사라진다.
+ * (보관함 링크 자체는 로그인 창·메뉴에 그대로 남는다.)
+ */
+export const SHOW_OLD_BADGE = true;
+
 export type SectionSlug =
   | "home"
   | "media" // 미디어

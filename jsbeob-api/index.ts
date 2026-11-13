@@ -35,6 +35,7 @@ import { BlockError, allKeys, allPointIds, blocksForEditor, imageItems, normaliz
 import { handleContent, mediaUrl, refIndexStmts, renderRowBlocks, siteHosts } from "./content";
 import { handleMedia } from "./media";
 import { branchCodeSet, handleBranches } from "./branch";
+import { handleLegacy } from "./legacy";
 
 const COOKIE_NAME = "jb_session";
 const SESSION_TTL = 60 * 60 * 24 * 30;
@@ -88,6 +89,9 @@ export default {
         }
       });
       if (branchRes) return branchRes;
+      // 옛 홈페이지 보관함 (읽기 전용, 2026-11-12)
+      const legacyRes = await handleLegacy(req, env, path);
+      if (legacyRes) return legacyRes;
       const contentRes = await handleContent(req, env, path, {
         adminUser: async (r) => {
           const uid = await currentUserId(r, env);

@@ -1,0 +1,61 @@
+---
+// 옛 홈페이지 보관함 소제목 — 큰 제목('옛 홈페이지 보관함') 아래 단계. 게시판 » 분류 + 글 수. (2026-11-12)
+// 모양은 소개 › 지부·분원의 '지부 13곳' 소제목(굵은 글씨 + 진한 2px 밑줄)과 같은 계열로 맞췄다.
+// parts: [{ label, href? }] — 옛 사이트처럼 "오리알터 » 법종교소식". href 가 있으면 그 목록 링크.
+// as: 목록에서는 h2, 글 보기에서는 h1 이 글 제목이라 div 로 쓴다.
+const { parts = [], count = null, as: Tag = "h2" } = Astro.props as {
+  parts: { label: string; href?: string | null }[];
+  count?: number | null;
+  as?: string;
+};
+---
+
+<Tag class="legacy-sub">
+  <span class="crumbs">
+    {parts.map((p, i) => (
+      <Fragment>
+        {i > 0 && <span class="sep" aria-hidden="true">»</span>}
+        {p.href ? <a href={p.href}>{p.label}</a> : <span>{p.label}</span>}
+      </Fragment>
+    ))}
+  </span>
+  {count != null && <small>{Number(count).toLocaleString("ko-KR")}건</small>}
+  <slot />
+</Tag>
+
+<style>
+  .legacy-sub {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    margin: 6px 0 0;
+    padding-bottom: 8px;
+    border-bottom: 2px solid var(--color-fg);
+    font-family: var(--font-display);
+    font-size: 1.2rem;
+    font-weight: 700;
+    line-height: 1.3;
+    color: var(--color-ink);
+  }
+  .legacy-sub a {
+    color: inherit;
+  }
+  .legacy-sub a:hover {
+    color: var(--color-primary);
+    text-decoration: none;
+  }
+  .crumbs {
+    min-width: 0;
+  }
+  .sep {
+    margin: 0 6px;
+    color: var(--color-muted);
+    font-weight: 400;
+  }
+  .legacy-sub small {
+    color: var(--color-muted);
+    font-family: var(--font-body, inherit);
+    font-size: 0.82rem;
+    font-weight: 500;
+  }
+</style>

@@ -1,6 +1,6 @@
 ---
 import "../styles/global.css";
-import { HEADER_NAV, KAKAO_CHANNEL_URL, resolveSection } from "../data/site-nav";
+import { HEADER_NAV, KAKAO_CHANNEL_URL, SHOW_OLD_BADGE, resolveSection } from "../data/site-nav";
 import AiChatDrawer from "../components/AiChatDrawer.svelte";
 import AuthLink from "../components/AuthLink.svelte";
 import HeroSearch from "../components/HeroSearch.svelte";
@@ -60,6 +60,10 @@ const active = resolveSection(Astro.url.pathname);
             </svg>{" "}
             <span class="brand-name">증산법종교</span>{" "}
           </a>{" "}
+          <!-- [OLD] 배지 → 옛 홈페이지 보관함. 사이트 이전 후 일정 기간만 (SHOW_OLD_BADGE, 2026-11-13) -->
+          {SHOW_OLD_BADGE && (
+            <a class="old-badge hdr-old" href="/legacy/" title="옛 홈페이지 보관함" aria-label="옛 홈페이지 보관함">OLD</a>
+          )}
           <!-- 검색 · AI 대화 — 사이트 제목 오른쪽. 홈 히어로 위(오버레이 헤더)에선 숨김: 히어로의 큰 검색폼·AI 버튼이 대신한다 -->
           <div class="hdr-tools">
             <HeroSearch client:load variant="header" inputId="hdrSearchInput" />{" "}
@@ -242,6 +246,13 @@ const active = resolveSection(Astro.url.pathname);
   .masthead.is-overlay .nav-link {
     color: #fff;
   }
+  /* 홈 히어로 위(어두운 헤더)에선 제목과 같은 금색 배지 */
+  .masthead.is-overlay .hdr-old {
+    color: #f5c84c;
+  }
+  .masthead.is-overlay .hdr-old:hover {
+    color: #ffd970;
+  }
   .masthead.is-overlay .nav-link:hover,
   .masthead.is-overlay .nav-link.active {
     color: #fff;
@@ -337,6 +348,10 @@ const active = resolveSection(Astro.url.pathname);
   }
   .brand:hover {
     text-decoration: none;
+  }
+  /* 제목과 간격 — 그룹 간격(14px, 모바일 10px)에 더 띄운다 (2026-11-13 사용자 지시) */
+  .hdr-old {
+    margin-left: 4px;
   }
   .brand-mark {
     flex: none;
