@@ -690,6 +690,90 @@ img {
     gap: 16px;
   }
 }
+/* 소개 › 찾아오시는 길 (2026-11-13) — 본문은 편집기 블록 그대로, 모양만 이 페이지에서 정돈한다.
+   소제목(주소·버스로 오시는 길·네이버맵 보기·문의) / 글 상자(첫 줄 = 노선·주소 제목) / 네이버 지도 링크 카드 / 큰 전화번호 */
+.doc-directions .blk-heading {
+  margin: 2.2em 0 0.8em;
+  padding-left: 12px;
+  border-left: 3px solid var(--color-primary);
+  font-size: 1.08rem;
+  line-height: 1.35;
+}
+.doc-directions .blk-heading:first-child {
+  margin-top: 0.4em;
+}
+.doc-directions .blk-text {
+  margin-bottom: 10px;
+  padding: 14px 18px;
+  border: 1px solid var(--color-rule);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+/* .prose p(컴포넌트 스타일, 아래 여백 1.1em)보다 앞서도록 .doc 를 하나 더 붙인다 */
+.doc.doc-directions .blk-text p {
+  margin: 0;
+  line-height: 1.75;
+  word-break: keep-all; /* 좁은 화면에서 '내립/니다'처럼 낱말 중간이 끊기지 않게 */
+}
+.doc-directions .blk-text p::first-line {
+  font-weight: 700;
+  color: var(--color-ink);
+}
+.doc-directions .blk-image {
+  margin-top: 14px;
+}
+.doc-directions .blk-link {
+  margin: 0 0 8px;
+}
+.doc-directions .blk-link a.ext-link {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 16px;
+  border: 1px solid var(--color-rule);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-ink);
+  font-weight: 600;
+}
+.doc-directions .blk-link a.ext-link::before {
+  content: "";
+  flex: none;
+  width: 18px;
+  height: 18px;
+  background: var(--color-primary);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 2a7 7 0 0 0-7 7c0 5.25 7 13 7 13s7-7.75 7-13a7 7 0 0 0-7-7zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5z'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 2a7 7 0 0 0-7 7c0 5.25 7 13 7 13s7-7.75 7-13a7 7 0 0 0-7-7zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5z'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+.doc-directions .blk-link a.ext-link > span {
+  margin-left: auto;
+  color: var(--color-muted);
+}
+.doc-directions .blk-link a.ext-link:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  text-decoration: none;
+}
+/* 맨 끝 글 상자(문의 전화)는 상자 대신 옛 사이트처럼 큰 번호로 */
+.doc-directions .blk-text:last-child {
+  padding: 0;
+  border: 0;
+  background: none;
+}
+.doc-directions .blk-text:last-child p {
+  font-size: 1.6rem;
+  line-height: 1.4;
+  letter-spacing: 0.01em;
+}
+@media (max-width: 560px) {
+  .doc-directions .blk-text {
+    padding: 12px 14px;
+  }
+  .doc-directions .blk-text:last-child p {
+    font-size: 1.4rem;
+  }
+}
 /* [OLD] 배지 — 옛 홈페이지 보관함 표시 (2026-11-13, 사이트 이전 후 일정 기간. 켜고 끄기: site-nav.ts SHOW_OLD_BADGE)
    헤더 사이트 제목 오른쪽(링크)과 로그인 창·로그인 후 메뉴의 보관함 링크 앞(글자)에 같은 모양으로 쓴다. */
 .old-badge {
