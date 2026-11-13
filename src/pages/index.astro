@@ -9,6 +9,7 @@ import HomeMiniMap from "../components/home/HomeMiniMap.svelte";
 import FeedRows from "../components/home/FeedRows.astro";
 import NewsModal from "../components/board/NewsModal.svelte";
 import NewsRows from "../components/board/NewsRows.astro";
+import { SHOW_AI_CHAT } from "../data/site-nav";
 import {
   getHomeHero,
   listHomeTiles,
@@ -59,21 +60,24 @@ const posterSm = heroPhoto ? `url(${JSON.stringify(heroPhoto.url)})` : `url(/her
       <div class="hero-search-row">
         <!-- 검색폼 + 결과 패널(jsbooks 방식) — src/components/HeroSearch.svelte -->{" "}
         <HeroSearch client:load />{" "}
-        <!-- AI 대화 — 검색폼 바깥 우측, solomad 트리거와 같은 원형 아이콘 버튼. 클릭하면 우측 드로어(AiChatDrawer) -->{" "}
-        <button
-          type="button"
-          class="hero-ai"
-          data-ai-open
-          aria-haspopup="dialog"
-          aria-expanded="false"
-          aria-label="AI 대화 열기"
-          title="AI 대화"
-        >
-          <!-- Material Symbols Outlined "auto_awesome" (구글 공식 SVG) -->{" "}
-          <svg viewBox="0 -960 960 960" aria-hidden="true">
-            <path d="m760-600-50-110-110-50 110-50 50-110 50 110 110 50-110 50-50 110Zm0 560-50-110-110-50 110-50 50-110 50 110 110 50-110 50-50 110ZM360-160 260-380 40-480l220-100 100-220 100 220 220 100-220 100-100 220Zm0-194 40-86 86-40-86-40-40-86-40 86-86 40 86 40 40 86Zm0-126Z"></path>
-          </svg>
-        </button>
+        <!-- AI 대화 — 검색폼 바깥 우측, solomad 트리거와 같은 원형 아이콘 버튼. 클릭하면 우측 드로어(AiChatDrawer).
+             SHOW_AI_CHAT 으로 켜고 끈다 (2026-11-13 숨김) -->{" "}
+        {SHOW_AI_CHAT && (
+          <button
+            type="button"
+            class="hero-ai"
+            data-ai-open
+            aria-haspopup="dialog"
+            aria-expanded="false"
+            aria-label="AI 대화 열기"
+            title="AI 대화"
+          >
+            <!-- Material Symbols Outlined "auto_awesome" (구글 공식 SVG) -->{" "}
+            <svg viewBox="0 -960 960 960" aria-hidden="true">
+              <path d="m760-600-50-110-110-50 110-50 50-110 50 110 110 50-110 50-50 110Zm0 560-50-110-110-50 110-50 50-110 50 110 110 50-110 50-50 110ZM360-160 260-380 40-480l220-100 100-220 100 220 220 100-220 100-100 220Zm0-194 40-86 86-40-86-40-40-86-40 86-86 40 86 40 40 86Zm0-126Z"></path>
+            </svg>
+          </button>
+        )}
       </div>
     </div>
     <div class="container hero-foot">

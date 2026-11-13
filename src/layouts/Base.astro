@@ -1,6 +1,6 @@
 ---
 import "../styles/global.css";
-import { HEADER_NAV, KAKAO_CHANNEL_URL, SHOW_OLD_BADGE, resolveSection } from "../data/site-nav";
+import { HEADER_NAV, KAKAO_CHANNEL_URL, SHOW_AI_CHAT, SHOW_OLD_BADGE, resolveSection } from "../data/site-nav";
 import AiChatDrawer from "../components/AiChatDrawer.svelte";
 import AuthLink from "../components/AuthLink.svelte";
 import HeroSearch from "../components/HeroSearch.svelte";
@@ -67,19 +67,22 @@ const active = resolveSection(Astro.url.pathname);
           <!-- 검색 · AI 대화 — 사이트 제목 오른쪽. 홈 히어로 위(오버레이 헤더)에선 숨김: 히어로의 큰 검색폼·AI 버튼이 대신한다 -->
           <div class="hdr-tools">
             <HeroSearch client:load variant="header" inputId="hdrSearchInput" />{" "}
-            <button
-              type="button"
-              class="hdr-ai"
-              data-ai-open
-              aria-haspopup="dialog"
-              aria-expanded="false"
-              aria-label="AI 대화 열기"
-              title="AI 대화"
-            >
-              <svg viewBox="0 -960 960 960" aria-hidden="true">
-                <path d="m760-600-50-110-110-50 110-50 50-110 50 110 110 50-110 50-50 110Zm0 560-50-110-110-50 110-50 50-110 50 110 110 50-110 50-50 110ZM360-160 260-380 40-480l220-100 100-220 100 220 220 100-220 100-100 220Zm0-194 40-86 86-40-86-40-40-86-40 86-86 40 86 40 40 86Zm0-126Z"></path>
-              </svg>
-            </button>
+            <!-- AI 대화 버튼 — SHOW_AI_CHAT 으로 켜고 끈다 (2026-11-13 숨김) -->
+            {SHOW_AI_CHAT && (
+              <button
+                type="button"
+                class="hdr-ai"
+                data-ai-open
+                aria-haspopup="dialog"
+                aria-expanded="false"
+                aria-label="AI 대화 열기"
+                title="AI 대화"
+              >
+                <svg viewBox="0 -960 960 960" aria-hidden="true">
+                  <path d="m760-600-50-110-110-50 110-50 50-110 50 110 110 50-110 50-50 110Zm0 560-50-110-110-50 110-50 50-110 50 110 110 50-110 50-50 110ZM360-160 260-380 40-480l220-100 100-220 100 220 220 100-220 100-100 220Zm0-194 40-86 86-40-86-40-40-86-40 86-86 40 86 40 40 86Zm0-126Z"></path>
+                </svg>
+              </button>
+            )}
           </div>
         </div>
         <nav class="nav-desktop" aria-label="주요 메뉴">
@@ -210,8 +213,8 @@ const active = resolveSection(Astro.url.pathname);
     <MapBundle client:idle /> <!-- 법종교 미디어 영상 카드(a[data-video-id]) → 미리보기 모달 -->{" "}
     <VideoPreview client:idle /> <!-- 페이지 세로 스크롤 막대(자리 차지 없이 겹쳐 띄움, 스크롤할 때만) -->{" "}
     <OverlayScrollbar client:idle /> <LoginModal client:load />{" "}
-    <!-- AI 대화 드로어 — 헤더·홈 히어로의 [data-ai-open] 버튼으로 연다(모든 페이지) -->{" "}
-    <AiChatDrawer client:load />
+    <!-- AI 대화 드로어 — 헤더·홈 히어로의 [data-ai-open] 버튼으로 연다(모든 페이지). SHOW_AI_CHAT 이 false 면 불러오지 않는다 -->{" "}
+    {SHOW_AI_CHAT && <AiChatDrawer client:load />}
   </body>
 </html>
 

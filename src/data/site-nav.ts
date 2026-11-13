@@ -15,6 +15,13 @@ export const KAKAO_CHANNEL_URL = "";
  */
 export const SHOW_OLD_BADGE = true;
 
+/**
+ * AI 대화 켜기·끄기 (2026-11-13 사용자 결정: AI 기능 기획이 설 때까지 숨긴다).
+ * false 면 헤더·홈 히어로·지도의 AI 버튼과 AI 대화 서랍(AiChatDrawer)을 모두 내보내지 않는다.
+ * 다시 살리려면 true 로 바꾸면 된다 — 코드는 지우지 않았다.
+ */
+export const SHOW_AI_CHAT = false;
+
 export type SectionSlug =
   | "home"
   | "media" // 미디어

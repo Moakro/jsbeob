@@ -3,6 +3,7 @@ import Base from "../../layouts/Base.astro";
 import { listMapPoints } from "../../lib/content";
 import KakaoMap from "../../components/KakaoMap.svelte";
 import { MAP_HOME } from "../../lib/map-categories";
+import { SHOW_AI_CHAT } from "../../data/site-nav";
 export const prerender = false;
 const { points, tags } = await listMapPoints(Astro.request);
 const hasKey = Boolean(import.meta.env.PUBLIC_KAKAO_JS_KEY);
@@ -59,7 +60,7 @@ const searchPlaces = onMap.map((p) => ({ ...p }));
         homeLabel={MAP_HOME.label}
         searchPlaceholder="지도 검색"
         searchPlaces={searchPlaces}
-        aiButton
+        aiButton={SHOW_AI_CHAT}
       />
     ) : (
       <div class="map-empty">
