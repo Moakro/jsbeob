@@ -148,7 +148,10 @@ if (isHome) {
                             </span>
                           )}
                         </span>
-                        <span class="m">{r.meta}</span>
+                        <span class="m">
+                          {r.cat && <span class="mcat">{r.cat}</span>}
+                          {r.meta}
+                        </span>
                       </a>
                     </li>
                   ))}
@@ -314,23 +317,54 @@ if (isHome) {
     font-size: 0.82rem;
   }
   /* 좁은 화면: 분류·작성자·날짜 줄을 제목 아래로 */
+  /* 정보 줄의 분류 꼬리표 — 좁은 화면에서만 보인다(넓은 화면은 제목 앞 꼬리표) */
+  .mcat {
+    display: none;
+  }
+  /* 좁은 화면 (사용자 결정 2026-11-14 B안): 제목은 맨 앞에서 시작해 최대 두 줄(넘치면 …), 낱말 단위 줄바꿈.
+     분류 꼬리표는 제목 앞에서 빼고 아래 정보 줄 맨 앞으로 — 둘째 줄이 꼬리표 폭만큼 들여 써지지 않게 */
   @media (max-width: 640px) {
     .rows a {
       flex-wrap: wrap;
-      row-gap: 2px;
+      row-gap: 4px;
+      padding: 10px 4px;
     }
     .t {
       flex-basis: 100%;
-    }
-    .t {
       align-items: flex-start;
     }
-    .tt {
-      white-space: normal;
+    .t .cat {
+      display: none;
     }
-    .cat,
+    .tt {
+      display: -webkit-box;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
+      line-clamp: 2;
+      white-space: normal;
+      word-break: keep-all;
+      overflow-wrap: anywhere;
+      line-height: 1.45;
+    }
     .cc {
-      margin-top: 3px;
+      margin-top: 4px;
+    }
+    .m {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 2px 6px;
+    }
+    .mcat {
+      display: inline-block;
+      padding: 0 6px;
+      border: 1px solid var(--color-rule);
+      border-radius: 999px;
+      background: var(--color-surface);
+      color: var(--color-muted);
+      font-size: 0.72rem;
+      font-weight: 600;
+      line-height: 1.6;
     }
   }
   .pages {

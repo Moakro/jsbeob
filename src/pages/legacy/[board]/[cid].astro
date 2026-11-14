@@ -175,6 +175,8 @@ const plain = post.body_html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim(
     margin: 18px 0 8px;
     font-size: 1.4rem;
     line-height: 1.35;
+    word-break: keep-all; /* 긴 제목도 낱말 중간에서 끊기지 않게 (2026-11-14) */
+    overflow-wrap: anywhere;
   }
   .meta {
     display: flex;
