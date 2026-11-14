@@ -24,30 +24,56 @@ const groups = legacyGroups(cats);
 // 게시판(board): 오리알터(ort)·시루학당(study). 예전 주소처럼 분류만 있으면 그 분류가 든 게시판으로 본다.
 let board = (sp.get("board") ?? "").trim();
 if (!board && category) board = cats.find((c) => c.category === category)?.board ?? "";
-const res = await listLegacy(Astro.request, { board, category, q, page });
 
 const fmtDate = (s: string | null) => (s ? s.slice(0, 10).replace(/-/g, ".") : "");
-// 소제목: 전체 글 / 오리알터 / 오리알터 » 법종교소식 (옛 사이트 표기)
-const parts = board
-  ? [
-      { label: legacyBoardName(board), href: category ? link({ board }) : null },
-      ...(category ? [{ label: category }] : []),
-    ]
-  : [{ label: category || "전체 글" }];
 // 분류를 고르지 않았으면 여러 분류가 날짜순으로 섞이므로 제목 앞에 분류 꼬리표를 단다. 분류를 고르면 소제목에 있으니 뺀다.
-const rows = res.items.map((r) => ({
-  href: legacyHref(r.board, r.cid),
-  title: r.title,
-  cat: category ? null : r.category,
-  comments: Number(r.comment_count) || 0,
-  meta: [r.author, fmtDate(r.created_at), `조회 ${Number(r.hits).toLocaleString("ko-KR")}`].filter(Boolean).join(" · "),
-}));
+const toRows = (items: any[]) =>
+  items.map((r) => ({
+    href: legacyHref(r.board, r.cid),
+    title: r.title,
+    cat: category ? null : r.category,
+    comments: Number(r.comment_count) || 0,
+    meta: [r.author, fmtDate(r.created_at), `조회 ${Number(r.hits).toLocaleString("ko-KR")}`].filter(Boolean).join(" · "),
+  }));
 
-// 쪽 번호: 현재 쪽 앞뒤 4쪽 + 처음·끝
-const nums: (number | null)[] = [];
-for (let i = 1; i <= res.pages; i++) {
-  if (i === 1 || i === res.pages || Math.abs(i - res.page) <= 4) nums.push(i);
-  else if (nums[nums.length - 1] !== null) nums.push(null);
+// 첫 화면(게시판·분류·검색어 없음): 게시판별로 최신 10개씩 나눠 보이고, 목록 아래 '전체보기' (사용자 지시 2026-11-14).
+// 순서는 사이드바와 같다(시루학당 → 오리알터). 그 밖에는 한 목록 + 쪽 번호.
+const HOME_SIZE = 10;
+const isHome = !board && !category && !q;
+type Section = {
+  parts: { label: string; href?: string | null }[];
+  count: number | null;
+  rows: ReturnType<typeof toRows>;
+  more?: string; // 전체보기
+  pager?: { page: number; pages: number; nums: (number | null)[] };
+};
+let sections: Section[];
+let found: number | null = null;
+if (isHome) {
+  const lists = await Promise.all(groups.map((g) => listLegacy(Astro.request, { board: g.board })));
+  sections = groups.map((g, i) => ({
+    parts: [{ label: g.name, href: link({ board: g.board }) }],
+    count: g.n,
+    rows: toRows(lists[i].items.slice(0, HOME_SIZE)),
+    more: link({ board: g.board }),
+  }));
+} else {
+  const res = await listLegacy(Astro.request, { board, category, q, page });
+  // 소제목: 오리알터 / 오리알터 » 법종교소식 (옛 사이트 표기). 게시판 없이 찾기만 했으면 '전체 글'
+  const parts = board
+    ? [
+        { label: legacyBoardName(board), href: category ? link({ board }) : null },
+        ...(category ? [{ label: category }] : []),
+      ]
+    : [{ label: category || "전체 글" }];
+  // 쪽 번호: 현재 쪽 앞뒤 4쪽 + 처음·끝
+  const nums: (number | null)[] = [];
+  for (let i = 1; i <= res.pages; i++) {
+    if (i === 1 || i === res.pages || Math.abs(i - res.page) <= 4) nums.push(i);
+    else if (nums[nums.length - 1] !== null) nums.push(null);
+  }
+  if (q) found = res.total;
+  sections = [{ parts, count: q ? null : res.total, rows: toRows(res.items), pager: { page: res.page, pages: res.pages, nums } }];
 }
 ---
 
@@ -55,50 +81,59 @@ for (let i = 1; i <= res.pages; i++) {
   <div class="legacy-head"><PageTitle title="옛 홈페이지 보관함" /></div>
   <div class="lib-split legacy-split">
     <div class="lib-main">
-      <LegacySubTitle parts={parts} count={q ? null : res.total} />
-      {q && (
-        <p class="found">
-          ‘{q}’ 찾은 글 {res.total.toLocaleString("ko-KR")}건 <a href={link({ board, category })}>찾기 지우기</a>
-        </p>
-      )}
-      {rows.length ? (
-        <ul class="rows">
-          {rows.map((r) => (
-            <li>
-              <a href={r.href}>
-                <span class="t">
-                  {r.cat && <span class="cat">{r.cat}</span>}
-                  <span class="tt">{r.title}</span>
-                  {r.comments > 0 && (
-                    <span class="cc" aria-label={`댓글 ${r.comments}`}>
-                      <svg viewBox="0 0 24 24" aria-hidden="true">
-                        <path d="M4 5h16v11H8l-4 4V5z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" />
-                      </svg>
-                      {r.comments}
-                    </span>
-                  )}
-                </span>
-                <span class="m">{r.meta}</span>
-              </a>
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <p class="none">글이 없습니다.</p>
-      )}
-      {res.pages > 1 && (
-        <nav class="pages" aria-label="쪽 넘기기">
-          {nums.map((n) =>
-            n === null ? (
-              <span class="gap">…</span>
-            ) : n === res.page ? (
-              <span class="cur" aria-current="page">{n}</span>
-            ) : (
-              <a href={link({ board, category, q, page: n })}>{n}</a>
-            ),
+      {sections.map((s) => (
+        <section class="lsec">
+          <LegacySubTitle parts={s.parts} count={s.count} />
+          {found !== null && (
+            <p class="found">
+              ‘{q}’ 찾은 글 {found.toLocaleString("ko-KR")}건 <a href={link({ board, category })}>찾기 지우기</a>
+            </p>
           )}
-        </nav>
-      )}
+          {s.rows.length ? (
+            <ul class="rows">
+              {s.rows.map((r) => (
+                <li>
+                  <a href={r.href}>
+                    <span class="t">
+                      {r.cat && <span class="cat">{r.cat}</span>}
+                      <span class="tt">{r.title}</span>
+                      {r.comments > 0 && (
+                        <span class="cc" aria-label={`댓글 ${r.comments}`}>
+                          <svg viewBox="0 0 24 24" aria-hidden="true">
+                            <path d="M4 5h16v11H8l-4 4V5z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" />
+                          </svg>
+                          {r.comments}
+                        </span>
+                      )}
+                    </span>
+                    <span class="m">{r.meta}</span>
+                  </a>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p class="none">글이 없습니다.</p>
+          )}
+          {s.more && (
+            <p class="more">
+              <a href={s.more} aria-label={`${s.parts[0].label} 전체보기`}>전체보기 <span aria-hidden="true">→</span></a>
+            </p>
+          )}
+          {s.pager && s.pager.pages > 1 && (
+            <nav class="pages" aria-label="쪽 넘기기">
+              {s.pager.nums.map((n) =>
+                n === null ? (
+                  <span class="gap">…</span>
+                ) : n === s.pager!.page ? (
+                  <span class="cur" aria-current="page">{n}</span>
+                ) : (
+                  <a href={link({ board, category, q, page: n })}>{n}</a>
+                ),
+              )}
+            </nav>
+          )}
+        </section>
+      ))}
     </div>
     <LegacySide groups={groups} board={board} category={category} q={q} />
   </div>
@@ -111,6 +146,27 @@ for (let i = 1; i <= res.pages; i++) {
   }
   .legacy-split {
     margin-top: 0;
+  }
+  /* 첫 화면 게시판 구역(시루학당·오리알터) 사이 간격 */
+  .lsec + .lsec {
+    margin-top: 40px;
+  }
+  .more {
+    margin: 10px 0 0;
+    text-align: right;
+  }
+  .more a {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 6px 2px;
+    color: var(--color-muted);
+    font-size: 0.9rem;
+    font-weight: 600;
+  }
+  .more a:hover {
+    color: var(--color-primary);
+    text-decoration: none;
   }
   .found {
     margin: 0;
