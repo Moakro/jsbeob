@@ -12,7 +12,7 @@
     "dev:api": "cd jsbeob-api && wrangler dev -c wrangler.toml --port 8788",
     "dev:login": "node scripts/dev-login.mjs",
     "db:local:init": "cd jsbeob-api && wrangler d1 execute jsbeob-db --local -c wrangler.toml --file=schema.sql",
-    "build": "astro build && pagefind --site dist/client",
+    "build": "astro build",
     "preview": "pnpm run build && wrangler dev",
     "astro": "astro",
     "generate-types": "wrangler types",

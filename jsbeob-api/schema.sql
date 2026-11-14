@@ -410,3 +410,24 @@ CREATE TABLE IF NOT EXISTS legacy_comments (
   PRIMARY KEY (board, id)
 );
 CREATE INDEX IF NOT EXISTS idx_legacy_comments_post ON legacy_comments (board, post_cid, id);
+
+-- 경전 문장 관련링크 (2026-11-14) — migrations/2026-11-14-verse-links.sql 과 같다
+CREATE TABLE IF NOT EXISTS verse_links (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  from_id      TEXT NOT NULL REFERENCES articles(id) ON DELETE CASCADE,  -- 경전 장 글
+  anchor       TEXT NOT NULL,                       -- 그 장의 문장 위치 (예: 1-1-3)
+  to_type      TEXT NOT NULL CHECK (to_type IN ('article','place','post')),
+  to_id        TEXT NOT NULL,
+  to_anchor    TEXT NOT NULL DEFAULT '',            -- 대상이 경전 장이면 문장 위치, 아니면 ''
+  origin       TEXT NOT NULL DEFAULT 'ai' CHECK (origin IN ('ai','manual','wikilink')),
+  status       TEXT NOT NULL DEFAULT 'proposed' CHECK (status IN ('proposed','approved','rejected')),
+  score        REAL,
+  reason       TEXT,
+  model        TEXT,
+  created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+  reviewed_by  TEXT REFERENCES users(id),
+  reviewed_at  TEXT,
+  UNIQUE (from_id, anchor, to_type, to_id, to_anchor)
+);
+CREATE INDEX IF NOT EXISTS idx_verse_links_from ON verse_links (from_id, status);
+CREATE INDEX IF NOT EXISTS idx_verse_links_to ON verse_links (to_type, to_id, status);

@@ -271,6 +271,38 @@ img {
 .blk-heading:first-child {
   margin-top: 0;
 }
+/* 경전 절 블록 (2026-11-14, 옛 화은당실기 정적 페이지 모양을 이어받음) */
+.blk-verse {
+  margin-bottom: 28px;
+}
+.blk-verse .vlabel {
+  font-size: 1.05rem;
+  color: var(--color-primary);
+  margin: 0 0 10px;
+}
+.blk-verse .vs {
+  font-size: 1.05rem;
+  line-height: 1.95;
+  scroll-margin-top: calc(var(--header-h, 64px) + 16px);
+}
+.blk-verse .wikiref {
+  color: var(--color-secondary);
+  font-weight: 500;
+}
+/* 주소의 #문장위치 로 들어왔을 때·서랍에서 인용 문장을 찾을 때 */
+.blk-verse .vs:target,
+.blk-verse .vs.is-cited {
+  background: #fff3a8;
+  border-radius: 2px;
+  box-shadow: 0 0 0 4px #fff3a8;
+}
+mark.q-hit {
+  background: #fff3a8;
+  color: inherit;
+  padding: 0 1px;
+  border-radius: 2px;
+  font-weight: 600;
+}
 .blk-quote {
   margin-inline: 0;
   padding: 14px 18px;

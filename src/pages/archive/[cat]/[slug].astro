@@ -1,7 +1,7 @@
 ---
-import { getCollection } from "astro:content";
 import Base from "../../../layouts/Base.astro";
 import {
+  LEGACY_SCRIPTURE_BOOKS,
   LIBRARY_BOARD,
   articleHref,
   chapterHref,
@@ -66,10 +66,7 @@ const categories = await listLibraryCategories(Astro.request);
 const cat = categories.find((c) => c.key === key);
 const isPostId = /^[0-9a-f-]{36}$/.test(slug);
 if (!cat) {
-  const books = new Set(
-    (await getCollection("scripture")).filter((e) => e.id.includes("/")).map((e) => e.id.split("/")[0]),
-  );
-  if (books.has(key)) return Astro.redirect(scriptureHref(key, slug), 301);
+  if (LEGACY_SCRIPTURE_BOOKS.has(key)) return Astro.redirect(scriptureHref(key, slug), 301);
   if (isPostId) {
     const m = await getLibraryPostMeta(Astro.request, slug);
     if (m?.board === LIBRARY_BOARD) return Astro.redirect(libPostHref(m.category, slug), 301);

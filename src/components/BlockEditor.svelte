@@ -42,6 +42,7 @@
     video: "영상",
     link: "링크",
     map: "지도",
+    verse: "절",
   };
   const ADDS = [
     { type: "heading", label: "소제목 추가" },
@@ -53,6 +54,8 @@
     { type: "link", label: "링크 추가" },
     { type: "map", label: "지도 추가" },
   ] as const;
+  // 경전 절 블록은 관리자 문서에서만 (2026-11-14)
+  const adds = $derived(mode === "admin" ? [...ADDS, { type: "verse", label: "절 추가" } as const] : ADDS);
 
   /** 블록별 업로드 상태 문구 */
   const uploadNote = $state<Record<string, string>>({});
@@ -272,7 +275,7 @@
 
 <div class="be">
   <div class="adds top">
-    {#each ADDS as a}
+    {#each adds as a}
       <button type="button" onclick={() => add(a.type, true)}>{a.label}</button>
     {/each}
   </div>
@@ -335,6 +338,19 @@
                 >서랍에서 보기 ›</button
               >
             </div>
+            <label class="anchor-row"
+              >문장 위치 (선택)
+              <input
+                placeholder="예: 1-1-3 — 경전의 그 문장으로 바로 연결"
+                maxlength="40"
+                value={b.source_ref.anchor ?? ""}
+                oninput={(e) => {
+                  const v = (e.currentTarget as HTMLInputElement).value.trim().replace(/^\^/, "");
+                  const { anchor, ...rest } = b.source_ref;
+                  b.source_ref = v ? { ...rest, anchor: v } : rest;
+                }}
+              /></label
+            >
           {:else}
             <div class="row">
               <button
@@ -555,12 +571,19 @@
               사이트 안의 주소를 붙여 넣으면 저장할 때 사이트 자료로 연결되고, 제목은 자료의 현재 제목으로 표시됩니다.
             </p>
           {/if}
+        {:else if b.type === "verse"}
+          <input class="title" placeholder="절 이름 — 예: 3절" maxlength="40" bind:value={b.label} />
+          <textarea class="verse" placeholder="한 줄에 한 문장" rows="5" bind:value={b.text} use:autosize></textarea>
+          <p class="hint">
+            한 줄이 한 문장입니다. 줄 끝의 <code>^1-1-3</code> 같은 표시는 그 문장의 위치(인용·관련링크가 가리키는 곳)이니
+            지우거나 바꾸지 마세요. 새로 넣은 문장은 표시 없이 쓰면 저장할 때 다음 번호가 붙습니다.
+          </p>
         {/if}
       </div>
     </div>
   {/each}
   <div class="adds">
-    {#each ADDS as a}
+    {#each adds as a}
       <button type="button" onclick={() => add(a.type)}>{a.label}</button>
     {/each}
   </div>
@@ -653,6 +676,20 @@
   textarea {
     resize: vertical;
     line-height: 1.7;
+  }
+  textarea.verse {
+    font-size: 0.95rem;
+    line-height: 1.7;
+  }
+  .anchor-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.85rem;
+    color: var(--color-muted, #666);
+  }
+  .anchor-row input {
+    flex: 1;
   }
   textarea.quote {
     background: var(--color-surface-2);

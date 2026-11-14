@@ -157,7 +157,12 @@ export interface EditImage {
   view_url: string | null;
 }
 
-export type BlockType = "heading" | "text" | "quote" | "image" | "video" | "link" | "imageref" | "map";
+/** verse = 경전 절(문장마다 위치 표시 ^1-1-3). 편집할 때는 label=절 이름, text=문장 줄("문장 ^위치") */
+export type BlockType = "heading" | "text" | "quote" | "image" | "video" | "link" | "imageref" | "map" | "verse";
+
+/** 절 블록 lines([{a,t}]) ↔ 편집 글("문장 ^a" 줄) */
+export const verseToText = (lines: { a?: string; t: string }[] | undefined) =>
+  (lines ?? []).map((l) => (l.a ? `${l.t} ^${l.a}` : l.t)).join("\n");
 
 export interface EditBlock {
   _k: string;
@@ -213,7 +218,7 @@ export function fromApi(blocks: any[] | null | undefined): EditBlock[] {
   return (blocks ?? []).map((b) => ({
     ...emptyBlock(b.type),
     id: b.id,
-    text: b.text ?? "",
+    text: b.type === "verse" ? verseToText(b.lines) : (b.text ?? ""),
     source: b.source ?? "",
     caption: b.caption ?? "",
     // 예전 단일 이미지 블록(media_id/key 직접)은 items 하나로 본다
@@ -270,6 +275,10 @@ export function toApi(blocks: EditBlock[]) {
     } else if (b.type === "link") {
       if (b.ref) out.push({ ...base, ref: b.ref });
       else if (b.url.trim() || b.label.trim()) out.push({ ...base, url: b.url, label: b.label });
+    } else if (b.type === "verse") {
+      // 서버가 "문장 ^위치" 줄을 나눠 저장하고, 위치가 없는 새 문장에는 번호를 이어 붙인다
+      if (!b.text.trim()) continue;
+      out.push({ ...base, label: b.label, text: b.text });
     }
   }
   return out;

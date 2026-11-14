@@ -1,6 +1,7 @@
 ---
 import Base from "../../../../layouts/Base.astro";
 import { articleHref, chapterHref, getArticle, listLibraryCategories } from "../../../../lib/content";
+import { chapterKey } from "../../../../lib/library";
 import AdminEditLink from "../../../../components/content/AdminEditLink.astro";
 import ArchiveTabs from "../../../../components/content/ArchiveTabs.astro";
 import DocPager from "../../../../components/content/DocPager.astro";
@@ -22,11 +23,15 @@ const q = preview ? "?preview=1" : "";
 const categories = await listLibraryCategories(Astro.request);
 const cat = categories.find((c) => c.key === key);
 if (!cat || cat.type !== "article") return notFound();
-const entry = await getArticle(Astro.request, "library", chap, preview);
+// 장 주소는 책 안에서의 이름(예: /archive/book/hwaeundang-silgi/1/ → 장 slug hwaeundang-silgi-1).
+// 장 slug 전체로 들어온 옛 주소도 받아서 짧은 주소로 넘긴다(검색어 ?q= 는 유지).
+const entry =
+  (await getArticle(Astro.request, "library", `${bookSlug}-${chap}`, preview)) ??
+  (await getArticle(Astro.request, "library", chap, preview));
 if (!entry || !entry.parent_id || !entry.book) return notFound();
 const book = entry.book;
-if (book.slug !== bookSlug || book.kind !== key)
-  return Astro.redirect(chapterHref(book.kind, book.slug, entry.slug) + q, 301);
+if (book.slug !== bookSlug || book.kind !== key || chapterKey(book.slug, entry.slug) !== chap)
+  return Astro.redirect(chapterHref(book.kind, book.slug, entry.slug) + Astro.url.search, 301);
 const toc = (entry.chapters ?? []).map((c) => ({
   key: c.id,
   title: c.title,
@@ -76,6 +81,40 @@ const bookHref = articleHref(key, bookSlug) + q;
   </div>
   <DocPager prev={prev} next={next} />{" "}
 </Base>
+
+<!-- 검색 결과로 들어온 경우(?q=) 본문의 찾은 낱말 강조 — 옛 Pagefind 강조를 대신한다 (2026-11-14) -->
+<script is:inline>
+  (() => {
+    const q = new URLSearchParams(location.search).get("q");
+    if (!q) return;
+    const terms = [...new Set(q.trim().split(/\s+/).filter((t) => t.length > 0))].slice(0, 5);
+    if (!terms.length) return;
+    const re = new RegExp(terms.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|"), "gi");
+    const root = document.querySelector(".doc .prose") || document.querySelector(".doc");
+    if (!root) return;
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    const nodes = [];
+    while (walker.nextNode()) nodes.push(walker.currentNode);
+    for (const n of nodes) {
+      const s = n.nodeValue;
+      if (!s || !re.test(s)) continue;
+      re.lastIndex = 0;
+      const frag = document.createDocumentFragment();
+      let last = 0;
+      s.replace(re, (m, at) => {
+        frag.append(s.slice(last, at));
+        const mk = document.createElement("mark");
+        mk.className = "q-hit";
+        mk.textContent = m;
+        frag.append(mk);
+        last = at + m.length;
+        return m;
+      });
+      frag.append(s.slice(last));
+      n.parentNode.replaceChild(frag, n);
+    }
+  })();
+</script>
 
 <style>
   .doc {

@@ -3,7 +3,7 @@
 // 대부분 생략되었다(tsconfig strict:false). 동작은 배포본과 같다.
 import { BOARD_LABEL, PRIVATE_BOARDS_SQL } from "./boards";
 import { isArticleCategory } from "./library";
-import { BlockError, DOC_MARKER, MEMBER_KEY_RE, allMediaIds, blocksForEditor, blocksFromLegacy, imageItems, loadRenderCtx, loadTargetBlocks, normalizeBlocks, parseStoredBlocks, plainFromBlocks, pointStyles, refHref, refsOf, renderBlocks, resolveBlocks, s } from "./blocks";
+import { BlockError, DOC_MARKER, MEMBER_KEY_RE, allMediaIds, blocksForEditor, blocksFromLegacy, imageItems, loadRenderCtx, loadTargetBlocks, normalizeBlocks, parseStoredBlocks, plainFromBlocks, pointStyles, refHref, refsOf, renderBlocks, resolveBlocks, s, stripWiki } from "./blocks";
 
 const ARTICLE_KINDS = {
   about: ["person", "doctrine", "history", "org", "branches", "anthem", "directions", "overview"],
@@ -1323,11 +1323,23 @@ async function publicSearch(req, env) {
   const like = `%${q.replace(/[%_]/g, "")}%`;
   const items = [];
   if (kinds.has("article")) {
+    // 책의 장은 "책 제목 + 장 제목"으로 찾고 보여 준다 (예: "화은당실기 1장" → 화은당실기 제1장 유소시대)
+    const terms = q.split(/\s+/).map((t) => t.replace(/[%_]/g, "")).filter(Boolean).slice(0, 5);
+    const conds = terms.length ? terms.map(() => `(COALESCE(b.title,'') || ' ' || a.title) LIKE ?`).join(" AND ") : "a.title LIKE ?";
+    const binds = terms.length ? terms.map((t) => `%${t}%`) : [like];
     const rs = await env.DB.prepare(
-      `SELECT id, section, kind, slug, title FROM articles WHERE status='published' AND title LIKE ? ORDER BY sort_order LIMIT ?`
-    ).bind(like, limit).all();
+      `SELECT a.id, a.section, a.kind, a.slug, a.title, b.slug AS book_slug, b.title AS book_title
+         FROM articles a LEFT JOIN articles b ON b.id = a.parent_id
+        WHERE a.status='published' AND ${conds} ORDER BY a.parent_id IS NOT NULL, b.sort_order, a.sort_order LIMIT ?`
+    ).bind(...binds, limit).all();
     for (const r of rs.results ?? []) {
-      items.push({ kind: "article", id: r.id, title: r.title, label: r.section === "library" ? "자료실" : "소개", href: refHref("article", r) });
+      items.push({
+        kind: "article",
+        id: r.id,
+        title: r.book_title ? `${r.book_title} ${r.title}` : r.title,
+        label: r.section === "library" ? r.book_title ? "자료실 · 장" : "자료실" : "소개",
+        href: refHref("article", r)
+      });
     }
   }
   if (kinds.has("place")) {
@@ -1373,14 +1385,23 @@ async function publicFind(req, env) {
     hits.push({ ...h, text, inTitle: inTitle(...titles) });
   };
   const art = await env.DB.prepare(
-    `SELECT a.id, a.section, a.kind, a.slug, a.title, a.title_hanja, a.summary, a.body_blocks, a.body_md, ${refTitles("article", "a")} AS refs
-       FROM articles a
-      WHERE a.status='published' AND ${where(`a.title || ' ' || COALESCE(a.title_hanja,'') || ' ' || COALESCE(a.summary,'') || ' ' || COALESCE(a.body_blocks, a.body_md) || ' ' || ${refTitles("article", "a")}`)}
-      ORDER BY a.section, a.sort_order LIMIT ?`
+    `SELECT a.id, a.section, a.kind, a.slug, a.title, a.title_hanja, a.summary, a.body_blocks, a.body_md, ${refTitles("article", "a")} AS refs,
+            b.slug AS book_slug, b.title AS book_title
+       FROM articles a LEFT JOIN articles b ON b.id = a.parent_id
+      WHERE a.status='published' AND ${where(`COALESCE(b.title,'') || ' ' || a.title || ' ' || COALESCE(a.title_hanja,'') || ' ' || COALESCE(a.summary,'') || ' ' || COALESCE(a.body_blocks, a.body_md) || ' ' || ${refTitles("article", "a")}`)}
+      ORDER BY a.section, b.sort_order, a.sort_order LIMIT ?`
   ).bind(...likes, LIMIT).all();
   for (const r of art.results ?? []) {
     const label = r.section === "library" ? `자료실 · ${catLabel.get(r.kind) ?? r.kind}` : "소개";
-    push({ title: r.title, hanja: r.title_hanja, label, href: refHref("article", r), rank: r.section === "about" ? 1 : 3 }, [r.title, r.title_hanja], r.summary, r.body_blocks, r.body_md, r.refs);
+    const title = r.book_title ? `${r.book_title} ${r.title}` : r.title;
+    const href = refHref("article", r);
+    const n = hits.length;
+    push({ title, hanja: r.title_hanja, label, href, rank: r.section === "about" ? 1 : 3 }, [title, r.title_hanja], r.summary, r.body_blocks, r.body_md, r.refs);
+    // 경전(절 블록) — 찾은 낱말이 든 절마다 하위 결과(문장 위치로 바로 이동)
+    if (hits.length > n) {
+      const subs = verseSubs(r.body_blocks, terms, href);
+      if (subs.length) hits[hits.length - 1].subs = subs;
+    }
   }
   const pl = await env.DB.prepare(
     `SELECT p.id, p.kind, p.slug, p.name, p.name_hanja, p.summary, p.body_blocks, p.body_md, ${refTitles("place", "p")} AS refs
@@ -1402,13 +1423,38 @@ async function publicFind(req, env) {
   }
   hits.sort((a, b) => Number(b.inTitle) - Number(a.inTitle) || a.rank - b.rank);
   return json({
-    items: hits.slice(0, LIMIT).map((h) => ({ title: h.title, hanja: h.hanja, label: h.label, href: h.href, excerpt: findExcerpt(h.text, terms) }))
+    items: hits.slice(0, LIMIT).map((h) => ({
+      title: h.title,
+      hanja: h.hanja,
+      label: h.label,
+      href: h.href,
+      excerpt: findExcerpt(h.text, terms),
+      ...h.subs ? { subs: h.subs } : {}
+    }))
   });
+}
+/** 절 블록 중 낱말이 든 절 — { title: 절 이름, anchor: 처음 맞는 문장 위치, excerpt } (최대 8개) */
+function verseSubs(json5, terms, href) {
+  const blocks = parseStoredBlocks(json5);
+  if (!blocks) return [];
+  const low = (x) => x.toLowerCase();
+  const out = [];
+  for (const b of blocks) {
+    if (b.type !== "verse") continue;
+    const lines = (b.lines ?? []).map((l) => ({ a: l.a, t: stripWiki(l.t) }));
+    const all = low(lines.map((l) => l.t).join(" "));
+    if (!terms.some((t) => all.includes(low(t)))) continue;
+    const first = lines.find((l) => terms.some((t) => low(l.t).includes(low(t)))) ?? lines[0];
+    out.push({ title: b.label ?? "", anchor: first?.a ?? null, url: href, excerpt: findExcerpt(first?.t ?? "", terms) });
+    if (out.length >= 8) break;
+  }
+  return out;
 }
 function blocksPlain(json5) {
   const blocks = parseStoredBlocks(json5);
   if (!blocks) return "";
   return blocks.flatMap((b) => [
+    b.type === "verse" ? [b.label, ...(b.lines ?? []).map((l) => stripWiki(l.t))].filter(Boolean).join("\n") : null,
     b.type === "heading" || b.type === "text" || b.type === "quote" ? b.text : null,
     b.type === "quote" ? b.source : null,
     b.caption,
@@ -1436,6 +1482,7 @@ async function publicBacklinks(req, env) {
   const rs = await env.DB.prepare(
     `SELECT r.from_type, r.from_id, r.block_id,
             a.section AS a_section, a.kind AS a_kind, a.slug AS a_slug, a.title AS a_title, a.status AS a_status,
+            (SELECT bk.slug FROM articles bk WHERE bk.id = a.parent_id) AS a_book_slug,
             p.kind AS p_kind, p.slug AS p_slug, p.name AS p_name, p.status AS p_status,
             po.board AS po_board, po.category AS po_category, po.title AS po_title, po.status AS po_status
        FROM content_refs r
@@ -1451,7 +1498,7 @@ async function publicBacklinks(req, env) {
     const k = `${r.from_type}:${r.from_id}`;
     if (seen.has(k)) continue;
     if (r.from_type === "article" && r.a_status === "published") {
-      items.push({ kind: "article", id: r.from_id, title: r.a_title, block_id: r.block_id, href: refHref("article", { section: r.a_section, kind: r.a_kind, slug: r.a_slug }) });
+      items.push({ kind: "article", id: r.from_id, title: r.a_title, block_id: r.block_id, href: refHref("article", { section: r.a_section, kind: r.a_kind, slug: r.a_slug, book_slug: r.a_book_slug }) });
     } else if (r.from_type === "place" && r.p_status === "published") {
       items.push({ kind: "place", id: r.from_id, title: r.p_name, block_id: r.block_id, href: refHref("place", { kind: r.p_kind, slug: r.p_slug }) });
     } else if (r.from_type === "post" && r.po_status === "published") {
@@ -1468,7 +1515,10 @@ async function publicCard(req, env, ctx) {
   const id = url.searchParams.get("id") ?? "";
   if (!id || id.length > 64) return json({ error: "invalid" }, 400);
   if (kind === "article") {
-    const r = await env.DB.prepare(`SELECT * FROM articles WHERE id=? AND ${visSql(vis)}`).bind(id).first();
+    const r = await env.DB.prepare(
+      `SELECT a.*, b.slug AS book_slug, b.title AS book_title FROM articles a LEFT JOIN articles b ON b.id = a.parent_id
+        WHERE a.id=? AND ${visSql(vis, "a.status")}`
+    ).bind(id).first();
     if (!r) return json({ error: "not found" }, 404);
     const media = await loadMediaMap(env, imgIds(r), true);
     const { html } = await renderRowBlocks(env, blocksOfRow(r));
@@ -1479,7 +1529,8 @@ async function publicCard(req, env, ctx) {
         title: r.title,
         title_hanja: r.title_hanja,
         summary: r.summary,
-        label: r.section === "library" ? "자료실" : "소개",
+        // 책의 장이면 꼬리표에 책 제목 (예: 화은당실기)
+        label: r.section === "library" ? r.book_title ?? "자료실" : "소개",
         hero: pick(media, r.thumb_media_id),
         // 서랍 카드 사진 = 썸네일
         href: refHref("article", r),

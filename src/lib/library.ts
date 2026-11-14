@@ -32,8 +32,13 @@ export const SCRIPTURE_CATEGORY = "book";
 export const catHref = (key: string) => `/archive/${encodeURIComponent(key)}/`;
 export const articleHref = (kind: string, slug: string) =>
   `/archive/${encodeURIComponent(kind)}/${encodeURIComponent(slug)}/`;
+/** 장 주소 안의 장 이름 — 장 slug 가 "책slug-" 로 시작하면 그 뒤만 쓴다 (hwaeundang-silgi-1 → 1). API blocks.ts chapterPath 와 같은 규칙 */
+export const chapterKey = (bookSlug: string, chapSlug: string) =>
+  chapSlug.startsWith(`${bookSlug}-`) && chapSlug.length > bookSlug.length + 1 ? chapSlug.slice(bookSlug.length + 1) : chapSlug;
 export const chapterHref = (kind: string, bookSlug: string, chapSlug: string) =>
-  `${articleHref(kind, bookSlug)}${encodeURIComponent(chapSlug)}/`;
+  `${articleHref(kind, bookSlug)}${encodeURIComponent(chapterKey(bookSlug, chapSlug))}/`;
+/** content/scripture 시절의 옛 경로(/archive/<책>/…)를 받아 줄 책 — 2026-11-14 DB 전환 후에도 주소 유지 */
+export const LEGACY_SCRIPTURE_BOOKS = new Set(["hwaeundang-silgi"]);
 export const libPostHref = (category: string | null | undefined, id: string) =>
   `/archive/${encodeURIComponent(category || LIBRARY_BOARD)}/${encodeURIComponent(id)}/`;
 export const scriptureHref = (book: string, chap?: string) =>

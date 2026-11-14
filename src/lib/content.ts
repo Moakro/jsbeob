@@ -112,6 +112,7 @@ export const getSeriesToc = async (request: Request, id: string) =>
 // 자료실 상수·경로는 library.ts 에 있다(클라이언트도 쓰므로). 배포본 서버 청크처럼 여기서도 내보낸다.
 export {
   DEFAULT_LIBRARY_CATEGORIES,
+  LEGACY_SCRIPTURE_BOOKS,
   LIBRARY_BOARD,
   SCRIPTURE_CATEGORY,
   SERIES_ICON_PATH,

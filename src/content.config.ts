@@ -51,20 +51,6 @@ const jeongak = defineCollection({
   }),
 });
 
-/**
- * 경전 — 화은당실기(jsbooks에서 재활용). sentence-anchor 본문 형식.
- */
-const scripture = defineCollection({
-  loader: glob({ pattern: "**/*.md", base: `${CONTENT}/scripture` }),
-  schema: z.object({
-    scripture: z.string().optional(),
-    scripture_hanja: z.string().optional(),
-    편자: z.string().optional(),
-    편자_한자: z.string().optional(),
-    장: z.number().optional(),
-    장_이름: z.string().optional(),
-    section: z.string().optional(), // preface | appendix
-  }),
-});
-
-export const collections = { about, jeongak, scripture };
+// 경전(화은당실기 등)은 2026-11-14부터 DB 자료실 책(장 글의 '절' 블록, 문장 위치 ^1-1-3 보존)이다.
+// 옛 content/scripture 묶음은 scripts/import-scripture.mjs 로 옮긴 뒤 지웠다(git 기록에 남음).
+export const collections = { about, jeongak };

@@ -1,7 +1,7 @@
 ---
-import { getCollection } from "astro:content";
 import Base from "../../../layouts/Base.astro";
 import {
+  LEGACY_SCRIPTURE_BOOKS,
   LIBRARY_BOARD,
   articleHref,
   catHref,
@@ -20,10 +20,7 @@ const categories = await listLibraryCategories(Astro.request);
 const cat = categories.find((c) => c.key === key);
 if (!cat) {
   if (key === "p") return Astro.redirect(catHref(LIBRARY_BOARD), 301);
-  const books = new Set(
-    (await getCollection("scripture")).filter((e) => e.id.includes("/")).map((e) => e.id.split("/")[0]),
-  );
-  if (books.has(key)) return Astro.redirect(scriptureHref(key), 301);
+  if (LEGACY_SCRIPTURE_BOOKS.has(key)) return Astro.redirect(scriptureHref(key), 301);
   const a = await getArticle(Astro.request, "library", key);
   if (a) return Astro.redirect(articleHref(a.kind, a.slug), 301);
   return new Response("페이지를 찾을 수 없습니다.", {

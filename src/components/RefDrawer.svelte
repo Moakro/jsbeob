@@ -171,8 +171,27 @@
     blk.classList.add("ref-flash");
   }
 
+  /** 경전 인용(문장 위치)으로 열었으면 카드 안의 그 문장으로 내려가 강조한다 (2026-11-14) */
+  async function showAnchor(anchor?: string) {
+    if (!anchor) return;
+    // 카드가 미끄러져 들어오는 동안 기다린다
+    for (let n = 0; n < 20; n++) {
+      await tick();
+      const body = root?.querySelector<HTMLElement>(".sd-body.sd-slide");
+      const el = body?.querySelector<HTMLElement>(`.sd-content [id="${CSS.escape(anchor)}"]`);
+      if (body && el) {
+        body.querySelectorAll(".is-cited").forEach((x) => x.classList.remove("is-cited"));
+        el.classList.add("is-cited");
+        const top = el.getBoundingClientRect().top - body.getBoundingClientRect().top + body.scrollTop;
+        body.scrollTo({ top: Math.max(0, top - body.clientHeight / 3), behavior: "smooth" });
+        return;
+      }
+      await new Promise((r) => setTimeout(r, 50));
+    }
+  }
+
   /** 카드 열기 — 이미 열린 카드면 그 카드로 넘긴다 */
-  async function openCard(kind: string, id: string) {
+  async function openCard(kind: string, id: string, anchor?: string) {
     open = true;
     tab = "refs";
     view = "card";
@@ -182,6 +201,7 @@
       if (i !== active) dir = i > active ? 1 : -1;
       swipeFrom = 0;
       active = i;
+      await showAnchor(anchor);
       return;
     }
     tabs = [...tabs, { key: k, card: null, error: null, backlinks: null }];
@@ -191,6 +211,7 @@
     await loadCard(k);
     await tick();
     root?.querySelector(".sd-body")?.scrollTo(0, 0);
+    await showAnchor(anchor);
   }
 
   const loadingKeys = new Set<string>();
@@ -476,7 +497,7 @@
       if (!a) return;
       if (a.dataset.drawerKind && a.dataset.drawerId) {
         e.preventDefault();
-        openCard(a.dataset.drawerKind, a.dataset.drawerId);
+        openCard(a.dataset.drawerKind, a.dataset.drawerId, a.dataset.drawerAnchor);
         return;
       }
       // 서랍 안 사이트 링크는 이동 전에 확인

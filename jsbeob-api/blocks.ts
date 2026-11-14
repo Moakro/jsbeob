@@ -4,7 +4,10 @@
 import { BOARD_LABEL, PRIVATE_BOARDS_SQL } from "./boards";
 
 export class BlockError extends Error {}
-const TYPES = new Set(["heading", "text", "quote", "image", "video", "link", "imageref", "map"]);
+const TYPES = new Set(["heading", "text", "quote", "image", "video", "link", "imageref", "map", "verse"]);
+// 경전 절(verse) 블록 — 문장마다 위치 표시(anchor, jsbooks 의 ^1-1-3 형식)를 붙여 문장 단위로 인용·관련링크를 건다 (2026-11-14)
+const ANCHOR_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,39}$/;
+const MAX_VERSE_LINES = 400;
 const IMAGEREF_KINDS = new Set(["article", "place"]);
 const REF_KINDS = new Set(["article", "place", "post"]);
 const ID_RE = /^[A-Za-z0-9_-]{6,22}$/;
@@ -23,9 +26,51 @@ const blockRef = (b) => b.ref ?? b.source_ref;
 function parseRef(v) {
   const r = v;
   if (r && typeof r === "object" && REF_KINDS.has(r.kind) && typeof r.id === "string" && r.id.length > 0 && r.id.length <= 64) {
-    return { kind: r.kind, id: r.id };
+    const anchor = typeof r.anchor === "string" && ANCHOR_RE.test(r.anchor) ? r.anchor : void 0;
+    return { kind: r.kind, id: r.id, ...anchor ? { anchor } : {} };
   }
   return void 0;
+}
+/** 절 블록 편집 문장 줄 "문장 ^1-1-3" → { a, t } */
+function verseLinesFromText(text) {
+  return text.replace(/\r\n/g, "\n").split("\n").map((l) => l.trim()).filter(Boolean).map((l) => {
+    const m = l.match(/\s*\^([^\s^]+)\s*$/);
+    return m ? { a: m[1], t: l.slice(0, m.index) } : { a: "", t: l };
+  });
+}
+/** 위치 표시가 없는 문장에 같은 글의 표시 규칙(가장 많이 쓰인 "앞부분+번호")을 이어 붙인다 */
+function fillVerseAnchors(blocks) {
+  const verses = blocks.filter((b) => b.type === "verse");
+  if (!verses.length) return;
+  const used = new Set();
+  for (const v of verses) {
+    for (const l of v.lines) {
+      if (!l.a) continue;
+      if (used.has(l.a)) throw new BlockError(`문장 위치 표시 ^${l.a} 가 두 번 나옵니다`);
+      used.add(l.a);
+    }
+  }
+  const missing = verses.flatMap((v) => v.lines.filter((l) => !l.a));
+  if (!missing.length) return;
+  const count = new Map();
+  const max = new Map();
+  for (const a of used) {
+    const m = a.match(/^(.*?)(\d+)$/);
+    if (!m) continue;
+    count.set(m[1], (count.get(m[1]) ?? 0) + 1);
+    max.set(m[1], Math.max(max.get(m[1]) ?? 0, Number(m[2])));
+  }
+  let prefix = "s-";
+  let best = 0;
+  for (const [k, n] of count) if (n > best) [prefix, best] = [k, n];
+  let n = max.get(prefix) ?? 0;
+  for (const l of missing) {
+    let cand;
+    do cand = `${prefix}${++n}`;
+    while (used.has(cand));
+    l.a = cand;
+    used.add(cand);
+  }
 }
 export function s(v, max, label, trim = true) {
   if (v === void 0 || v === null) return void 0;
@@ -126,6 +171,21 @@ export function normalizeBlocks(raw, opts) {
       const caption = s(b.caption, 500, "지도 설명");
       if (point) block = { id, type, point, ...caption ? { caption } : {} };
       else if (caption) throw new BlockError("지도 블록의 장소를 골라 주세요");
+    } else if (type === "verse") {
+      if (!opts.allowMedia) throw new BlockError("사용할 수 없는 블록입니다");
+      const label = s(typeof b.label === "string" ? b.label.replace(/\s*\n\s*/g, " ") : b.label, 40, "절 이름");
+      const raw2 = Array.isArray(b.lines) ? b.lines : typeof b.text === "string" ? verseLinesFromText(b.text) : [];
+      if (raw2.length > MAX_VERSE_LINES) throw new BlockError(`절 블록 하나에는 문장을 ${MAX_VERSE_LINES}개까지 넣을 수 있습니다`);
+      const lines = [];
+      for (const it of raw2) {
+        if (!it || typeof it !== "object") throw new BlockError("절 블록 형식이 잘못되었습니다");
+        const t = s(it.t, 5e3, "문장");
+        const a = it.a === void 0 || it.a === null || it.a === "" ? "" : String(it.a);
+        if (a && !ANCHOR_RE.test(a)) throw new BlockError(`문장 위치 표시 ^${a} 가 잘못되었습니다 (영문·숫자·-·_ 40자 이내)`);
+        if (t) lines.push({ a, t });
+      }
+      if (lines.length) block = { id, type, ...label ? { label } : {}, lines };
+      else if (label) throw new BlockError("절 블록에 문장이 없습니다");
     } else if (type === "link") {
       const ref = b.ref;
       if (ref && typeof ref === "object" && REF_KINDS.has(ref.kind) && typeof ref.id === "string" && ref.id.length <= 64) {
@@ -143,6 +203,7 @@ export function normalizeBlocks(raw, opts) {
     seen.add(block.id);
     out.push(block);
   }
+  fillVerseAnchors(out);
   return out;
 }
 function parseSitePath(url, siteHosts2) {
@@ -275,8 +336,14 @@ export async function pointStyles(db, ids) {
   return out;
 }
 const PLACE_LABEL = { jeongak: "전각", landmark: "성지·유적", branch: "지부·분원", etc: "장소" };
+/** 책의 장 주소 — 장 slug 가 "책slug-" 로 시작하면 그 뒤만 쓴다 (예: hwaeundang-silgi-1 → /archive/book/hwaeundang-silgi/1/) */
+export function chapterPath(kind, bookSlug, chapSlug) {
+  const short = chapSlug.startsWith(`${bookSlug}-`) && chapSlug.length > bookSlug.length + 1 ? chapSlug.slice(bookSlug.length + 1) : chapSlug;
+  return `/archive/${encodeURIComponent(kind)}/${encodeURIComponent(bookSlug)}/${encodeURIComponent(short)}/`;
+}
 export function refHref(kind, r) {
   if (kind === "article") {
+    if (r.section === "library" && r.book_slug) return chapterPath(r.kind, r.book_slug, r.slug);
     return r.section === "library" ? `/archive/${encodeURIComponent(r.kind)}/${encodeURIComponent(r.slug)}/` : `/about/${encodeURIComponent(r.slug)}/`;
   }
   if (kind === "place") {
@@ -315,12 +382,15 @@ export async function loadRenderCtx(db, blocks, urlFor) {
   const byKind = (k) => [...new Set(refs.filter((r) => r.kind === k).map((r) => r.id))];
   const art = byKind("article");
   if (art.length) {
-    const rs = await db.prepare(`SELECT id, section, kind, slug, title, status FROM articles WHERE id IN (${art.map(() => "?").join(",")})`).bind(...art).all();
+    const rs = await db.prepare(
+      `SELECT a.id, a.section, a.kind, a.slug, a.title, a.status, b.slug AS book_slug, b.title AS book_title
+         FROM articles a LEFT JOIN articles b ON b.id = a.parent_id WHERE a.id IN (${art.map(() => "?").join(",")})`
+    ).bind(...art).all();
     for (const r of rs.results ?? []) {
       ctx.refs.set(`article:${r.id}`, {
-        title: r.title,
+        title: r.book_title ? `${r.book_title} ${r.title}` : r.title,
         href: refHref("article", r),
-        kindLabel: r.section === "library" ? "자료실" : "소개",
+        kindLabel: r.section === "library" ? r.book_title ?? "자료실" : "소개",
         visible: r.status === "published"
       });
     }
@@ -362,6 +432,14 @@ export async function loadRenderCtx(db, blocks, urlFor) {
 function esc(t) {
   return t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
+/** 경전 문장의 [[대상]] / [[대상|별칭]] 표시 — 지금은 별칭 글자로만(관련링크 단계에서 승격) */
+function wikiText(t) {
+  return esc(t).replace(/\[\[([^\]]+)\]\]/g, (_, inner) => {
+    const alias = inner.includes("|") ? inner.split("|").pop() : inner;
+    return `<span class="wikiref">${alias.trim()}</span>`;
+  });
+}
+export const stripWiki = (t) => (t ?? "").replace(/\[\[([^\]]+)\]\]/g, (_, inner) => (inner.includes("|") ? inner.split("|").pop() : inner).trim());
 function paras(t) {
   return t.replace(/\r\n/g, "\n").split(/\n\s*\n/).map((p) => p.replace(/^\n+|\n+$/g, "")).filter((p) => p.trim()).map((p) => `<p>${esc(p).replace(/\n/g, "<br>")}</p>`).join("");
 }
@@ -374,14 +452,20 @@ export function renderBlocks(blocks, ctx) {
     if (b.type === "text") {
       return `<section class="blk blk-text"${idAttr}>${b.text ? paras(b.text) : ""}</section>`;
     }
+    if (b.type === "verse") {
+      const label = b.label ? `<h3 class="vlabel">${esc(b.label)}</h3>` : "";
+      const ps = (b.lines ?? []).map((l) => `<p class="vs"${l.a ? ` id="${esc(l.a)}"` : ""}>${wikiText(l.t ?? "")}</p>`).join("");
+      return `<section class="blk blk-verse"${idAttr}>${label}${ps}</section>`;
+    }
     if (b.type === "quote") {
       let src = b.source ? esc(b.source) : "";
       if (b.source_ref) {
         const r = ctx.refs.get(`${b.source_ref.kind}:${b.source_ref.id}`);
         if (r && r.visible) {
-          src = `<a class="ref-drawer" href="${esc(r.href)}" data-drawer-kind="${b.source_ref.kind}" data-drawer-id="${esc(
+          const an = b.source_ref.anchor;
+          src = `<a class="ref-drawer" href="${esc(r.href)}${an ? `#${esc(encodeURIComponent(an))}` : ""}" data-drawer-kind="${b.source_ref.kind}" data-drawer-id="${esc(
             b.source_ref.id
-          )}" data-ref-title="${esc(r.title)}" data-ref-label="${esc(r.kindLabel)}">${b.source ? esc(b.source) : esc(r.title)}</a>`;
+          )}"${an ? ` data-drawer-anchor="${esc(an)}"` : ""} data-ref-title="${esc(r.title)}" data-ref-label="${esc(r.kindLabel)}">${b.source ? esc(b.source) : esc(r.title)}</a>`;
         }
       }
       return `<figure class="blk blk-quote"${idAttr}><blockquote>${paras(b.text ?? "")}</blockquote>${src ? `<figcaption>— ${src}</figcaption>` : ""}</figure>`;
@@ -459,6 +543,7 @@ export function renderBlocks(blocks, ctx) {
 export function plainFromBlocks(blocks, ctx) {
   return blocks.map((b) => {
     if (b.type === "heading" || b.type === "text") return b.text ?? "";
+    if (b.type === "verse") return [b.label, ...(b.lines ?? []).map((l) => stripWiki(l.t))].filter(Boolean).join("\n");
     if (b.type === "quote") return [b.text, b.source ? `— ${b.source}` : ""].filter(Boolean).join("\n");
     if (b.type === "image") return [b.caption, ...imageItems(b).map((i) => i.caption)].filter(Boolean).join("\n");
     if (b.type === "video" || b.type === "imageref") return b.caption ?? "";

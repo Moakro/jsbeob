@@ -1,6 +1,7 @@
 <script lang="ts">
   // 사이트 검색 — 홈 히어로(variant="hero")와 헤더 아이콘(variant="header") 두 모양.
-  // 자료 검색(/api/content/find)과 경전 본문 검색(Pagefind, 프리렌더 페이지 색인)을 합쳐 보인다.
+  // 자료 검색(/api/content/find) 하나로 보인다. 경전은 DB 자료실 책이라 절마다 하위 결과(subs, 문장 위치)가 온다.
+  // (2026-11-14: 화은당실기 DB 전환으로 Pagefind 경전 색인을 걷어 냄)
   // 검색 결과는 탭(sessionStorage)에 남겨 두고, 여러 검색칸이 'jb:search-sync' 로 서로 맞춘다.
   // 복원(2026-11-01): 배포본 SSR(Base 청크)·클라이언트(_astro/HeroSearch.*.js) 기준.
   import { onMount, tick } from "svelte";
@@ -40,20 +41,7 @@
   let input = $state<HTMLInputElement | undefined>(undefined);
   let list = $state<HTMLElement | undefined>(undefined);
   let toggleBtn = $state<HTMLButtonElement | undefined>(undefined);
-  let pagefind: any = null;
-
-  async function loadPagefind() {
-    if (pagefind) return true;
-    try {
-      pagefind = await import(/* @vite-ignore */ new URL("/pagefind/pagefind.js", location.href).toString());
-      await pagefind.options({ excerptLength: 28 });
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
-  /** 자료(문서·장소 등) 검색 */
+  /** 자료(문서·장소·경전 절 등) 검색 — 발췌(excerpt)는 API 가 이스케이프하고 찾은 낱말에 <mark> 를 붙여 준다 */
   async function findContent(q: string): Promise<Group[] | null> {
     try {
       const r = await fetch(`/api/content/find?q=${encodeURIComponent(q)}`);
@@ -62,29 +50,15 @@
         pageUrl: it.href,
         pageTitle: it.hanja ? `${it.title} ${it.hanja}` : it.title,
         source: it.label,
-        subs: [{ url: it.href, title: "", excerpt: it.excerpt }],
+        subs: it.subs?.length
+          ? it.subs.map((s: any) => ({
+              url: s.url ?? it.href,
+              title: s.title ?? "",
+              excerpt: s.excerpt ?? "",
+              anchor: s.anchor ? { id: s.anchor } : undefined,
+            }))
+          : [{ url: it.href, title: "", excerpt: it.excerpt }],
       }));
-    } catch {
-      return null;
-    }
-  }
-
-  /** 경전 본문 검색(Pagefind) */
-  async function findScripture(q: string): Promise<Group[] | null> {
-    if (!(await loadPagefind())) return null;
-    try {
-      const r = await pagefind.search(q);
-      const pages = await Promise.all(r.results.slice(0, 30).map((x: any) => x.data()));
-      return pages.map((p: any) => {
-        const subs: Sub[] = (p.sub_results ?? []).map((s: any) => ({
-          url: s.url,
-          title: s.title ?? "",
-          excerpt: s.excerpt ?? "",
-          anchor: s.anchor ? { id: s.anchor.id } : undefined,
-        }));
-        if (!subs.length) subs.push({ url: p.url, title: p.meta?.title ?? "", excerpt: p.excerpt });
-        return { pageUrl: p.url, pageTitle: p.meta?.title ?? p.url, source: p.meta?.source ?? null, subs };
-      });
     } catch {
       return null;
     }
@@ -96,9 +70,9 @@
     open = true;
     loading = true;
     try {
-      const [a, b] = await Promise.all([findContent(q), findScripture(q)]);
-      error = a === null && b === null ? "검색을 불러올 수 없습니다." : null;
-      results = [...(a ?? []), ...(b ?? [])];
+      const a = await findContent(q);
+      error = a === null ? "검색을 불러올 수 없습니다." : null;
+      results = a ?? [];
       searched = q;
       lastKey = null;
       // 모바일 키보드를 내려 결과가 보이게
