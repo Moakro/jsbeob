@@ -1,6 +1,7 @@
 ---
 // 옛 홈페이지 보관함 사이드바 — 찾기 + 게시판별 분류 목록. 목록·글 보기에서 같이 쓴다 (2026-11-12)
 // groups: legacyGroups() 결과(게시판 › 분류), board·category: 지금 보는 게시판·분류(없으면 전체), q: 지금 검색어
+// 좁은 화면(860px 이하)에서는 오른쪽 서랍 — 화면 오른쪽 가장자리 탭(사이트 자료 서랍 탭과 같은 모양)으로 연다 (2026-11-14)
 import { legacyListHref, type LegacyGroup } from "../../lib/content";
 const { groups = [], board = "", category = "", q = "" } = Astro.props as {
   groups: LegacyGroup[];
@@ -14,7 +15,28 @@ const boardName = groups.find((g) => g.board === board)?.name ?? "";
 const scope = [boardName, category].filter(Boolean).join(" › ");
 ---
 
-<aside class="legacy-side" aria-label="옛 홈페이지 보관함 찾기·분류">
+<!-- 좁은 화면 전용: 서랍 여는 탭 + 바깥 가림막 -->
+<button
+  type="button"
+  class="ls-fab"
+  aria-controls="legacy-side"
+  aria-expanded="false"
+  aria-label="찾기·분류 열기"
+  title="찾기·분류"
+  data-legacy-side-open
+>
+  <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"
+    ><path d="M4 6h16M4 12h10M4 18h7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path
+    ><circle cx="17.5" cy="16.5" r="3" fill="none" stroke="currentColor" stroke-width="2"></circle
+    ><path d="M19.7 18.7 22 21" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path></svg
+  >
+</button>
+<div class="ls-scrim" hidden data-legacy-side-close></div>
+<aside class="legacy-side" id="legacy-side" aria-label="옛 홈페이지 보관함 찾기·분류">
+  <header class="ls-head">
+    <strong>찾기 · 분류</strong>
+    <button type="button" class="ls-close" aria-label="찾기·분류 닫기" title="닫기" data-legacy-side-close>›</button>
+  </header>
   <section class="lib-sec">
     <h2>찾기</h2>
     <form class="search" method="get" action="/legacy/" role="search">
@@ -59,15 +81,136 @@ const scope = [boardName, category].filter(Boolean).join(" › ");
   </section>
 </aside>
 
+<script>
+  // 좁은 화면 서랍 열고 닫기 — 탭·닫기·가림막·Esc.
+  // 열면 닫기 버튼에 포커스(찾기 칸에 주면 모바일 키보드가 바로 떠서 분류만 보려는 사람이 불편), 닫으면 탭으로 되돌림.
+  {
+    const side = document.getElementById("legacy-side");
+    const fab = document.querySelector<HTMLButtonElement>("[data-legacy-side-open]");
+    const scrim = document.querySelector<HTMLElement>(".ls-scrim");
+    const narrow = window.matchMedia("(max-width: 860px)");
+    if (side && fab && scrim) {
+      const isOpen = () => side.classList.contains("is-open");
+      // 좁은 화면에서 닫힌 서랍은 키보드 포커스·읽기에서 뺀다(inert). 넓은 화면은 보통 사이드바.
+      const syncInert = () => (side.inert = narrow.matches && !isOpen());
+      const setOpen = (v: boolean, restoreFocus = true) => {
+        side.classList.toggle("is-open", v);
+        scrim.hidden = !v;
+        fab.setAttribute("aria-expanded", String(v));
+        document.documentElement.style.overflow = v ? "hidden" : "";
+        syncInert(); // 포커스를 옮기기 전에 inert 를 먼저 풀어야 한다
+        if (v) side.querySelector<HTMLButtonElement>(".ls-close")?.focus({ preventScroll: true });
+        else if (restoreFocus) fab.focus({ preventScroll: true });
+      };
+      fab.addEventListener("click", () => setOpen(true));
+      document.querySelectorAll("[data-legacy-side-close]").forEach((el) => el.addEventListener("click", () => setOpen(false)));
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape" && isOpen()) setOpen(false);
+      });
+      narrow.addEventListener("change", () => (isOpen() && !narrow.matches ? setOpen(false, false) : syncInert()));
+      syncInert();
+    }
+  }
+</script>
+
 <style>
   .legacy-side {
     min-width: 0;
   }
-  /* 본문 옆에 놓일 때만 스크롤해도 위에 붙어 있게(sticky). 좁은 화면에선 본문 아래라 풀어 둔다 */
+  .ls-fab,
+  .ls-scrim,
+  .ls-head {
+    display: none;
+  }
+  /* 본문 옆에 놓일 때만 스크롤해도 위에 붙어 있게(sticky) */
   @media (min-width: 861px) {
     .legacy-side {
       position: sticky;
       top: calc(var(--header-h) + 16px);
+    }
+  }
+  /* 좁은 화면: 오른쪽 서랍 (탭 모양은 사이트 자료 서랍 탭 .sd-fab 과 같게) */
+  @media (max-width: 860px) {
+    .ls-fab {
+      position: fixed;
+      right: -6px;
+      top: 50%;
+      transform: translateY(-50%);
+      z-index: 80;
+      width: 46px;
+      height: 56px;
+      border: 0;
+      border-radius: 28px 0 0 28px;
+      background: var(--color-primary);
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding-right: 6px;
+      cursor: pointer;
+      box-shadow: var(--shadow-md);
+    }
+    .ls-scrim:not([hidden]) {
+      display: block;
+      position: fixed;
+      inset: 0;
+      z-index: 91;
+      background: #0006;
+    }
+    .legacy-side {
+      position: fixed;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 92;
+      width: min(340px, 88vw);
+      padding: 0 16px 24px;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      background: var(--color-bg, #f4ede3);
+      box-shadow: -8px 0 28px -10px #0006;
+      transform: translateX(105%);
+      visibility: hidden;
+      transition:
+        transform 0.24s ease,
+        visibility 0s linear 0.24s;
+    }
+    .legacy-side.is-open {
+      transform: none;
+      visibility: visible;
+      transition: transform 0.24s ease;
+    }
+    .ls-head {
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin: 0 -16px 12px;
+      padding: 12px 12px 12px 16px;
+      border-bottom: 1px solid var(--color-rule);
+      background: inherit;
+    }
+    .ls-close {
+      width: 36px;
+      height: 36px;
+      border: 1px solid var(--color-rule);
+      border-radius: 50%;
+      background: var(--color-surface);
+      color: var(--color-ink);
+      font-size: 1.4rem;
+      line-height: 1;
+      cursor: pointer;
+    }
+    .legacy-side .lib-sec + .lib-sec {
+      margin-top: 12px;
+    }
+  }
+  @media (max-width: 860px) and (prefers-reduced-motion: reduce) {
+    .legacy-side,
+    .legacy-side.is-open {
+      transition: none;
     }
   }
   .search {

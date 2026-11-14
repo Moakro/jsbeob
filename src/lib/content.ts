@@ -152,10 +152,11 @@ export const getLegacy = async (request: Request, board: string, cid: string, lp
 /** 보관함 글 주소 */
 export const legacyHref = (board: string, cid: number | string) => `/legacy/${board}/${cid}/`;
 
-/** 보관함 게시판 — 옛 사이트의 게시판 이름과 분류 순서 그대로 (사용자 결정 2026-11-12: 오리알터(미디어방 제외)·시루학당) */
+/** 보관함 게시판 — 옛 사이트의 게시판 이름과 분류 순서 그대로 (사용자 결정 2026-11-12: 오리알터(미디어방 제외)·시루학당)
+ *  게시판 순서는 시루학당 → 오리알터 (사용자 지시 2026-11-14). 사이드바·서랍이 이 순서를 따른다. */
 export const LEGACY_BOARDS: { board: string; name: string; cats: string[] }[] = [
-  { board: "ort", name: "오리알터", cats: ["법종교소식", "법종교앨범", "오리알터풍경", "도생광장", "열린마당"] },
   { board: "study", name: "시루학당", cats: ["주문과 수행", "경전 및 도서", "의식과 예법", "기타 자료실"] },
+  { board: "ort", name: "오리알터", cats: ["법종교소식", "법종교앨범", "오리알터풍경", "도생광장", "열린마당"] },
 ];
 
 export const legacyBoardName = (board: string) => LEGACY_BOARDS.find((b) => b.board === board)?.name ?? board;
