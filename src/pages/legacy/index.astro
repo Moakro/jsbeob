@@ -2,7 +2,8 @@
 // 옛 홈페이지 보관함 — jsbeob.com(옛 사이트) 게시판 글을 읽기 전용으로 모아 둔 곳 (2026-11-12)
 // 헤더는 새 사이트와 같다. 위에 '옛 홈페이지 보관함' 제목, 오른쪽에 찾기·분류 사이드바(글 보기와 같음).
 import Base from "../../layouts/Base.astro";
-import PageTitle from "../../components/content/PageTitle.astro";
+import SubTabs from "../../components/content/SubTabs.astro";
+import LegacyHead from "../../components/legacy/LegacyHead.astro";
 import LegacySide from "../../components/legacy/LegacySide.astro";
 import LegacySubTitle from "../../components/legacy/LegacySubTitle.astro";
 import {
@@ -26,46 +27,70 @@ let board = (sp.get("board") ?? "").trim();
 if (!board && category) board = cats.find((c) => c.category === category)?.board ?? "";
 
 const fmtDate = (s: string | null) => (s ? s.slice(0, 10).replace(/-/g, ".") : "");
-// 분류를 고르지 않았으면 여러 분류가 날짜순으로 섞이므로 제목 앞에 분류 꼬리표를 단다. 분류를 고르면 소제목에 있으니 뺀다.
-const toRows = (items: any[]) =>
+// showCat: 여러 분류가 섞인 목록이면 제목 앞에 분류 꼬리표를 단다. 한 분류만 보이면(탭·소제목에 있으니) 뺀다.
+const toRows = (items: any[], showCat: boolean) =>
   items.map((r) => ({
     href: legacyHref(r.board, r.cid),
     title: r.title,
-    cat: category ? null : r.category,
+    cat: showCat ? r.category : null,
     comments: Number(r.comment_count) || 0,
     meta: [r.author, fmtDate(r.created_at), `조회 ${Number(r.hits).toLocaleString("ko-KR")}`].filter(Boolean).join(" · "),
   }));
 
-// 첫 화면(게시판·분류·검색어 없음): 게시판별로 최신 10개씩 나눠 보이고, 목록 아래 '전체보기' (사용자 지시 2026-11-14).
-// 순서는 사이드바와 같다(시루학당 → 오리알터). 그 밖에는 한 목록 + 쪽 번호.
+// 게시판 제목 아래 분류 탭 (사용자 지시 2026-11-14): 전체 + 그 게시판 분류들. 첫 화면과 게시판 목록(전체보기) 모두.
+type Tab = { label: string; href: string; on: boolean; count: string };
+const n = (v: number) => Number(v).toLocaleString("ko-KR");
+const tabsFor = (g: (typeof groups)[number], current: string): Tab[] => [
+  { label: "전체", href: link({ board: g.board }), on: !current, count: n(g.n) },
+  ...g.cats.map((c) => ({ label: c.category, href: link({ board: g.board, category: c.category }), on: c.category === current, count: n(c.n) })),
+];
+
+// 첫 화면(게시판·분류·검색어 없음): 게시판별 구역(시루학당 → 오리알터, 사이드바 순서)마다 최신 10개 + '전체보기'.
+// 분류 탭은 그 자리에서 바뀐다(분류마다 10개를 미리 받아 둠, 탭 링크는 스크립트 없이도 그 분류 목록으로 감).
+// 그 밖(게시판·분류·검색): 한 목록 + 쪽 번호. 게시판이 정해져 있고 검색 중이 아니면 같은 분류 탭(누르면 그 분류 목록으로 이동).
 const HOME_SIZE = 10;
 const isHome = !board && !category && !q;
+type Panel = { rows: ReturnType<typeof toRows>; more?: string };
 type Section = {
   parts: { label: string; href?: string | null }[];
   count: number | null;
-  rows: ReturnType<typeof toRows>;
-  more?: string; // 전체보기
+  tabs?: Tab[];
+  panels: Panel[];
+  inPlace?: boolean; // 탭을 누르면 페이지 이동 없이 패널만 바꾼다(첫 화면)
   pager?: { page: number; pages: number; nums: (number | null)[] };
 };
 let sections: Section[];
 let found: number | null = null;
 if (isHome) {
-  const lists = await Promise.all(groups.map((g) => listLegacy(Astro.request, { board: g.board })));
-  sections = groups.map((g, i) => ({
-    parts: [{ label: g.name, href: link({ board: g.board }) }],
-    count: g.n,
-    rows: toRows(lists[i].items.slice(0, HOME_SIZE)),
-    more: link({ board: g.board }),
-  }));
+  sections = await Promise.all(
+    groups.map(async (g) => {
+      const keys = ["", ...g.cats.map((c) => c.category)];
+      const lists = await Promise.all(keys.map((c) => listLegacy(Astro.request, { board: g.board, category: c || undefined })));
+      return {
+        parts: [{ label: g.name, href: link({ board: g.board }) }],
+        count: g.n,
+        tabs: tabsFor(g, ""),
+        inPlace: true,
+        panels: keys.map((c, i) => ({
+          rows: toRows(lists[i].items.slice(0, HOME_SIZE), !c),
+          more: link({ board: g.board, category: c || undefined }),
+        })),
+      };
+    }),
+  );
 } else {
   const res = await listLegacy(Astro.request, { board, category, q, page });
-  // 소제목: 오리알터 / 오리알터 » 법종교소식 (옛 사이트 표기). 게시판 없이 찾기만 했으면 '전체 글'
-  const parts = board
-    ? [
-        { label: legacyBoardName(board), href: category ? link({ board }) : null },
-        ...(category ? [{ label: category }] : []),
-      ]
-    : [{ label: category || "전체 글" }];
+  const g = groups.find((x) => x.board === board);
+  const withTabs = !!g && !q;
+  // 소제목: 탭이 있으면 게시판 이름만(분류는 탭에 표시). 검색 중이면 예전처럼 "오리알터 » 법종교소식", 게시판 없이 찾으면 '전체 글'
+  const parts = withTabs
+    ? [{ label: g!.name, href: category ? link({ board }) : null }]
+    : board
+      ? [
+          { label: legacyBoardName(board), href: category ? link({ board }) : null },
+          ...(category ? [{ label: category }] : []),
+        ]
+      : [{ label: category || "전체 글" }];
   // 쪽 번호: 현재 쪽 앞뒤 4쪽 + 처음·끝
   const nums: (number | null)[] = [];
   for (let i = 1; i <= res.pages; i++) {
@@ -73,52 +98,72 @@ if (isHome) {
     else if (nums[nums.length - 1] !== null) nums.push(null);
   }
   if (q) found = res.total;
-  sections = [{ parts, count: q ? null : res.total, rows: toRows(res.items), pager: { page: res.page, pages: res.pages, nums } }];
+  sections = [
+    {
+      parts,
+      // 탭이 있으면 소제목 글 수는 게시판 전체(분류별 수는 탭에), 아니면 지금 목록 수
+      count: q ? null : withTabs ? g!.n : res.total,
+      tabs: withTabs ? tabsFor(g!, category) : undefined,
+      panels: [{ rows: toRows(res.items, !category) }],
+      pager: { page: res.page, pages: res.pages, nums },
+    },
+  ];
 }
 ---
 
 <Base title="옛 홈페이지 보관함" description="증산법종교 옛 홈페이지(jsbeob.com) 게시판 글 보관함" tight>
-  <div class="legacy-head"><PageTitle title="옛 홈페이지 보관함" /></div>
+  <LegacyHead />
   <div class="lib-split legacy-split">
     <div class="lib-main">
       {sections.map((s) => (
-        <section class="lsec">
+        <section class="lsec" data-inplace={s.inPlace ? "" : undefined}>
           <LegacySubTitle parts={s.parts} count={s.count} />
+          {s.tabs && (
+            <div class="ltabs">
+              <SubTabs items={s.tabs} label={`${s.parts[0].label} 분류`} />
+            </div>
+          )}
           {found !== null && (
             <p class="found">
               ‘{q}’ 찾은 글 {found.toLocaleString("ko-KR")}건 <a href={link({ board, category })}>찾기 지우기</a>
             </p>
           )}
-          {s.rows.length ? (
-            <ul class="rows">
-              {s.rows.map((r) => (
-                <li>
-                  <a href={r.href}>
-                    <span class="t">
-                      {r.cat && <span class="cat">{r.cat}</span>}
-                      <span class="tt">{r.title}</span>
-                      {r.comments > 0 && (
-                        <span class="cc" aria-label={`댓글 ${r.comments}`}>
-                          <svg viewBox="0 0 24 24" aria-hidden="true">
-                            <path d="M4 5h16v11H8l-4 4V5z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" />
-                          </svg>
-                          {r.comments}
+          {s.panels.map((p, pi) => (
+            <div class="lpanel" data-panel hidden={s.inPlace && pi > 0 ? true : undefined}>
+              {p.rows.length ? (
+                <ul class="rows">
+                  {p.rows.map((r) => (
+                    <li>
+                      <a href={r.href}>
+                        <span class="t">
+                          {r.cat && <span class="cat">{r.cat}</span>}
+                          <span class="tt">{r.title}</span>
+                          {r.comments > 0 && (
+                            <span class="cc" aria-label={`댓글 ${r.comments}`}>
+                              <svg viewBox="0 0 24 24" aria-hidden="true">
+                                <path d="M4 5h16v11H8l-4 4V5z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" />
+                              </svg>
+                              {r.comments}
+                            </span>
+                          )}
                         </span>
-                      )}
-                    </span>
-                    <span class="m">{r.meta}</span>
+                        <span class="m">{r.meta}</span>
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p class="none">글이 없습니다.</p>
+              )}
+              {p.more && (
+                <p class="more">
+                  <a href={p.more} aria-label={`${s.parts[0].label}${s.tabs && pi > 0 ? ` ${s.tabs[pi].label}` : ""} 전체보기`}>
+                    전체보기 <span aria-hidden="true">→</span>
                   </a>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p class="none">글이 없습니다.</p>
-          )}
-          {s.more && (
-            <p class="more">
-              <a href={s.more} aria-label={`${s.parts[0].label} 전체보기`}>전체보기 <span aria-hidden="true">→</span></a>
-            </p>
-          )}
+                </p>
+              )}
+            </div>
+          ))}
           {s.pager && s.pager.pages > 1 && (
             <nav class="pages" aria-label="쪽 넘기기">
               {s.pager.nums.map((n) =>
@@ -139,17 +184,38 @@ if (isHome) {
   </div>
 </Base>
 
+<script>
+  // 첫 화면 분류 탭: 페이지 이동 없이 그 구역의 패널만 바꾼다(탭 순서 = 패널 순서). 새 탭 열기는 그대로.
+  document.querySelectorAll<HTMLElement>(".lsec[data-inplace]").forEach((sec) => {
+    const tabs = [...sec.querySelectorAll<HTMLAnchorElement>(".subtabs a")];
+    const panels = [...sec.querySelectorAll<HTMLElement>("[data-panel]")];
+    if (tabs.length !== panels.length) return;
+    tabs.forEach((a, i) =>
+      a.addEventListener("click", (e) => {
+        if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+        e.preventDefault();
+        tabs.forEach((t, j) => {
+          t.classList.toggle("on", i === j);
+          if (i === j) t.setAttribute("aria-current", "page");
+          else t.removeAttribute("aria-current");
+        });
+        panels.forEach((p, j) => (p.hidden = i !== j));
+      }),
+    );
+  });
+</script>
+
 <style>
-  /* 큰 제목은 페이지 전체(본문+사이드바) 제목 — 밑줄을 전체 폭으로. 소제목은 왼쪽 단에만 */
-  .legacy-head :global(.ptitle) {
-    max-width: none;
-  }
   .legacy-split {
     margin-top: 0;
   }
   /* 첫 화면 게시판 구역(시루학당·오리알터) 사이 간격 */
   .lsec + .lsec {
     margin-top: 40px;
+  }
+  /* 게시판 제목 아래 분류 탭 */
+  .ltabs {
+    margin: 12px 0 8px;
   }
   .more {
     margin: 10px 0 0;

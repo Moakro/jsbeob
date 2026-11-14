@@ -1,7 +1,7 @@
 ---
 // 옛 홈페이지 보관함 — 글 보기 (읽기 전용, 2026-11-12)
 import Base from "../../../layouts/Base.astro";
-import PageTitle from "../../../components/content/PageTitle.astro";
+import LegacyHead from "../../../components/legacy/LegacyHead.astro";
 import Prose from "../../../components/content/Prose.astro";
 import LegacySide from "../../../components/legacy/LegacySide.astro";
 import LegacySubTitle from "../../../components/legacy/LegacySubTitle.astro";
@@ -48,7 +48,8 @@ const plain = post.body_html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim(
 
 <Base title={`${post.title} · 옛 홈페이지 보관함`} description={plain || undefined} tight>
   <!-- 보관함 제목은 목록과 같은 모양, 이 페이지의 h1 은 글 제목 -->
-  <div class="legacy-head"><PageTitle title="옛 홈페이지 보관함" as="p" /></div>
+  <!-- 보관함 제목 배지(누르면 보관함 첫 화면). 이 페이지의 h1 은 글 제목이라 p -->
+  <LegacyHead as="p" />
   <div class="lib-split legacy-split">
   <article class="doc legacy lib-main">
     <LegacySubTitle as="div" parts={crumbs} />
@@ -127,9 +128,6 @@ const plain = post.body_html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim(
 </Base>
 
 <style>
-  .legacy-head :global(.ptitle) {
-    max-width: none;
-  }
   .legacy-split {
     margin-top: 0;
   }
