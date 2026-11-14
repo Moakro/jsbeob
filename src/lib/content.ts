@@ -143,14 +143,18 @@ export const listLegacy = async (
   return (await contentGet(`/api/legacy/posts?${sp}`, request)) ?? { items: [], total: 0, page: 1, pages: 1 };
 };
 
-export const getLegacy = async (request: Request, board: string, cid: string, lp?: number) =>
-  await contentGet(
-    `/api/legacy/posts/${encodeURIComponent(board)}/${encodeURIComponent(cid)}${lp ? `?lp=${lp}` : ""}`,
-    request,
-  );
+/** 글 + 댓글 + 아래 목록. cat: 글을 연 목록의 분류(없으면 게시판 전체 목록) */
+export const getLegacy = async (request: Request, board: string, cid: string, lp?: number, cat?: string) => {
+  const sp = new URLSearchParams();
+  if (lp) sp.set("lp", String(lp));
+  if (cat) sp.set("cat", cat);
+  const qs = sp.toString();
+  return await contentGet(`/api/legacy/posts/${encodeURIComponent(board)}/${encodeURIComponent(cid)}${qs ? `?${qs}` : ""}`, request);
+};
 
-/** 보관함 글 주소 */
-export const legacyHref = (board: string, cid: number | string) => `/legacy/${board}/${cid}/`;
+/** 보관함 글 주소. cat: 분류 탭에서 열었으면 그 분류 — 글 보기의 분류 탭·아래 목록이 그 범위를 이어받는다(없으면 게시판 전체) */
+export const legacyHref = (board: string, cid: number | string, cat?: string | null) =>
+  `/legacy/${board}/${cid}/${cat ? `?cat=${encodeURIComponent(cat)}` : ""}`;
 
 /** 보관함 게시판 — 옛 사이트의 게시판 이름과 분류 순서 그대로 (사용자 결정 2026-11-12: 오리알터(미디어방 제외)·시루학당)
  *  게시판 순서는 시루학당 → 오리알터 (사용자 지시 2026-11-14). 사이드바·서랍이 이 순서를 따른다. */

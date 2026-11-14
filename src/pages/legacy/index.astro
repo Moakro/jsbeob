@@ -28,9 +28,10 @@ if (!board && category) board = cats.find((c) => c.category === category)?.board
 
 const fmtDate = (s: string | null) => (s ? s.slice(0, 10).replace(/-/g, ".") : "");
 // showCat: 여러 분류가 섞인 목록이면 제목 앞에 분류 꼬리표를 단다. 한 분류만 보이면(탭·소제목에 있으니) 뺀다.
+// 글 주소에는 이 목록의 범위를 붙인다 — 분류 목록이면 ?cat=분류, 전체면 없음(글 보기 탭·아래 목록이 이어받음).
 const toRows = (items: any[], showCat: boolean) =>
   items.map((r) => ({
-    href: legacyHref(r.board, r.cid),
+    href: legacyHref(r.board, r.cid, showCat ? null : r.category),
     title: r.title,
     cat: showCat ? r.category : null,
     comments: Number(r.comment_count) || 0,

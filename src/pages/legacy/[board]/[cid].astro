@@ -5,6 +5,7 @@ import LegacyHead from "../../../components/legacy/LegacyHead.astro";
 import Prose from "../../../components/content/Prose.astro";
 import LegacySide from "../../../components/legacy/LegacySide.astro";
 import LegacySubTitle from "../../../components/legacy/LegacySubTitle.astro";
+import SubTabs from "../../../components/content/SubTabs.astro";
 import {
   getLegacy,
   legacyCategories,
@@ -19,21 +20,39 @@ const { board, cid } = Astro.params;
 const valid = /^[a-z]+$/.test(board ?? "") && /^\d+$/.test(cid ?? "");
 // lp: 아래 목록의 쪽(없으면 지금 글이 든 쪽)
 const lp = parseInt(Astro.url.searchParams.get("lp") ?? "", 10) || undefined;
+// cat: 글을 연 목록의 분류(분류 탭에서 열었을 때). 없으면 게시판 전체에서 연 것 — 글의 분류로 좁히지 않는다 (사용자 지시 2026-11-14)
+const catParam = (Astro.url.searchParams.get("cat") ?? "").trim().slice(0, 40);
 const [data, cats] = valid
-  ? await Promise.all([getLegacy(Astro.request, board!, cid!, lp), legacyCategories(Astro.request)])
+  ? await Promise.all([getLegacy(Astro.request, board!, cid!, lp, catParam || undefined), legacyCategories(Astro.request)])
   : [null, []];
 if (!data)
   return new Response("글을 찾을 수 없습니다.", { status: 404, headers: { "Content-Type": "text/plain; charset=utf-8" } });
 const { post, comments, list } = data;
+// 실제로 적용된 범위(API 가 그 글의 분류가 아닌 cat 은 무시한다)
+const ctx: string = list.category ?? "";
 const md = (s: string | null) => (s ? s.slice(5, 10) : ""); // 옛 사이트처럼 월-일
-const lpHref = (n: number) => `${legacyHref(post.board, post.cid)}${n === list.own ? "" : `?lp=${n}`}#legacy-list`;
+const lpHref = (n: number) => {
+  const sp = new URLSearchParams();
+  if (ctx) sp.set("cat", ctx);
+  if (n !== list.own) sp.set("lp", String(n));
+  const qs = sp.toString();
+  return `/legacy/${post.board}/${post.cid}/${qs ? `?${qs}` : ""}#legacy-list`;
+};
 const groups = legacyGroups(cats);
+const g = groups.find((x) => x.board === post.board);
 const fmt = (s: string | null) => (s ? s.replace(/-/g, ".") : "");
-// 게시판 » 분류 (옛 사이트 표기 "오리알터 » 법종교소식") — 각각 그 목록으로
+const n = (v: number) => Number(v).toLocaleString("ko-KR");
+// 머리: 목록과 같은 모양 — 게시판 이름(글 수) + 분류 탭(전체 + 분류). 켜진 탭 = 글을 연 범위. 탭은 그 목록으로 간다.
 const boardName = legacyBoardName(post.board);
 const boardHref = legacyListHref({ board: post.board });
-const listHref = legacyListHref({ board: post.board, category: post.category ?? undefined });
-const crumbs = [{ label: boardName, href: boardHref }, ...(post.category ? [{ label: post.category, href: listHref }] : [])];
+const tabs = g
+  ? [
+      { label: "전체", href: boardHref, on: !ctx, count: n(g.n) },
+      ...g.cats.map((c) => ({ label: c.category, href: legacyListHref({ board: post.board, category: c.category }), on: c.category === ctx, count: n(c.n) })),
+    ]
+  : [];
+// 아래 목록 머리: 게시판(» 분류) — 각각 그 목록으로
+const crumbs = [{ label: boardName, href: boardHref }, ...(ctx ? [{ label: ctx, href: legacyListHref({ board: post.board, category: ctx }) }] : [])];
 // 답댓글은 위 댓글 아래로
 const roots = comments.filter((c) => !c.parent_id || !comments.some((p) => p.id === c.parent_id));
 const kids = (id: number) => comments.filter((c) => c.parent_id === id);
@@ -52,9 +71,15 @@ const plain = post.body_html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim(
   <LegacyHead as="p" />
   <div class="lib-split legacy-split">
   <article class="doc legacy lib-main">
-    <LegacySubTitle as="div" parts={crumbs} />
+    <LegacySubTitle as="div" parts={[{ label: boardName, href: boardHref }]} count={g?.n ?? null} />
+    {tabs.length > 0 && (
+      <div class="ltabs">
+        <SubTabs items={tabs} label={`${boardName} 분류`} />
+      </div>
+    )}
     <h1 class="post-title">{post.title}</h1>
     <p class="meta">
+      {post.category && <span class="pcat">{post.category}</span>}
       {post.author && <span>{post.author}</span>}
       <span>{fmt(post.created_at)}</span>
       <span>조회 {Number(post.hits).toLocaleString("ko-KR")}</span>
@@ -75,7 +100,7 @@ const plain = post.body_html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim(
         </ul>
       </section>
     )}
-    <!-- 아래 목록 — 옛 사이트처럼 같은 분류 글: 날짜(월-일)·분류·제목·댓글 수·조회수, 지금 글 강조, 쪽 번호 -->
+    <!-- 아래 목록 — 글을 연 범위(게시판 전체 또는 그 분류): 날짜(월-일)·분류(전체일 때)·제목·댓글 수·조회수, 지금 글 강조, 쪽 번호 -->
     <section class="blist" id="legacy-list" aria-label={`${crumbs.map((c) => c.label).join(" ")} 목록`}>
       <h2 class="bl-h">
         {crumbs.map((c, i) => (
@@ -89,9 +114,9 @@ const plain = post.body_html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim(
           const on = r.board === post.board && r.cid === post.cid;
           return (
             <li class:list={[{ on }]}>
-              <a href={legacyHref(r.board, r.cid)} aria-current={on ? "page" : undefined}>
+              <a href={legacyHref(r.board, r.cid, ctx || null)} aria-current={on ? "page" : undefined}>
                 <span class="d" title={r.created_at}>{md(r.created_at)}</span>
-                {r.category && <span class="c">{r.category}</span>}
+                {!ctx && r.category && <span class="c">{r.category}</span>}
                 <span class="t">{r.title}</span>
                 {r.comment_count > 0 && (
                   <span class="cm" aria-label={`댓글 ${r.comment_count}`}>
@@ -123,11 +148,26 @@ const plain = post.body_html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim(
       )}
     </section>
   </article>
-  <LegacySide groups={groups} board={post.board} category={post.category ?? ""} />
+  <LegacySide groups={groups} board={post.board} category={ctx} />
   </div>
 </Base>
 
 <style>
+  /* 게시판 제목 아래 분류 탭 — 목록과 같은 자리·간격 */
+  .ltabs {
+    margin: 12px 0 8px;
+  }
+  /* 글의 분류 — 목록 줄의 분류 꼬리표와 같은 모양 */
+  .pcat {
+    padding: 1px 7px;
+    border: 1px solid var(--color-rule);
+    border-radius: 999px;
+    background: var(--color-surface);
+    color: var(--color-muted);
+    font-size: 0.75rem;
+    font-weight: 600;
+    line-height: 1.6;
+  }
   .legacy-split {
     margin-top: 0;
   }
@@ -139,6 +179,7 @@ const plain = post.body_html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim(
   .meta {
     display: flex;
     flex-wrap: wrap;
+    align-items: center;
     gap: 4px 14px;
     margin: 0 0 18px;
     padding-bottom: 12px;
