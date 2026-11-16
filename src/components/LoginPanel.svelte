@@ -8,6 +8,8 @@
   let { next: nextProp = null }: { next?: string | null } = $props();
 
   let next = $state("/");
+  /** 카카오 계정이 없다고 체크하면 구글 로그인으로 바꿔 보여 준다 (2026-11-16 — 로그인은 카카오가 기본) */
+  let noKakao = $state(false);
 
   onMount(() => {
     const p = nextProp ?? new URLSearchParams(window.location.search).get("next");
@@ -16,12 +18,16 @@
 </script>
 
 <div class="login-panel">
-  <a class="provider kakao" href={api.loginUrl("kakao", next)}>
-    <span class="ico">💬</span> 카카오로 시작하기
-  </a>
-  <a class="provider google" href={api.loginUrl("google", next)}>
-    <span class="ico">G</span> 구글로 시작하기
-  </a>
+  {#if noKakao}
+    <a class="provider google" href={api.loginUrl("google", next)}>
+      <span class="ico">G</span> 구글로 시작하기
+    </a>
+  {:else}
+    <a class="provider kakao" href={api.loginUrl("kakao", next)}>
+      <span class="ico">💬</span> 카카오로 시작하기
+    </a>
+  {/if}
+  <label class="no-kakao"><input type="checkbox" bind:checked={noKakao} /> 카카오 계정이 없습니다</label>
   <p class="note">로그인하면 게시판에 글·댓글을 남길 수 있습니다.</p>
   <!-- 옛 홈페이지(jsbeob.com) 게시판 글 보관함 (2026-11-12) -->
   <a class="legacy" href="/legacy/"
@@ -64,6 +70,15 @@
   }
   .google .ico {
     color: #4285f4;
+  }
+  .no-kakao {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    font-size: 0.88rem;
+    color: var(--color-muted);
+    cursor: pointer;
   }
   .note {
     color: var(--color-muted);

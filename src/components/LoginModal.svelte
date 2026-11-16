@@ -42,7 +42,6 @@
 
 <ModalFrame {open} onclose={() => (open = false)} label="로그인" title="로그인">
   <div class="lm">
-    <p class="sub">카카오 또는 구글 계정으로 로그인하세요.</p>
     {#key next}
       <LoginPanel {next} />
     {/key}
@@ -55,10 +54,5 @@
     margin: 0 auto;
     padding: 18px 20px 22px;
     text-align: center;
-  }
-  .sub {
-    margin: 0 0 14px;
-    color: var(--color-muted);
-    font-size: 0.92rem;
   }
 </style>
