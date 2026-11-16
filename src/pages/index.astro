@@ -259,7 +259,7 @@ const posterSm = heroPhoto ? `url(${JSON.stringify(heroPhoto.url)})` : `url(/her
         t.shiftKey ||
         t.button !== 0 ||
         (t.preventDefault(),
-        window.dispatchEvent(new CustomEvent("jb:news-open", { detail: { id: e.dataset.newsId } })));
+        window.dispatchEvent(new CustomEvent("jb:news-open", { detail: { id: e.dataset.newsId, block: e.dataset.newsBlock } })));
     }),
   );
   document.querySelectorAll("[data-news-all]").forEach((e) =>

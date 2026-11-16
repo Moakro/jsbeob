@@ -3,14 +3,13 @@
   // jsbooks 의 달력에서 출발해 jsbeob 에 맞게 고친 것(소식 일정 연동, jb:* 이벤트).
   // 복원(2026-11-01): 배포본 클라이언트(_astro/Calendar.*.js) 기준.
   import { onMount } from "svelte";
-  import { NEWS_OPEN_EVENT } from "../../lib/api";
+  import { NEWS_OPEN_EVENT, postHref } from "../../lib/api";
   import { getDayInfo, formatLunarKo } from "../../lib/date";
   import { holidayName } from "../../lib/holidays";
   import {
     type CalendarEvent,
     type OccurrenceEvent,
     expandOccurrences,
-    monthRange,
     categoryBadgeClass,
     categoryFullLabel,
   } from "../../lib/calendar-events";
@@ -89,11 +88,19 @@
     announceView();
   });
 
+  /** 화면의 6주(42칸) 범위 — 앞뒤 달 칸에도 일정을 보이려고 이 범위로 불러온다 (2026-11-16) */
+  function gridRange(y: number, m: number) {
+    const firstDow = new Date(y, m - 1, 1).getDay();
+    const start = new Date(y, m - 1, 1 - firstDow);
+    const end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 41);
+    return { from: isoDate(start), to: isoDate(end) };
+  }
+
   let reqSeq = 0;
   async function fetchMonthEvents() {
     const seq = ++reqSeq;
     try {
-      const { from, to } = monthRange(year, month);
+      const { from, to } = gridRange(year, month);
       const res = await fetch(`/api/events?from=${from}&to=${to}`, { credentials: "same-origin" });
       const data = res.ok ? ((await res.json()) as { events: CalendarEvent[] }) : { events: [] };
       // 늦게 온 이전 응답은 버린다
@@ -111,7 +118,19 @@
       list.push(o);
       map.set(k, list);
     };
-    for (const occ of expandOccurrences(monthEvents, year, month)) {
+    // 앞 달·이번 달·다음 달을 모두 펼쳐 앞뒤 칸에도 일정 배지를 보인다 (같은 일정·같은 날은 한 번만)
+    const seen = new Set<string>();
+    const all: OccurrenceEvent[] = [];
+    for (const d of [-1, 0, 1]) {
+      const dt = new Date(year, month - 1 + d, 1);
+      for (const occ of expandOccurrences(monthEvents, dt.getFullYear(), dt.getMonth() + 1)) {
+        const k = `${occ.source.id}@${occ.occursOn}`;
+        if (seen.has(k)) continue;
+        seen.add(k);
+        all.push(occ);
+      }
+    }
+    for (const occ of all) {
       if (occ.endOn && occ.endOn > occ.occursOn) {
         const [y, m, d] = occ.occursOn.split("-").map(Number);
         const cur = new Date(y, m - 1, d);
@@ -281,18 +300,41 @@
     };
   });
 
-  /** 그달 기념일(상세 상자 아래) */
+  /** 그달 기념일·일정(상세 상자 아래) — 2026-11-16: 소식 일정도 배지로 (회차마다 하나) */
   const monthAnniversaries = $derived(
     expandOccurrences(
-      monthEvents.filter((e) => e.category === "기념일"),
+      monthEvents.filter((e) => e.category === "기념일" || e.category === "일정"),
       year,
       month,
     ).sort((a, b) => (a.occursOn < b.occursOn ? -1 : a.occursOn > b.occursOn ? 1 : 0)),
   );
+  /** 배지 누르기: 소식 일정은 일정(소식) 창, 기념일은 그날로 이동 */
+  function openOcc(occ: OccurrenceEvent) {
+    if (occ.source.source_post_id) openPost(occ.source);
+    else {
+      const [y, m, d] = occ.occursOn.split("-").map(Number);
+      selectDate(new Date(y, m - 1, d));
+    }
+  }
   const todayIso = $derived(today ? isoDate(today) : "");
   const selectedIsToday = $derived(!!today && !!selectedDate && sameDay(selectedDate, today));
 
-  const openNews = (id: string) => window.dispatchEvent(new CustomEvent(NEWS_OPEN_EVENT, { detail: { id } }));
+  const openNews = (id: string, block?: string | null) =>
+    window.dispatchEvent(new CustomEvent(NEWS_OPEN_EVENT, { detail: { id, block: block || null } }));
+  /** 글에서 온 일정: 소식은 소식 창, 다른 게시판은 그 글로 — 누른 일정 카드로 이동 (2026-11-16) */
+  function openPost(src: {
+    source_post_id?: string | null;
+    source_board?: string | null;
+    source_category?: string | null;
+    source_block_id?: string | null;
+  }) {
+    if (!src.source_post_id) return;
+    if (!src.source_board || src.source_board === "news") openNews(src.source_post_id, src.source_block_id);
+    else
+      window.location.href =
+        postHref(src.source_board, src.source_post_id, src.source_category) +
+        (src.source_block_id ? `#b-${src.source_block_id}` : "");
+  }
 </script>
 
 <div class="calendar">
@@ -340,16 +382,14 @@
           {#each monthAnniversaries as occ (occ.source.id + "@" + occ.occursOn)}
             {@const isToday = occ.occursOn === todayIso}
             {@const linked = !!occ.source.source_post_id}
-            <!-- 소식 글에서 온 일정은 눌러서 소식을 연다 -->
-            <svelte:element
-              this={linked ? "button" : "span"}
-              type={linked ? "button" : undefined}
-              role={linked ? undefined : "note"}
+            <!-- 2026-11-16: 모든 배지를 누를 수 있다 — 소식 일정은 일정(소식) 창, 기념일은 그날로 이동 -->
+            <button
+              type="button"
               class={`ev-pill ${categoryBadgeClass(occ.source.category)}`}
               class:linked
               class:today={isToday}
-              onclick={linked ? () => openNews(occ.source.source_post_id!) : undefined}
-              title={`${categoryFullLabel(occ.source.category)} · ${occ.source.title} · ${occ.occursOn}${isToday ? " (오늘)" : ""}`}
+              onclick={() => openOcc(occ)}
+              title={`${categoryFullLabel(occ.source.category)} · ${occ.source.title} · ${occ.occursOn}${isToday ? " (오늘)" : ""} — ${linked ? "눌러서 일정 보기" : "눌러서 그날로 이동"}`}
             >
               {#if isToday}
                 <span class="ev-check" aria-label="오늘"
@@ -366,8 +406,7 @@
                 >
               {/if}
               <span class="ev-title">{occ.source.title}</span>
-              {#if linked}<span class="ev-go" aria-hidden="true">›</span>{/if}
-            </svelte:element>
+            </button>
           {/each}
         </div>
       {/if}
@@ -393,8 +432,15 @@
             class:sat={c.dow === 6}
             onclick={(e) => {
               // 칸 안의 소식 일정을 누르면 소식을 연다
-              const id = (e.target as HTMLElement).closest<HTMLElement>("[data-news-post]")?.dataset.newsPost;
-              if (id) openNews(id);
+              const el = (e.target as HTMLElement).closest<HTMLElement>("[data-news-post]");
+              const id = el?.dataset.newsPost;
+              if (id)
+                openPost({
+                  source_post_id: id,
+                  source_board: el?.dataset.postBoard,
+                  source_category: el?.dataset.postCategory,
+                  source_block_id: el?.dataset.postBlock,
+                });
               else selectDate(c.date);
             }}
           >
@@ -412,7 +458,10 @@
                     class={`ev-title-pill ${categoryBadgeClass(occ.source.category)}`}
                     class:linked={!!occ.source.source_post_id}
                     data-news-post={occ.source.source_post_id || undefined}
-                    title={`${categoryFullLabel(occ.source.category)} · ${occ.source.title}${occ.source.source_post_id ? " — 눌러서 소식 보기" : ""}`}
+                    data-post-board={occ.source.source_board || undefined}
+                    data-post-category={occ.source.source_category || undefined}
+                    data-post-block={occ.source.source_block_id || undefined}
+                    title={`${categoryFullLabel(occ.source.category)} · ${occ.source.title}${occ.source.source_post_id ? " — 눌러서 일정 보기" : ""}`}
                     >{occ.source.title}</span
                   >
                 {/each}
@@ -720,8 +769,9 @@
     margin-top: 0.15rem;
     padding: 0.08rem 0.45rem;
     border-radius: 999px;
-    background: color-mix(in srgb, var(--color-primary, #a8352a) 14%, transparent);
-    color: var(--color-primary, #a8352a);
+    /* 칸 안 절기·공휴일 배지는 색을 채운다 — 홈 D-day 배지와 같게 (2026-11-16 사용자 지시) */
+    background: var(--color-primary, #a8352a);
+    color: #fff;
     font-size: 0.66rem;
     font-weight: 700;
     letter-spacing: 0.02em;
@@ -730,17 +780,17 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .cell.out .jeolgi {
-    background: color-mix(in srgb, var(--color-primary, #a8352a) 8%, transparent);
-    color: color-mix(in srgb, var(--color-primary, #a8352a) 65%, var(--color-muted, #8a807a));
+  .cell.out .jeolgi,
+  .cell.out .holiday {
+    opacity: 0.6;
   }
   .holiday {
     align-self: flex-start;
     margin-top: 0.15rem;
     padding: 0.08rem 0.45rem;
     border-radius: 999px;
-    background: color-mix(in srgb, var(--color-secondary, #1e6e6e) 14%, transparent);
-    color: var(--color-secondary, #1e6e6e);
+    background: var(--color-secondary, #1e6e6e);
+    color: #fff;
     font-size: 0.66rem;
     font-weight: 700;
     letter-spacing: 0.02em;
@@ -748,10 +798,6 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-  }
-  .cell.out .holiday {
-    background: color-mix(in srgb, var(--color-secondary, #1e6e6e) 8%, transparent);
-    color: color-mix(in srgb, var(--color-secondary, #1e6e6e) 65%, var(--color-muted, #8a807a));
   }
   .ev-titles {
     margin-top: auto;
@@ -766,9 +812,11 @@
     width: 100%;
     padding: 0.05rem 0.32rem;
     border-radius: var(--radius-sm);
+    border: 1px solid transparent;
     font-size: 0.64rem;
     font-weight: 600;
     line-height: 1.25;
+    /* 한 줄, 넘치면 줄임표 — 전체 제목은 상단 상자에 뜬다 (2026-11-16 사용자 지시) */
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -800,6 +848,8 @@
     gap: 0.35rem;
     padding: 0.18rem 0.6rem;
     border-radius: 999px;
+    /* 채운 배지·테두리 배지 높이를 맞추려고 모두 1px 테두리(기본 투명) */
+    border: 1px solid transparent;
     font-size: 0.82rem;
     line-height: 1.3;
     max-width: 100%;
@@ -813,19 +863,29 @@
     color: inherit;
     flex-shrink: 0;
   }
+  /* 칸 안의 소식 일정 배지 — 누르면 일정 창 */
   .ev-title-pill.linked {
     cursor: pointer;
-    text-decoration: underline;
-    text-decoration-thickness: 1px;
-    text-underline-offset: 2px;
+  }
+  .ev-title-pill.linked:hover {
+    filter: brightness(1.15);
   }
   button.ev-pill {
-    border: 0;
     font: inherit;
     cursor: pointer;
+    transition:
+      transform 0.12s,
+      box-shadow 0.12s;
   }
+  /* 누를 수 있는 배지 표시: 손가락 커서 + 올리면 살짝 떠오름 */
   button.ev-pill:hover {
     filter: brightness(1.08);
+    transform: translateY(-1px);
+    box-shadow: 0 2px 6px rgb(0 0 0 / 0.18);
+  }
+  button.ev-pill:focus-visible {
+    outline: 2px solid var(--color-fg, #1f1c1a);
+    outline-offset: 2px;
   }
   .ev-go {
     margin-left: -2px;
@@ -834,13 +894,20 @@
   .ev-pill .ev-title {
     font-weight: 600;
   }
+  /* 달력 배지: 테두리형 — 바탕 없이 테두리·글자만 색 (2026-11-16 사용자 지시, 소식 배지와 통일) */
+  /* 기념일은 원래 채운 배지, 일정만 테두리형 — 둘을 구분하려고 (2026-11-16 사용자 지시) */
   .cat-anniversary {
     background: var(--color-primary, #a8352a);
     color: #fff;
   }
   .cat-plan {
-    background: var(--color-secondary, #1e6e6e);
-    color: #fff;
+    background: transparent;
+    border-color: currentColor;
+    color: var(--color-secondary, #1e6e6e);
+  }
+  /* 상단 상자의 일정 배지는 칸 안 일정 배지와 같은 네모 (기념일 배지는 원래 둥근 모양 그대로) */
+  .ev-pill.cat-plan {
+    border-radius: var(--radius-sm);
   }
   .cat-other {
     background: color-mix(in srgb, var(--color-muted, #8a807a) 30%, #fff);

@@ -158,7 +158,8 @@ export interface EditImage {
 }
 
 /** verse = 경전 절(문장마다 위치 표시 ^1-1-3). 편집할 때는 label=절 이름, text=문장 줄("문장 ^위치") */
-export type BlockType = "heading" | "text" | "quote" | "image" | "video" | "link" | "imageref" | "map" | "verse";
+/** schedule = 일정(시작일·끝나는 날·일정 이름) — 저장하면 달력 일정이 된다. 글 하나에 하나 (2026-11-16) */
+export type BlockType = "heading" | "text" | "quote" | "image" | "video" | "link" | "imageref" | "map" | "verse" | "schedule";
 
 /** 절 블록 lines([{a,t}]) ↔ 편집 글("문장 ^a" 줄) */
 export const verseToText = (lines: { a?: string; t: string }[] | undefined) =>
@@ -184,6 +185,11 @@ export interface EditBlock {
   view_href: string | null;
   point: string | null;
   view_point: any;
+  /** 일정 블록: YYYY-MM-DD */
+  start: string;
+  end: string;
+  /** 일정 블록: 이 일정만의 안내(글자) */
+  memo: string;
 }
 
 export function newImage(i: Partial<EditImage>): EditImage {
@@ -210,6 +216,9 @@ export function emptyBlock(type: BlockType): EditBlock {
     view_href: null,
     point: null,
     view_point: null,
+    start: "",
+    end: "",
+    memo: "",
   };
 }
 
@@ -237,6 +246,9 @@ export function fromApi(blocks: any[] | null | undefined): EditBlock[] {
     view_href: b.view_href ?? null,
     point: b.point ?? null,
     view_point: b.view_point ?? null,
+    start: b.start ?? "",
+    end: b.end ?? "",
+    memo: b.memo ?? "",
   }));
 }
 
@@ -275,6 +287,9 @@ export function toApi(blocks: EditBlock[]) {
     } else if (b.type === "link") {
       if (b.ref) out.push({ ...base, ref: b.ref });
       else if (b.url.trim() || b.label.trim()) out.push({ ...base, url: b.url, label: b.label });
+    } else if (b.type === "schedule") {
+      if (!b.start && !b.end && !b.label.trim() && !b.memo.trim()) continue;
+      out.push({ ...base, start: b.start, ...(b.end ? { end: b.end } : {}), label: b.label, memo: b.memo });
     } else if (b.type === "verse") {
       // 서버가 "문장 ^위치" 줄을 나눠 저장하고, 위치가 없는 새 문장에는 번호를 이어 붙인다
       if (!b.text.trim()) continue;

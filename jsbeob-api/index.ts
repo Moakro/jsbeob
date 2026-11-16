@@ -29,7 +29,8 @@ export interface Env {
 
 // 복원: 2026-11-01 배포본(jsbeob-api-preview) 번들에서 복원. 원본 TS 타입 정보는 번들에서 사라져
 // 대부분 생략되었다(tsconfig strict:false). 동작은 배포본과 같다.
-import { ALLOWED_BOARDS, BOARD_MIN_LEVEL, OPERATOR_BOARDS, PRIVATE_BOARDS, PRIVATE_BOARDS_SQL, TITLE_OPTIONAL_BOARDS } from "./boards";
+import { LEVEL, LEVELS } from "../src/data/levels";
+import { GUEST_LEVEL, OFFICIAL_AUTHOR, POST_BLOCK_TYPES, PRIVATE_BOARDS_SQL, blockPermissionError, maskOfficialAuthor, canCommentIn, canCreateIn, canDeleteIn, canEditIn, canReadBoard, canSeePostIn, getBoard, invalidateBoards, loadBoards, shapeBoard } from "./boards";
 import { LIBRARY_BOARD, handleLibrary, normLibraryPostFields } from "./library";
 import { BlockError, allKeys, allPointIds, blocksForEditor, imageItems, normalizeBlocks, parseStoredBlocks, plainFromBlocks, resolveBlocks, s } from "./blocks";
 import { handleContent, mediaUrl, refIndexStmts, renderRowBlocks, siteHosts } from "./content";
@@ -76,7 +77,7 @@ export default {
           const uid = await currentUserId(r, env);
           if (!uid) return null;
           const u = await loadUser(env, uid);
-          return u && u.level >= 4 ? { id: u.id, level: u.level } : null;
+          return u && u.level >= LEVEL.ADMIN ? { id: u.id, level: u.level } : null;
         }
       });
       if (libRes) return libRes;
@@ -85,7 +86,7 @@ export default {
           const uid = await currentUserId(r, env);
           if (!uid) return null;
           const u = await loadUser(env, uid);
-          return u && u.level >= 4 ? { id: u.id, level: u.level } : null;
+          return u && u.level >= LEVEL.ADMIN ? { id: u.id, level: u.level } : null;
         }
       });
       if (branchRes) return branchRes;
@@ -97,7 +98,7 @@ export default {
           const uid = await currentUserId(r, env);
           if (!uid) return null;
           const u = await loadUser(env, uid);
-          return u && u.level >= 4 ? { id: u.id, level: u.level } : null;
+          return u && u.level >= LEVEL.ADMIN ? { id: u.id, level: u.level } : null;
         },
         // 지부 코드는 branches 표에서(관리 화면에서 추가한 지부 포함) — 필요할 때만 읽는다
         branchCodes: () => branchCodeSet(env)
@@ -108,7 +109,7 @@ export default {
           const uid = await currentUserId(r, env);
           if (!uid) return null;
           const u = await loadUser(env, uid);
-          return u && u.level >= 4 ? { id: u.id, level: u.level } : null;
+          return u && u.level >= LEVEL.ADMIN ? { id: u.id, level: u.level } : null;
         }
       });
       if (mediaRes) return mediaRes;
@@ -129,6 +130,12 @@ export default {
         if (req.method === "DELETE") return deletePost(req, env, id);
       }
       if (path === "/api/me") return getMe(req, env);
+      // 게시판 설정 (2026-11-16 게시판 관리)
+      if (path === "/api/boards" && req.method === "GET") return listBoards(req, env);
+      const boardMatch = path.match(/^\/api\/boards\/([a-z0-9-]+)$/);
+      if (boardMatch && req.method === "GET") return getBoardApi(req, env, boardMatch[1]);
+      const adminBoardMatch = path.match(/^\/api\/admin\/boards(?:\/([a-z0-9-]+))?$/);
+      if (adminBoardMatch) return adminBoards(req, env, adminBoardMatch[1] ?? null);
       if (path === "/api/me/nickname") return setNickname(req, env);
       if (path === "/api/admin/users" && req.method === "GET") return adminListUsers(req, env);
       const userMatch = path.match(/^\/api\/admin\/users\/([^/]+)$/);
@@ -510,7 +517,7 @@ async function setNickname(req, env) {
   const old = await env.DB.prepare("SELECT display_name FROM users WHERE id=?").bind(uid).first();
   const oldName = old?.display_name ?? null;
   await env.DB.prepare(
-    "UPDATE users SET display_name=?, affiliation=?, level=MAX(level, 1), updated_at=datetime('now') WHERE id=?"
+    `UPDATE users SET display_name=?, affiliation=?, level=MAX(level, ${LEVEL.GENERAL}), updated_at=datetime('now') WHERE id=?`
   ).bind(nickname, body.affiliation ?? null, uid).run();
   if (oldName !== nickname) {
     await env.DB.prepare(
@@ -529,13 +536,11 @@ async function setNickname(req, env) {
   }
   return json({ ok: true });
 }
-const USER_LEVEL_MIN = 0;
-const USER_LEVEL_MAX = 4;
 async function adminListUsers(req, env) {
   const uid = await currentUserId(req, env);
   if (!uid) return json({ error: "unauthenticated" }, 401);
   const me = await loadUser(env, uid);
-  if (!me || me.level < 4) return json({ error: "forbidden" }, 403);
+  if (!me || me.level < LEVEL.ADMIN) return json({ error: "forbidden" }, 403);
   const rs = await env.DB.prepare(
     `
     SELECT
@@ -566,10 +571,10 @@ async function adminUpdateUser(req, env, id) {
   const uid = await currentUserId(req, env);
   if (!uid) return json({ error: "unauthenticated" }, 401);
   const me = await loadUser(env, uid);
-  if (!me || me.level < 4) return json({ error: "forbidden" }, 403);
+  if (!me || me.level < LEVEL.ADMIN) return json({ error: "forbidden" }, 403);
   const body = await req.json().catch(() => ({}));
   const level = body.level;
-  if (typeof level !== "number" || !Number.isInteger(level) || level < USER_LEVEL_MIN || level > USER_LEVEL_MAX) {
+  if (typeof level !== "number" || !LEVELS.includes(level)) {
     return json({ error: "등급 값이 올바르지 않습니다" }, 400);
   }
   if (id === uid) return json({ error: "자기 등급은 바꿀 수 없습니다" }, 400);
@@ -584,7 +589,7 @@ async function adminListComments(req, env) {
   const uid = await currentUserId(req, env);
   if (!uid) return json({ error: "unauthenticated" }, 401);
   const me = await loadUser(env, uid);
-  if (!me || me.level < 4) return json({ error: "forbidden" }, 403);
+  if (!me || me.level < LEVEL.ADMIN) return json({ error: "forbidden" }, 403);
   const url = new URL(req.url);
   const unpromoted = (url.searchParams.get("unpromoted") ?? "1") === "1";
   const typeFilter = url.searchParams.get("type");
@@ -614,7 +619,7 @@ async function adminPromoteComment(req, env, id) {
   const uid = await currentUserId(req, env);
   if (!uid) return json({ error: "unauthenticated" }, 401);
   const me = await loadUser(env, uid);
-  if (!me || me.level < 4) return json({ error: "forbidden" }, 403);
+  if (!me || me.level < LEVEL.ADMIN) return json({ error: "forbidden" }, 403);
   const body = await req.json().catch(() => ({}));
   const noteId = body.note_id;
   if (noteId !== null && (typeof noteId !== "string" || !/^uc-\d{4}-\d{2}-\d{2}-\d+$/.test(noteId))) {
@@ -629,7 +634,7 @@ async function adminPromoteComment(req, env, id) {
 }
 const ALLOWED_TYPES = new Set(["memo", "question", "cross", "cite"]);
 const ALLOWED_TARGET_TYPES = new Set(["post", "article", "place"]);
-const MEMBER_LEVEL = 2;
+const MEMBER_LEVEL = LEVEL.BELIEVER;
 const FEED_TARGETS = new Set(["article", "place"]);
 const MAX_ATTACHMENTS = 6;
 function parseYouTubeId(input) {
@@ -781,7 +786,7 @@ async function verseFeed(req, env) {
       latest: {
         body: preview,
         user_nickname: r.user_nickname ?? "",
-        is_admin: (r.user_level ?? 0) >= 4,
+        is_admin: (r.user_level ?? 0) >= LEVEL.ADMIN,
         created_at: toIsoUtc(r.latest_at),
         has_photos: photos > 0
       }
@@ -877,7 +882,7 @@ function buildFeedItem(r) {
     author: {
       display_name: r.author_name ?? "",
       avatar_url: r.author_avatar ?? null,
-      is_admin: (r.author_level ?? 0) >= 4
+      is_admin: (r.author_level ?? 0) >= LEVEL.ADMIN
     }
   };
 }
@@ -897,8 +902,8 @@ async function listComments(req, env) {
   const [targetType, ...rest] = target.split(":");
   const targetId = rest.join(":");
   if (!ALLOWED_TARGET_TYPES.has(targetType)) return json({ error: "invalid target type" }, 400);
-  const priv = await privatePostOf(env, targetType, targetId);
-  if (priv && !canSeePost(priv.board, priv.author_id, await viewerOf(req, env))) return json({ error: "not found" }, 404);
+  const tp = await postBoardOf(env, targetType, targetId);
+  if (tp && !(await canSeePost(env, tp.board, tp.author_id, await viewerOf(req, env)))) return json({ error: "not found" }, 404);
   const rows = await env.DB.prepare(
     `SELECT c.id, c.target_type, c.target_id, c.parent_id, c.body, c.body_html, c.type,
             c.status, c.attachments, c.is_pinned, c.promoted_to_note_id, c.created_at, c.updated_at,
@@ -981,9 +986,12 @@ async function createComment(req, env) {
   }
   const type = body.type ?? "memo";
   if (!ALLOWED_TYPES.has(type)) return json({ error: "invalid type" }, 400);
-  const privTarget = await privatePostOf(env, targetType, targetId);
-  if (privTarget && !canSeePost(privTarget.board, privTarget.author_id, { id: uid, level: u.level ?? 0 })) {
-    return json({ error: "not found" }, 404);
+  const tp = await postBoardOf(env, targetType, targetId);
+  if (tp) {
+    const tb = await getBoard(env.DB, tp.board);
+    const cu = { id: uid, level: u.level ?? 0 };
+    if (!canSeePostIn(tb, tp.author_id, cu)) return json({ error: "not found" }, 404);
+    if (!canCommentIn(tb, cu)) return json({ error: "이 게시판에는 댓글을 쓸 수 없습니다" }, 403);
   }
   if (FEED_TARGETS.has(targetType)) {
     if ((u.level ?? 0) < MEMBER_LEVEL) return json({ error: "교인 인증 회원만 피드를 쓸 수 있습니다" }, 403);
@@ -1045,7 +1053,7 @@ async function deleteComment(req, env, id) {
   const owner = await env.DB.prepare("SELECT user_id FROM comments WHERE id=?").bind(id).first();
   if (!owner) return json({ error: "not found" }, 404);
   const isOwner = owner.user_id === uid;
-  const isCurator = (u?.level ?? 0) >= 3;
+  const isCurator = (u?.level ?? 0) >= LEVEL.EDITOR;
   if (!isOwner && !isCurator) return json({ error: "forbidden" }, 403);
   if (isOwner) {
     const replyCount = await env.DB.prepare(
@@ -1069,7 +1077,7 @@ async function pinComment(req, env, id) {
   const uid = await currentUserId(req, env);
   if (!uid) return json({ error: "not authenticated" }, 401);
   const u = await loadUser(env, uid);
-  if (!u || (u.level ?? 0) < 4) return json({ error: "forbidden" }, 403);
+  if (!u || (u.level ?? 0) < LEVEL.ADMIN) return json({ error: "forbidden" }, 403);
   const row = await env.DB.prepare("SELECT is_pinned FROM comments WHERE id=?").bind(id).first();
   if (!row) return json({ error: "not found" }, 404);
   const next = row.is_pinned === 1 ? 0 : 1;
@@ -1408,7 +1416,7 @@ async function uploadImage(req, env) {
   if (!uid) return json({ error: "not authenticated" }, 401);
   const u = await loadUser(env, uid);
   if (!u || !u.display_name) return json({ error: "닉네임 설정 필요" }, 403);
-  if ((u.level ?? 0) < 1) return json({ error: "업로드 권한 없음" }, 403);
+  if ((u.level ?? 0) < LEVEL.GENERAL) return json({ error: "업로드 권한 없음" }, 403);
   const ct = req.headers.get("Content-Type") ?? "";
   if (!ALLOWED_IMAGE_TYPES.has(ct)) {
     return json({ error: "허용된 형식: jpeg/png/webp" }, 415);
@@ -1559,14 +1567,15 @@ function normalizeEventInput(raw) {
 const EVENT_SELECT = `
   SELECT ev.id, ev.user_id, ev.title, ev.start_date, ev.end_date, ev.all_day,
          ev.category, ev.is_annual, ev.is_lunar, ev.is_public, ev.memo,
-         ev.created_at, ev.updated_at, ev.source_post_id
-    FROM events ev
+         ev.created_at, ev.updated_at, ev.source_post_id, ev.source_block_id,
+         sp.board AS source_board, sp.category AS source_category
+    FROM events ev LEFT JOIN posts sp ON sp.id = ev.source_post_id
 `;
 async function eventAdmin(req, env) {
   const uid = await currentUserId(req, env);
   if (!uid) return null;
   const u = await loadUser(env, uid);
-  return u && u.level >= 4 ? { id: u.id } : null;
+  return u && u.level >= LEVEL.ADMIN ? { id: u.id } : null;
 }
 async function listEvents(req, env) {
   const admin = await eventAdmin(req, env);
@@ -1773,7 +1782,7 @@ async function listNews(req, env) {
     const uid = await currentUserId(req, env);
     if (!uid) return json({ error: "unauthenticated" }, 401);
     const me = await loadUser(env, uid);
-    if (!me || me.level < 4) return json({ error: "forbidden" }, 403);
+    if (!me || me.level < LEVEL.ADMIN) return json({ error: "forbidden" }, 403);
     isAdmin = true;
   }
   if (cat && !NEWS_CATEGORIES.has(cat)) return json({ error: "invalid category" }, 400);
@@ -1800,7 +1809,7 @@ async function getNews(req, env, slug) {
     const uid = await currentUserId(req, env);
     if (!uid) return json({ error: "not found" }, 404);
     const me = await loadUser(env, uid);
-    if (!me || me.level < 4) return json({ error: "not found" }, 404);
+    if (!me || me.level < LEVEL.ADMIN) return json({ error: "not found" }, 404);
   }
   return json({ news: row });
 }
@@ -1808,7 +1817,7 @@ async function createNews(req, env) {
   const uid = await currentUserId(req, env);
   if (!uid) return json({ error: "unauthenticated" }, 401);
   const me = await loadUser(env, uid);
-  if (!me || me.level < 4) return json({ error: "forbidden" }, 403);
+  if (!me || me.level < LEVEL.ADMIN) return json({ error: "forbidden" }, 403);
   const raw = await req.json().catch(() => null);
   const parsed = normalizeNewsInput(raw);
   if (parsed.error) return json({ error: parsed.error }, 400);
@@ -1843,7 +1852,7 @@ async function updateNews(req, env, id) {
   const uid = await currentUserId(req, env);
   if (!uid) return json({ error: "unauthenticated" }, 401);
   const me = await loadUser(env, uid);
-  if (!me || me.level < 4) return json({ error: "forbidden" }, 403);
+  if (!me || me.level < LEVEL.ADMIN) return json({ error: "forbidden" }, 403);
   const existing = await env.DB.prepare(
     "SELECT id, slug, draft FROM news WHERE id = ?"
   ).bind(id).first();
@@ -1901,7 +1910,7 @@ async function deleteNews(req, env, id) {
   const uid = await currentUserId(req, env);
   if (!uid) return json({ error: "unauthenticated" }, 401);
   const me = await loadUser(env, uid);
-  if (!me || me.level < 4) return json({ error: "forbidden" }, 403);
+  if (!me || me.level < LEVEL.ADMIN) return json({ error: "forbidden" }, 403);
   const existing = await env.DB.prepare("SELECT id FROM news WHERE id = ?").bind(id).first();
   if (!existing) return json({ error: "not found" }, 404);
   await env.DB.prepare("DELETE FROM news WHERE id = ?").bind(id).run();
@@ -1985,9 +1994,8 @@ function renderBlock(block) {
   return `<p>${inner}</p>`;
 }
 const POST_PAGE_SIZE = 20;
-function canSeePost(board, authorId, viewer) {
-  if (!PRIVATE_BOARDS.has(board)) return true;
-  return !!viewer && (viewer.id === authorId || viewer.level >= 4);
+async function canSeePost(env, board, authorId, viewer) {
+  return canSeePostIn(await getBoard(env.DB, board), authorId, viewer);
 }
 async function viewerOf(req, env) {
   const uid = await currentUserId(req, env);
@@ -1995,42 +2003,160 @@ async function viewerOf(req, env) {
   const u = await loadUser(env, uid);
   return u ? { id: uid, level: u.level ?? 0 } : null;
 }
-const NEWS_BOARD = "news";
-function newsExtras(raw) {
-  const out = {};
-  if (raw.notice !== void 0) out.notice = !!raw.notice;
-  if (raw.period !== void 0) {
-    if (raw.period === null || !raw.period?.start) out.period = null;
-    else {
-      const start = String(raw.period.start);
-      const end = raw.period.end ? String(raw.period.end) : null;
-      if (!EVENT_DATE_RE.test(start) || end && !EVENT_DATE_RE.test(end)) return { error: "기간은 YYYY-MM-DD 형식이어야 합니다" };
-      if (end && end < start) return { error: "끝나는 날이 시작하는 날보다 앞입니다" };
-      out.period = { start, end: end && end !== start ? end : null };
-    }
-  }
-  return out;
+/** 공지 고정(게시판 설정 options.notice 가 켜진 게시판만) */
+function noticeStmts(env, board, postId, raw) {
+  if (!board?.options?.notice || raw.notice === void 0) return [];
+  return [env.DB.prepare("UPDATE posts SET is_pinned=? WHERE id=?").bind(raw.notice ? 1 : 0, postId)];
 }
-function newsExtraStmts(env, postId, uid, title, x) {
-  const st = [];
-  if (x.notice !== void 0) st.push(env.DB.prepare("UPDATE posts SET is_pinned=? WHERE id=?").bind(x.notice ? 1 : 0, postId));
-  if (x.period !== void 0) {
-    st.push(env.DB.prepare("DELETE FROM events WHERE source_post_id=?").bind(postId));
-    if (x.period) {
-      st.push(
-        env.DB.prepare(
-          `INSERT INTO events (id, user_id, title, start_date, end_date, category, is_annual, is_lunar, is_public, source_post_id)
-           VALUES (?, ?, ?, ?, ?, '일정', 0, 0, 1, ?)`
-        ).bind(uuid(), uid, title, x.period.start, x.period.end, postId)
-      );
-    }
+/**
+ * 일정 블록 → 달력 일정(events) 동기화. 글의 일정은 지우고 블록대로 다시 넣는다 (2026-11-16: 소식 '기간' 칸을 대신함).
+ * 일정 이름은 블록에 적은 이름, 없으면 글 제목.
+ */
+function scheduleStmts(env, board, postId, uid, title, blocks) {
+  // 일정 블록마다 달력 일정 하나 (한 글에 여러 개 가능)
+  const schedules = blocks.filter((b) => b.type === "schedule");
+  // 게시판 설정에서 일정 블록을 켠 게시판 = 달력에 일정이 나오는 게시판 (2026-11-16 사용자 결정, '달력에 표시' 설정은 따로 없음)
+  const pub = 1;
+  const st = [env.DB.prepare("DELETE FROM events WHERE source_post_id=?").bind(postId)];
+  for (const sch of schedules) {
+    st.push(
+      env.DB.prepare(
+        `INSERT INTO events (id, user_id, title, start_date, end_date, category, is_annual, is_lunar, is_public, source_post_id, source_block_id)
+         VALUES (?, ?, ?, ?, ?, '일정', 0, 0, ?, ?, ?)`
+      ).bind(uuid(), uid, sch.label || title, sch.start, sch.end ?? null, pub, postId, sch.id)
+    );
   }
   return st;
 }
-async function privatePostOf(env, targetType, targetId) {
+// ── 게시판 설정 API (2026-11-16) ─────────────────────────────────────────
+// GET /api/boards — 게시판 설정(권한·블록). 관리자는 숨긴 게시판과 글 수까지.
+async function listBoards(req, env) {
+  const viewer = await viewerOf(req, env);
+  const admin = (viewer?.level ?? GUEST_LEVEL) >= LEVEL.ADMIN;
+  const all = [...(await loadBoards(env.DB)).values()];
+  const boards = admin ? all : all.filter((b) => b.status === "active");
+  if (admin) {
+    const rs = await env.DB.prepare("SELECT board, COUNT(*) AS n FROM posts WHERE status <> 'deleted' GROUP BY board").all();
+    const n = new Map((rs.results ?? []).map((r) => [r.board, r.n]));
+    return json({ boards: boards.map((b) => ({ ...b, post_count: n.get(b.key) ?? 0 })) });
+  }
+  return json({ boards });
+}
+async function getBoardApi(req, env, key) {
+  const b = await getBoard(env.DB, key);
+  const viewer = await viewerOf(req, env);
+  if (!b || (b.status !== "active" && (viewer?.level ?? GUEST_LEVEL) < LEVEL.ADMIN)) return json({ error: "not found" }, 404);
+  return json({ board: b });
+}
+const BOARD_KEY_RE = /^[a-z][a-z0-9-]{1,29}$/;
+// 주소가 겹치거나 예전 주소로 쓰인 이름
+const RESERVED_BOARD_KEYS = new Set(["write", "edit", "new", "admin", "api", "all", "book", "mantra", "ritual", "library", "places", "p", "search"]);
+const READ_LEVELS = [GUEST_LEVEL, ...LEVELS];
+function normBoardInput(raw, existing) {
+  const out: any = {};
+  const str = (v, max, label, required) => {
+    const t = typeof v === "string" ? v.trim() : "";
+    if (required && !t) throw new Error(`${label}을(를) 넣어 주세요`);
+    if (t.length > max) throw new Error(`${label}은(는) ${max}자까지입니다`);
+    return t;
+  };
+  const level = (v, list, label) => {
+    if (!list.includes(v)) throw new Error(`${label} 등급이 올바르지 않습니다`);
+    return v;
+  };
+  if (!existing) {
+    const key = typeof raw.key === "string" ? raw.key.trim().toLowerCase() : "";
+    if (!BOARD_KEY_RE.test(key)) throw new Error("주소 이름은 영문 소문자로 시작하는 영문 소문자·숫자·- 2~30자입니다");
+    if (RESERVED_BOARD_KEYS.has(key)) throw new Error("쓸 수 없는 주소 이름입니다");
+    out.key = key;
+    // 1단계: 새 게시판은 게시글 저장·목록 보기·도생광장 아래만 (문서·장소·피드는 다음 단계)
+    out.storage = "post";
+    out.view = "list";
+    out.menu = "community";
+  }
+  const cur = existing ?? {
+    read_level: GUEST_LEVEL, read_scope: "all", create_level: LEVEL.GENERAL, edit_own: true, edit_level: LEVEL.ADMIN,
+    delete_own: true, delete_level: LEVEL.ADMIN, comment_level: LEVEL.PENDING, blocks: null, options: {}, sort_order: 100, status: "active", view: "list"
+  };
+  out.label = raw.label !== void 0 ? str(raw.label, 50, "이름", true) : existing ? existing.label : str("", 50, "이름", true);
+  out.description = raw.description !== void 0 ? str(raw.description, 200, "설명", false) : cur.description ?? "";
+  out.read_level = raw.read_level !== void 0 ? level(raw.read_level, READ_LEVELS, "읽기") : cur.read_level;
+  out.read_scope = raw.read_scope !== void 0 ? (raw.read_scope === "own" ? "own" : raw.read_scope === "all" ? "all" : (() => { throw new Error("읽기 범위가 올바르지 않습니다"); })()) : cur.read_scope;
+  out.create_level = raw.create_level !== void 0 ? level(raw.create_level, LEVELS, "쓰기") : cur.create_level;
+  if (out.create_level < out.read_level) throw new Error("쓰기 등급은 읽기 등급보다 낮을 수 없습니다");
+  out.edit_own = raw.edit_own !== void 0 ? !!raw.edit_own : cur.edit_own;
+  out.edit_level = raw.edit_level !== void 0 ? level(raw.edit_level, LEVELS, "수정") : cur.edit_level;
+  out.delete_own = raw.delete_own !== void 0 ? !!raw.delete_own : cur.delete_own;
+  out.delete_level = raw.delete_level !== void 0 ? level(raw.delete_level, LEVELS, "삭제") : cur.delete_level;
+  out.comment_level = raw.comment_level !== void 0 ? (raw.comment_level === null ? null : level(raw.comment_level, LEVELS, "댓글")) : cur.comment_level;
+  const view = existing ? existing.view : out.view;
+  if (view === "feed") out.blocks = {};
+  else {
+    // 블록 기본값 = 쓰기 등급(사용자 결정). 쓰기 등급보다 낮게 둘 수 없다.
+    const src = raw.blocks !== void 0 ? raw.blocks : cur.blocks ?? Object.fromEntries(POST_BLOCK_TYPES.filter((t) => t !== "schedule").map((t) => [t, out.create_level]));
+    if (!src || typeof src !== "object" || Array.isArray(src)) throw new Error("블록 설정이 올바르지 않습니다");
+    const blocks = {};
+    for (const [t, v] of Object.entries(src)) {
+      if (!POST_BLOCK_TYPES.includes(t)) throw new Error("알 수 없는 블록입니다");
+      if (v === null || v === void 0 || v === false) continue;
+      blocks[t] = Math.max(level(v, LEVELS, "블록"), out.create_level);
+    }
+    out.blocks = blocks;
+  }
+  const opt = raw.options !== void 0 ? raw.options : cur.options;
+  out.options = {
+    ...(existing?.options ?? {}),
+    ...(opt && typeof opt === "object" ? { notice: !!opt.notice, title_optional: !!opt.title_optional, official: !!opt.official } : {})
+  };
+  out.sort_order = raw.sort_order !== void 0 ? Math.trunc(Number(raw.sort_order)) || 0 : cur.sort_order;
+  out.status = raw.status !== void 0 ? (raw.status === "hidden" ? "hidden" : "active") : cur.status;
+  return out;
+}
+async function adminBoards(req, env, key) {
+  const me = await viewerOf(req, env);
+  if (!me || me.level < LEVEL.ADMIN) return json({ error: "forbidden" }, 403);
+  const existing = key ? await getBoard(env.DB, key) : null;
+  if (key && !existing) return json({ error: "게시판을 찾을 수 없습니다" }, 404);
+  if (req.method === "DELETE" && existing) {
+    if (existing.builtin) return json({ error: "기본 게시판은 지울 수 없습니다. 숨김으로 바꿔 주세요" }, 400);
+    const n = await env.DB.prepare("SELECT COUNT(*) AS n FROM posts WHERE board=? AND status <> 'deleted'").bind(key).first();
+    if ((n?.n ?? 0) > 0) return json({ error: "글이 있는 게시판은 지울 수 없습니다. 숨김으로 바꿔 주세요" }, 400);
+    await env.DB.prepare("DELETE FROM boards WHERE key=?").bind(key).run();
+    invalidateBoards();
+    return json({ ok: true });
+  }
+  if (!(req.method === "POST" && !key) && !(req.method === "PATCH" && existing)) return json({ error: "method not allowed" }, 405);
+  const raw = await req.json().catch(() => ({}));
+  let v;
+  try {
+    v = normBoardInput(raw, existing);
+  } catch (e) {
+    return json({ error: e.message }, 400);
+  }
+  if (!existing) {
+    const dup = await env.DB.prepare("SELECT 1 FROM boards WHERE key=?").bind(v.key).first();
+    if (dup) return json({ error: "이미 있는 주소 이름입니다" }, 400);
+    await env.DB.prepare(
+      `INSERT INTO boards (key, label, description, storage, view, menu, read_level, read_scope, create_level, edit_own, edit_level,
+         delete_own, delete_level, comment_level, blocks, options, sort_order, status, builtin)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`
+    ).bind(v.key, v.label, v.description, v.storage, v.view, v.menu, v.read_level, v.read_scope, v.create_level, v.edit_own ? 1 : 0, v.edit_level,
+      v.delete_own ? 1 : 0, v.delete_level, v.comment_level, JSON.stringify(v.blocks), JSON.stringify(v.options), v.sort_order, v.status).run();
+  } else {
+    await env.DB.prepare(
+      `UPDATE boards SET label=?, description=?, read_level=?, read_scope=?, create_level=?, edit_own=?, edit_level=?, delete_own=?,
+         delete_level=?, comment_level=?, blocks=?, options=?, sort_order=?, status=?, updated_at=datetime('now') WHERE key=?`
+    ).bind(v.label, v.description, v.read_level, v.read_scope, v.create_level, v.edit_own ? 1 : 0, v.edit_level, v.delete_own ? 1 : 0,
+      v.delete_level, v.comment_level, JSON.stringify(v.blocks), JSON.stringify(v.options), v.sort_order, v.status, key).run();
+  }
+  invalidateBoards();
+  const row = await env.DB.prepare("SELECT * FROM boards WHERE key=?").bind(existing ? key : v.key).first();
+  return json({ ok: true, board: shapeBoard(row) });
+}
+/** 댓글 대상이 게시글이면 그 글의 게시판·글쓴이 */
+async function postBoardOf(env, targetType, targetId) {
   if (targetType !== "post") return null;
-  const p = await env.DB.prepare("SELECT board, author_id FROM posts WHERE id=?").bind(targetId).first();
-  return p && PRIVATE_BOARDS.has(p.board) ? p : null;
+  return await env.DB.prepare("SELECT board, author_id FROM posts WHERE id=?").bind(targetId).first();
 }
 function parseAttachments(raw) {
   if (!raw) return [];
@@ -2087,16 +2213,23 @@ async function listPosts(req, env) {
   const where = ["p.status='published'"];
   const binds = [];
   const viewer = await viewerOf(req, env);
-  if (!viewer) where.push(`p.board NOT IN (${PRIVATE_BOARDS_SQL})`);
-  else if (viewer.level < 4) {
-    where.push(`(p.board NOT IN (${PRIVATE_BOARDS_SQL}) OR p.author_id = ?)`);
-    binds.push(viewer.id);
-  }
+  // 볼 수 있는 게시판만 — 본인 글만 보는 게시판은 본인 글만(관리자는 전부)
+  const cfg = await loadBoards(env.DB);
+  const readable = [...cfg.values()].filter((b) => canReadBoard(b, viewer));
+  let keys = readable.map((b) => b.key);
   if (board) {
-    const boards = board.split(",").map((b) => b.trim()).filter((b) => ALLOWED_BOARDS.has(b));
-    if (boards.length === 0) return json({ error: "invalid board" }, 400);
-    where.push(`p.board IN (${boards.map(() => "?").join(",")})`);
-    binds.push(...boards);
+    const asked = board.split(",").map((b) => b.trim());
+    if (!asked.some((k) => cfg.has(k))) return json({ error: "invalid board" }, 400);
+    // 있는 게시판이지만 볼 수 없으면(예: 비회원의 문의) 빈 목록 — 예전 동작과 같게
+    keys = asked.filter((k) => keys.includes(k));
+  }
+  if (keys.length === 0) return json({ posts: [], next: null, has_more: false });
+  where.push(`p.board IN (${keys.map(() => "?").join(",")})`);
+  binds.push(...keys);
+  const ownOnly = readable.filter((b) => b.read_scope === "own" && keys.includes(b.key)).map((b) => b.key);
+  if (ownOnly.length && (viewer?.level ?? GUEST_LEVEL) < LEVEL.ADMIN) {
+    where.push(`(p.board NOT IN (${ownOnly.map(() => "?").join(",")}) OR p.author_id = ?)`);
+    binds.push(...ownOnly, viewer?.id ?? "");
   }
   if (category) {
     where.push("p.category=?");
@@ -2132,8 +2265,8 @@ async function listPosts(req, env) {
             p.view_count, p.is_pinned, p.status, p.created_at, p.updated_at,
             substr(p.body_md, 1, 1200) AS excerpt, mp.branch AS author_branch,
             lc.body AS lc_body, lc.created_at AS lc_at, lcu.display_name AS lc_author,
-            (SELECT e.start_date FROM events e WHERE e.source_post_id = p.id LIMIT 1) AS ev_start,
-            (SELECT e.end_date FROM events e WHERE e.source_post_id = p.id LIMIT 1) AS ev_end,
+            (SELECT MIN(e.start_date) FROM events e WHERE e.source_post_id = p.id) AS ev_start,
+            (SELECT NULLIF(MAX(COALESCE(e.end_date, e.start_date)), MIN(e.start_date)) FROM events e WHERE e.source_post_id = p.id) AS ev_end,
             u.id AS author_uid, u.display_name AS author_name, u.avatar_url AS author_avatar,
             u.affiliation AS author_affiliation, u.level AS author_level,
             ${POST_COMMENT_COUNT_SQL} AS comment_count
@@ -2157,7 +2290,8 @@ async function listPosts(req, env) {
   const page = results.slice(0, limit);
   const nextCursor = hasMore ? page[page.length - 1]?.created_at ?? null : null;
   return json({
-    posts: page.map((r) => shapePost(r, false)),
+    // 공식 콘텐츠 게시판은 글쓴이를 JSBeob 로 (권한자에게만 실제 등록자)
+    posts: page.map((r) => maskOfficialAuthor(shapePost(r, false), cfg.get(r.board), viewer)),
     next: pageNo ? null : nextCursor,
     has_more: hasMore,
     ...pageNo ? { page: pageNo, total, pages: Math.max(1, Math.ceil((total ?? 0) / limit)) } : {}
@@ -2166,7 +2300,8 @@ async function listPosts(req, env) {
 async function listPostAuthors(req, env) {
   const url = new URL(req.url);
   const board = url.searchParams.get("board") ?? "";
-  if (!ALLOWED_BOARDS.has(board) || PRIVATE_BOARDS.has(board)) return json({ error: "invalid board" }, 400);
+  const ab = await getBoard(env.DB, board);
+  if (!ab || ab.read_scope === "own" || !canReadBoard(ab, await viewerOf(req, env))) return json({ error: "invalid board" }, 400);
   const limit = Math.min(30, Math.max(1, Number(url.searchParams.get("limit")) || 10));
   const offset = Math.max(0, Number(url.searchParams.get("offset")) || 0);
   const rs = await env.DB.prepare(
@@ -2184,10 +2319,20 @@ async function listPostAuthors(req, env) {
     has_more: rows.length > limit
   });
 }
-async function preparePostBlocks(env, raw, req, uid, existingBlocksJson = null) {
+async function preparePostBlocks(env, raw, req, uid, existingBlocksJson = null, board = null, user = null) {
   const normalized = normalizeBlocks(raw, { allowMedia: false, allowKey: true });
   if (!normalized.length) throw new BlockError("본문이 비어 있습니다. 블록을 하나 이상 채워 주세요");
   const prev = parseStoredBlocks(existingBlocksJson) ?? [];
+  if (board) {
+    let prevNorm = [];
+    try {
+      prevNorm = normalizeBlocks(prev, { allowMedia: true, allowKey: true });
+    } catch {
+      prevNorm = prev;
+    }
+    const err = blockPermissionError(board, user, normalized, prevNorm);
+    if (err) throw new BlockError(err);
+  }
   const keep = new Set(allKeys(prev));
   const keepPoints = new Set(allPointIds(prev));
   const blocks = await resolveBlocks(env.DB, normalized, siteHosts(env, req), { owner: uid, keep }, { keep: keepPoints });
@@ -2227,23 +2372,17 @@ async function createPost(req, env) {
   if (!uid) return json({ error: "not authenticated" }, 401);
   const u = await loadUser(env, uid);
   if (!u || !u.display_name) return json({ error: "닉네임 설정 필요" }, 403);
-  if ((u.level ?? 0) < 1) return json({ error: "글쓰기 권한 없음" }, 403);
+  if ((u.level ?? 0) < LEVEL.GENERAL) return json({ error: "글쓰기 권한 없음" }, 403);
   const body = await req.json().catch(() => ({}));
   const board = body.board ?? "";
-  if (!ALLOWED_BOARDS.has(board)) return json({ error: "invalid board" }, 400);
-  if (OPERATOR_BOARDS.has(board) && (u.level ?? 0) < 4) {
-    return json({ error: "운영자만 작성 가능" }, 403);
-  }
-  if ((u.level ?? 0) < (BOARD_MIN_LEVEL[board] ?? 1)) {
-    return json({ error: "교인 인증 회원만 쓸 수 있습니다" }, 403);
-  }
+  const bc = await getBoard(env.DB, board);
+  if (!bc || bc.storage !== "post") return json({ error: "invalid board" }, 400);
+  if (!canCreateIn(bc, u)) return json({ error: "이 게시판에 글을 쓸 권한이 없습니다" }, 403);
   let title = (body.title ?? "").trim();
-  const titleOptional = TITLE_OPTIONAL_BOARDS.has(board);
+  const titleOptional = !!bc.options.title_optional;
   if (!titleOptional && title.length === 0 || title.length > 200) {
     return json({ error: "제목은 1~200자여야 합니다" }, 400);
   }
-  const nx = board === NEWS_BOARD ? newsExtras(body) : {};
-  if (nx.error) return json({ error: nx.error }, 400);
   let libSeries = null;
   if (board === LIBRARY_BOARD) {
     const lf = await normLibraryPostFields(env.DB, body);
@@ -2255,7 +2394,7 @@ async function createPost(req, env) {
   if (body.blocks !== void 0) {
     let pb;
     try {
-      pb = await preparePostBlocks(env, body.blocks, req, uid);
+      pb = await preparePostBlocks(env, body.blocks, req, uid, null, bc, u);
     } catch (e) {
       if (e instanceof BlockError) return json({ error: e.message }, 400);
       throw e;
@@ -2279,7 +2418,8 @@ async function createPost(req, env) {
         libSeries
       ),
       ...refIndexStmts(env, "post", id, pb.blocks),
-      ...newsExtraStmts(env, id, uid, title, nx)
+      ...noticeStmts(env, bc, id, body),
+      ...scheduleStmts(env, bc, id, uid, title, pb.blocks)
     ]);
     return json({ ok: true, id });
   }
@@ -2314,19 +2454,21 @@ async function getPost(req, env, id) {
             p.view_count, p.is_pinned, p.status, p.created_at, p.updated_at,
             u.id AS author_uid, u.display_name AS author_name, u.avatar_url AS author_avatar,
             u.affiliation AS author_affiliation, u.level AS author_level, mp.branch AS author_branch,
-            (SELECT e.start_date FROM events e WHERE e.source_post_id = p.id LIMIT 1) AS ev_start,
-            (SELECT e.end_date FROM events e WHERE e.source_post_id = p.id LIMIT 1) AS ev_end,
+            (SELECT MIN(e.start_date) FROM events e WHERE e.source_post_id = p.id) AS ev_start,
+            (SELECT NULLIF(MAX(COALESCE(e.end_date, e.start_date)), MIN(e.start_date)) FROM events e WHERE e.source_post_id = p.id) AS ev_end,
             ${POST_COMMENT_COUNT_SQL} AS comment_count
      FROM posts p JOIN users u ON u.id = p.author_id
      LEFT JOIN member_profiles mp ON mp.user_id = u.id
      WHERE p.id=? AND p.status='published'`
   ).bind(id).first();
   if (!r) return json({ error: "not found" }, 404);
-  if (PRIVATE_BOARDS.has(r.board) && !canSeePost(r.board, r.author_uid, await viewerOf(req, env))) {
+  const viewer = await viewerOf(req, env);
+  const rb = await getBoard(env.DB, r.board);
+  if (!canSeePostIn(rb, r.author_uid, viewer)) {
     return json({ error: "not found" }, 404);
   }
   await env.DB.prepare("UPDATE posts SET view_count = view_count + 1 WHERE id=?").bind(id).run();
-  const shaped = shapePost(r, true);
+  const shaped = maskOfficialAuthor(shapePost(r, true), rb, viewer);
   shaped.view_count += 1;
   shaped.series_id = r.series_id ?? null;
   const stored = parseStoredBlocks(r.body_blocks);
@@ -2356,22 +2498,15 @@ async function updatePost(req, env, id) {
     "SELECT author_id, status, board, body_blocks, category, series_id, title FROM posts WHERE id=?"
   ).bind(id).first();
   if (!post || post.status === "deleted") return json({ error: "not found" }, 404);
-  const isOwner = post.author_id === uid;
-  const isAdmin = (u?.level ?? 0) >= 4;
-  if (!isOwner && !isAdmin) return json({ error: "forbidden" }, 403);
-  if (OPERATOR_BOARDS.has(post.board) && !isAdmin) return json({ error: "운영자만 수정할 수 있습니다" }, 403);
+  const bc = await getBoard(env.DB, post.board);
+  if (!canEditIn(bc, post.author_id, u ? { id: uid, level: u.level ?? 0 } : null)) return json({ error: "이 글을 수정할 권한이 없습니다" }, 403);
   const body = await req.json().catch(() => ({}));
   let title = (body.title ?? "").trim();
-  if (!title && TITLE_OPTIONAL_BOARDS.has(post.board)) title = post.title ?? "";
+  if (!title && bc?.options?.title_optional) title = post.title ?? "";
   if (title.length === 0 || title.length > 200) {
     return json({ error: "제목은 1~200자여야 합니다" }, 400);
   }
-  const nx = post.board === NEWS_BOARD ? newsExtras(body) : {};
-  if (nx.error) return json({ error: nx.error }, 400);
-  const newsStmts = post.board === NEWS_BOARD ? [
-    ...newsExtraStmts(env, id, uid, title, nx),
-    ...nx.period === void 0 ? [env.DB.prepare("UPDATE events SET title=?, updated_at=datetime('now') WHERE source_post_id=?").bind(title, id)] : []
-  ] : [];
+  const newsStmts = noticeStmts(env, bc, id, body);
   let libSeries = post.series_id;
   if (post.board === LIBRARY_BOARD) {
     const lf = await normLibraryPostFields(
@@ -2386,12 +2521,12 @@ async function updatePost(req, env, id) {
   if (body.blocks !== void 0) {
     let pb;
     try {
-      pb = await preparePostBlocks(env, body.blocks, req, uid, post.body_blocks);
+      pb = await preparePostBlocks(env, body.blocks, req, uid, post.body_blocks, bc, u ? { id: uid, level: u.level ?? 0 } : null);
     } catch (e) {
       if (e instanceof BlockError) return json({ error: e.message }, 400);
       throw e;
     }
-    if (!(body.title ?? "").trim() && TITLE_OPTIONAL_BOARDS.has(post.board)) title = autoTitleFromBlocks(pb);
+    if (!(body.title ?? "").trim() && bc?.options?.title_optional) title = autoTitleFromBlocks(pb);
     await env.DB.batch([
       env.DB.prepare(
         `UPDATE posts SET title=?, body_md=?, body_html=?, body_blocks=?, category=?, attachments=?, cover_image=?, series_id=?, updated_at=datetime('now')
@@ -2408,7 +2543,8 @@ async function updatePost(req, env, id) {
         id
       ),
       ...refIndexStmts(env, "post", id, pb.blocks),
-      ...newsStmts
+      ...newsStmts,
+      ...scheduleStmts(env, bc, id, post.author_id, title, pb.blocks)
     ]);
     return json({ ok: true });
   }
@@ -2436,10 +2572,9 @@ async function deletePost(req, env, id) {
     "SELECT author_id, board FROM posts WHERE id=?"
   ).bind(id).first();
   if (!post) return json({ error: "not found" }, 404);
-  const isOwner = post.author_id === uid;
-  const isAdmin = (u?.level ?? 0) >= 4;
-  if (!isOwner && !isAdmin) return json({ error: "forbidden" }, 403);
-  if (OPERATOR_BOARDS.has(post.board) && !isAdmin) return json({ error: "운영자만 삭제할 수 있습니다" }, 403);
+  if (!canDeleteIn(await getBoard(env.DB, post.board), post.author_id, u ? { id: uid, level: u.level ?? 0 } : null)) {
+    return json({ error: "이 글을 삭제할 권한이 없습니다" }, 403);
+  }
   await env.DB.batch([
     env.DB.prepare("UPDATE posts SET status='deleted', updated_at=datetime('now') WHERE id=?").bind(id),
     // 소식 글에서 온 달력 일정도 함께 지운다
@@ -2451,7 +2586,7 @@ async function pinPost(req, env, id) {
   const uid = await currentUserId(req, env);
   if (!uid) return json({ error: "not authenticated" }, 401);
   const u = await loadUser(env, uid);
-  if ((u?.level ?? 0) < 4) return json({ error: "forbidden" }, 403);
+  if ((u?.level ?? 0) < LEVEL.ADMIN) return json({ error: "forbidden" }, 403);
   const post = await env.DB.prepare(
     "SELECT is_pinned FROM posts WHERE id=?"
   ).bind(id).first();

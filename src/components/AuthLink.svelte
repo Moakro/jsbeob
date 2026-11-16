@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { LEVEL } from "../data/levels";
   // 헤더 계정 버튼 — 로그인 시 프로필 이미지 + 메뉴(내 정보·사이트 관리·로그아웃), 아니면 로그인 링크.
   // 복원(2026-11-01): 배포본 클라이언트(_astro/AuthLink.*.js) 기준.
   import { onMount } from "svelte";
@@ -86,7 +87,7 @@
     {#if open}
       <div class="auth-dropdown" role="menu">
         <a role="menuitem" href="/account/" onclick={() => (open = false)}>내 정보</a>
-        {#if (user.level ?? 0) >= 4}
+        {#if (user.level ?? 0) >= LEVEL.ADMIN}
           <a role="menuitem" href="/admin/" onclick={() => (open = false)}>사이트 관리</a>
         {/if}
         <button type="button" role="menuitem" onclick={logout}>로그아웃</button>

@@ -1,5 +1,6 @@
 <script lang="ts">
-  // 오리알터 피드(밴드처럼) — 글·사진·유튜브 카드, 댓글 펼치기, 글 모달, 글쓰기(검증 회원 이상)·수정·삭제.
+  import { LEVEL } from "../../data/levels";
+  // 오리알터 피드(밴드처럼) — 글·사진·유튜브 카드, 댓글 펼치기, 글 모달, 글쓰기(교인 회원 이상)·수정·삭제.
   // 검색어·회원 필터는 ORIALTER_FILTER_EVENT 로 받는다(오리알터 검색칸·회원 목록).
   // 복원(2026-11-01): 배포본 SSR(CommunityHome 청크)·클라이언트(_astro/OrialterFeed.*.js) 기준.
   import { onMount, tick } from "svelte";
@@ -41,8 +42,8 @@
   let replying = $state(false);
   let replyInput = $state<HTMLInputElement | undefined>(undefined);
 
-  /** 검증(2) 이상 + 닉네임 */
-  const canPost = $derived(!!me && !!me.display_name && (me.level ?? 0) >= 2);
+  /** 교인(2) 이상 + 닉네임 */
+  const canPost = $derived(!!me && !!me.display_name && (me.level ?? 0) >= LEVEL.BELIEVER);
 
   // 글쓰기
   let text = $state("");
@@ -123,7 +124,7 @@
     return { text, videos };
   }
   const videoCount = (src: string) => splitYouTube(src).videos.length;
-  const canEdit = (p: { author_id: string }) => !!me && (me.id === p.author_id || (me.level ?? 0) >= 4);
+  const canEdit = (p: { author_id: string }) => !!me && (me.id === p.author_id || (me.level ?? 0) >= LEVEL.ADMIN);
 
   /** 공유 링크로 들어온 글이 첫 쪽에 없으면 그 글부터 */
   let fromOlder = $state(false);

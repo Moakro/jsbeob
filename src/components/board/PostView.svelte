@@ -1,8 +1,9 @@
 <script lang="ts">
+  import { LEVEL } from "../../data/levels";
   // 게시글 보기 + 댓글. 자료실 게시물이면 시리즈 목차 상자를 위·아래에 보인다.
   // 복원(2026-11-01): 9월 버전을 배포본 클라이언트(_astro/PostView.*.js) 기준으로 갱신.
-  import { onMount } from "svelte";
-  import { api, BOARDS, boardBase, postHref, type PostDetail, type MeUser } from "../../lib/api";
+  import { onMount, tick } from "svelte";
+  import { api, BOARDS, boardBase, postHref, type BoardConfig, type PostDetail, type MeUser } from "../../lib/api";
   import YouTubeEmbed from "./YouTubeEmbed.svelte";
   import SeriesBox from "./SeriesBox.svelte";
 
@@ -29,10 +30,22 @@
   let commentText = $state("");
   let posting = $state(false);
 
-  const canEdit = $derived(!!me && !!post && (me.id === post.author_id || (me.level ?? 0) >= 4));
-  const canComment = $derived(!!me && !!me.display_name);
-  /** 상단 고정은 운영자가 탭 보드(소식·오리알터)에서만 */
-  const canPin = $derived(!!me && (me.level ?? 0) >= 4 && !!meta?.tab);
+  // 수정·삭제·댓글 권한은 게시판 설정에서 (2026-11-16 게시판 관리)
+  let cfg = $state<BoardConfig | null>(null);
+  const lv = $derived(me?.level ?? 0);
+  const isAdmin = $derived(lv >= LEVEL.ADMIN);
+  const canEdit = $derived(
+    !!me && !!post && (isAdmin || (!!cfg && ((cfg.edit_own && me.id === post.author_id) || lv >= cfg.edit_level))),
+  );
+  const canDelete = $derived(
+    !!me && !!post && (isAdmin || (!!cfg && ((cfg.delete_own && me.id === post.author_id) || lv >= cfg.delete_level))),
+  );
+  const commentsOn = $derived(!cfg || cfg.comment_level !== null);
+  const canComment = $derived(
+    !!me && !!me.display_name && !!cfg && cfg.comment_level !== null && (isAdmin || lv >= cfg.comment_level),
+  );
+  /** 상단 고정은 관리자가 공지를 쓰는 게시판(소식 등)·탭 보드에서만 */
+  const canPin = $derived(isAdmin && (!!cfg?.options?.notice || !!meta?.tab));
 
   let pinning = $state(false);
   async function togglePin() {
@@ -68,12 +81,24 @@
       me = (await api.me()).user;
     } catch {}
     try {
+      cfg = (await api.board(board)).board;
+    } catch {}
+    try {
       post = (await api.getPost(id)).post;
       await loadComments();
     } catch (e) {
       error = e instanceof Error ? e.message : "불러오기 실패";
     } finally {
       loading = false;
+    }
+    // 달력·다가오는 날에서 일정을 눌러 #b-블록번호 로 들어오면 그 일정 카드로 이동·강조 (2026-11-16)
+    if (post && location.hash.startsWith("#b-")) {
+      await tick();
+      const el = document.getElementById(decodeURIComponent(location.hash.slice(1)));
+      if (el) {
+        el.scrollIntoView({ block: "center" });
+        if (el.classList.contains("blk-schedule")) el.classList.add("hl");
+      }
     }
   });
 
@@ -122,17 +147,18 @@
     {#if crumbs}
       <nav class="crumbs">
         <a href={meta?.parent?.href ?? "/community/"}>{meta?.parent?.label ?? "도생광장"}</a><span>/</span>
-        <a href={`${boardBase(board, post.category)}/`}>{meta?.label ?? board}</a>
+        <a href={`${boardBase(board, post.category)}/`}>{cfg?.label ?? meta?.label ?? board}</a>
       </nav>
     {/if}
     <header class="post-head">
       <h1>{post.title}</h1>
       <div class="byline">
         <span class="author">{post.author.display_name ?? "회원"}</span>
+        {#if post.registered_by}<span class="reg" title="권한자에게만 보입니다">등록 {post.registered_by}</span>{/if}
         <span>{fmt(post.created_at)}</span>
         <span>조회 {post.view_count}</span>
       </div>
-      {#if canEdit || canPin}
+      {#if canEdit || canDelete || canPin}
         <div class="actions">
           {#if canPin}
             <button
@@ -145,6 +171,8 @@
           {/if}
           {#if canEdit}
             <a class="btn btn-ghost" href={`${postHref(board, id, post.category)}edit/`}>수정</a>
+          {/if}
+          {#if canDelete}
             <button class="btn btn-ghost danger" onclick={remove}>삭제</button>
           {/if}
         </div>
@@ -174,8 +202,8 @@
       <SeriesBox title={series.title} items={series.items} where="bottom" />
     {/if}
 
-    <!-- 댓글 -->
-    <section class="comments">
+    <!-- 댓글 (게시판 설정에서 댓글을 끄면 숨긴다) -->
+    <section class="comments" hidden={!commentsOn}>
       <h2>댓글 <span>{comments.length}</span></h2>
       {#if canComment}
         <form class="comment-form" onsubmit={submitComment}>
@@ -185,7 +213,7 @@
           </button>
         </form>
       {:else}
-        <p class="login-hint">댓글을 쓰려면 로그인하세요.</p>
+        <p class="login-hint">{me ? "이 게시판에 댓글을 쓸 권한이 없습니다." : "댓글을 쓰려면 로그인하세요."}</p>
       {/if}
       <ul class="comment-list">
         {#each comments as c (c.id)}
@@ -324,5 +352,10 @@
   }
   .c-body :global(p) {
     margin: 0;
+  }
+  /* 공식 글 실제 등록자 (권한자에게만) */
+  .reg {
+    color: var(--color-muted);
+    font-size: 0.85em;
   }
 </style>

@@ -42,6 +42,10 @@ export const getArticle = async (request: Request, section: string, slug: string
     )
   )?.article ?? null;
 
+/** 게시판 설정(DB boards) — 관리 화면에서 만든 게시판의 페이지가 쓴다 (2026-11-16) */
+export const getBoardConfig = async (request: Request, key: string) =>
+  (await contentGet(`/api/boards/${encodeURIComponent(key)}`, request, { viewer: true }))?.board ?? null;
+
 export const listPlaces = async (request: Request, kind?: string, opts: { anon?: boolean } = {}) =>
   (await contentGet(`/api/content/places${kind ? `?kind=${kind}` : ""}`, request, { viewer: !opts.anon }))?.places ?? [];
 
@@ -162,6 +166,8 @@ export const legacyHref = (board: string, cid: number | string, cat?: string | n
 export const LEGACY_BOARDS: { board: string; name: string; cats: string[] }[] = [
   { board: "study", name: "시루학당", cats: ["주문과 수행", "경전 및 도서", "의식과 예법", "기타 자료실"] },
   { board: "ort", name: "오리알터", cats: ["법종교소식", "법종교앨범", "오리알터풍경", "도생광장", "열린마당"] },
+  // 옛 공지 › 법종교알림 — 2026년 글 2개만 새 소식에 남기고 나머지 96개를 여기로 (2026-11-16 사용자 지시)
+  { board: "notice", name: "공지", cats: ["법종교알림"] },
 ];
 
 export const legacyBoardName = (board: string) => LEGACY_BOARDS.find((b) => b.board === board)?.name ?? board;

@@ -213,7 +213,7 @@ const MTABS = [
         t.ctrlKey ||
         t.shiftKey ||
         (t.preventDefault(),
-        window.dispatchEvent(new CustomEvent("jb:news-open", { detail: { id: e.dataset.newsId } })));
+        window.dispatchEvent(new CustomEvent("jb:news-open", { detail: { id: e.dataset.newsId, block: e.dataset.newsBlock } })));
     }),
   );
   document.querySelectorAll("[data-news-all]").forEach((e) => e.addEventListener("click", () => f("news")));

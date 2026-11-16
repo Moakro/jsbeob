@@ -2,12 +2,16 @@
 import Base from "../../../../layouts/Base.astro";
 import { BOARDS, postHref } from "../../../../lib/api";
 import PostEditor from "../../../../components/board/PostEditor.svelte";
+import { getBoardConfig } from "../../../../lib/content";
 export const prerender = false;
 const { board, id } = Astro.params;
-const meta = BOARDS[board];
-if (!meta) return Astro.redirect("/community/");
-if (meta.base) return Astro.redirect(`${postHref(board, id)}edit/`, 301);
-if (board === "orialter") return Astro.redirect(postHref(board, id));
+const known = BOARDS[board];
+if (known?.base) return Astro.redirect(`${postHref(board, id)}edit/`, 301);
+const cfg = await getBoardConfig(Astro.request, board).catch(() => null);
+if (!cfg) return Astro.redirect("/community/");
+// SNS(피드) 게시판은 피드에서 고친다
+if (cfg.view === "feed") return Astro.redirect(postHref(board, id));
+const meta = { label: cfg.label as string };
 ---
 
 <Base title={`${meta.label} 글 수정`} tight>

@@ -46,24 +46,20 @@ const ymd = (s) => String(s).slice(0, 10).replace(/-/g, ".");
   a:hover .news-title {
     color: var(--color-primary);
   }
+  /* 배지: 테두리형 — 바탕 없이 테두리·글자만 색 (2026-11-16 사용자 지시) */
   .news-board {
     flex: none;
     font-size: 0.8rem;
-    padding: 1px 8px;
+    line-height: 1.35;
+    padding: 0 7px;
+    border: 1px solid currentColor;
     border-radius: 999px;
-    background: var(--color-primary-bg);
+    background: transparent;
     color: var(--color-primary);
-  }
-  .news-board.notice,
-  .news-board.sched {
-    color: #fff;
-    font-weight: 700;
-  }
-  .news-board.notice {
-    background: var(--color-primary);
+    font-weight: 600;
   }
   .news-board.sched {
-    background: var(--color-secondary);
+    color: var(--color-secondary);
   }
   .news-title {
     overflow: hidden;

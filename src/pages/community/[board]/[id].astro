@@ -3,11 +3,15 @@ import Base from "../../../layouts/Base.astro";
 import { BOARDS, postHref } from "../../../lib/api";
 import PostView from "../../../components/board/PostView.svelte";
 import CommunityHome from "../../../components/community/CommunityHome.astro";
+import { getBoardConfig } from "../../../lib/content";
 export const prerender = false;
 const { board, id } = Astro.params;
-const meta = BOARDS[board];
-if (!meta) return Astro.redirect("/community/");
-if (meta.base) return Astro.redirect(postHref(board, id), 301);
+const known = BOARDS[board];
+if (known?.base) return Astro.redirect(postHref(board, id), 301);
+// 관리 화면에서 만든 게시판(2026-11-16)은 설정에서 이름을 가져온다
+const cfg = known ? null : await getBoardConfig(Astro.request, board).catch(() => null);
+if (!known && !cfg) return Astro.redirect("/community/");
+const meta = { label: (cfg?.label ?? known?.label) as string };
 const asModal = board === "orialter" || board === "news";
 ---
 

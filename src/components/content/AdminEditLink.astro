@@ -19,13 +19,14 @@ const { href, label = "편집", inline = false } = Astro.props;
   </a>
 </div>
 <script>
+  import { LEVEL } from "../../data/levels";
   // 복원: 배포본 번들(압축)에서 되살린 스크립트 — 변수 이름은 압축 결과 그대로다.
   const l = document.querySelectorAll("[data-admin-edit]");
   l.length &&
     fetch("/api/me", { credentials: "same-origin" })
       .then((e) => (e.ok ? e.json() : null))
       .then((e) => {
-        (e?.user?.level ?? 0) >= 4 && l.forEach((s) => (s.hidden = !1));
+        (e?.user?.level ?? 0) >= LEVEL.ADMIN && l.forEach((s) => (s.hidden = !1));
       })
       .catch(() => {});
 </script>

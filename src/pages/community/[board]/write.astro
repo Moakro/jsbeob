@@ -2,11 +2,15 @@
 import Base from "../../../layouts/Base.astro";
 import { BOARDS, boardBase } from "../../../lib/api";
 import PostEditor from "../../../components/board/PostEditor.svelte";
+import { getBoardConfig } from "../../../lib/content";
 export const prerender = false;
 const { board } = Astro.params;
-const meta = BOARDS[board];
-if (!meta) return Astro.redirect("/community/");
-if (meta.base) return Astro.redirect(`${boardBase(board)}/write/`, 301);
+const known = BOARDS[board];
+if (known?.base) return Astro.redirect(`${boardBase(board)}/write/`, 301);
+// SNS(피드) 게시판은 피드 입력창에서 쓴다 — /community/orialter/write/ 는 레거시 (2026-11-16)
+const cfg = await getBoardConfig(Astro.request, board).catch(() => null);
+if (!cfg || cfg.storage !== "post" || cfg.view === "feed") return Astro.redirect("/community/");
+const meta = { label: cfg.label as string };
 ---
 
 <Base title={`${meta.label} 글쓰기`} tight>

@@ -1,8 +1,10 @@
 <script lang="ts">
-  // 게시글 쓰기·수정 — 블록 본문(BlockEditor). 자료실 게시판은 분류·시리즈, 소식은 공지·기간(달력 일정).
+  import { LEVEL } from "../../data/levels";
+  // 게시글 쓰기·수정 — 블록 본문(BlockEditor). 자료실 게시판은 분류·시리즈, 공지 고정은 게시판 설정(options.notice).
+  // 2026-11-16: 권한·쓸 수 있는 블록은 게시판 설정(/api/boards/:key)에서. 소식 '기간' 칸은 일정 블록으로 바뀌었다.
   // 복원(2026-11-01): 배포본 클라이언트(_astro/PostEditor.*.js) 기준.
   import { onMount } from "svelte";
-  import { api, BOARDS, boardBase, postHref, type MeUser } from "../../lib/api";
+  import { api, BOARDS, boardBase, postHref, type BoardConfig, type MeUser } from "../../lib/api";
   import BlockEditor from "../BlockEditor.svelte";
   import SelectMenu from "../SelectMenu.svelte";
   import { fromApi, toApi, type EditBlock } from "../../lib/blocks";
@@ -19,10 +21,10 @@
   const isLibrary = board === LIBRARY_BOARD;
   let category = $state(initialCategory ?? LIBRARY_BOARD);
   let seriesId = $state("");
-  const isNews = board === "news";
+  let cfg = $state<BoardConfig | null>(null);
+  let authorId = $state<string | null>(null);
+  const hasNotice = $derived(!!cfg?.options?.notice);
   let notice = $state(false);
-  let pStart = $state("");
-  let pEnd = $state("");
   let newSeries = $state("");
   let categories = $state<any[]>([]);
   let seriesList = $state<any[]>([]);
@@ -51,30 +53,37 @@
   let initial = $state("");
   let leaving = false;
 
-  const canWrite = $derived(!!me && !!me.display_name && (me.level ?? 0) >= (meta?.writeLevel ?? 1));
+  const myLevel = $derived(me?.level ?? 0);
+  const canWrite = $derived.by(() => {
+    if (!me || !me.display_name || !cfg) return false;
+    if (myLevel >= LEVEL.ADMIN) return true;
+    if (editing) return (cfg.edit_own && me.id === authorId) || myLevel >= cfg.edit_level;
+    return cfg.status === "active" && myLevel >= cfg.create_level;
+  });
 
-  const snapshot = () =>
-    JSON.stringify({ title, blocks: toApi(blocks), category, seriesId, notice, pStart, pEnd });
+  const snapshot = () => JSON.stringify({ title, blocks: toApi(blocks), category, seriesId, notice });
 
   onMount(() => {
     (async () => {
       try {
         me = (await api.me()).user;
       } catch {}
+      try {
+        cfg = (await api.board(board)).board;
+      } catch (e) {
+        error = e instanceof Error ? e.message : "게시판 설정을 불러오지 못했습니다";
+      }
       if (editing && postId) {
         try {
           const p = (await api.getPost(postId)).post as any;
           title = p.title;
+          authorId = p.author_id ?? null;
           blocks = fromApi(p.blocks);
           if (isLibrary) {
             category = p.category ?? category;
             seriesId = p.series_id ?? "";
           }
-          if (isNews) {
-            notice = !!p.is_pinned;
-            pStart = p.period?.start ?? "";
-            pEnd = p.period?.end ?? "";
-          }
+          notice = !!p.is_pinned;
         } catch (e) {
           error = e instanceof Error ? e.message : "불러오기 실패";
         }
@@ -99,7 +108,7 @@
   async function save(e: Event) {
     e.preventDefault();
     error = null;
-    if (!title.trim()) {
+    if (!title.trim() && !cfg?.options?.title_optional) {
       error = "제목을 입력하세요.";
       return;
     }
@@ -108,13 +117,15 @@
       error = "본문이 비어 있습니다. 블록을 하나 이상 채워 주세요.";
       return;
     }
-    if (isNews && pEnd && !pStart) {
-      error = "기간의 시작일을 넣어 주세요.";
-      return;
-    }
-    if (isNews && pStart && pEnd && pEnd < pStart) {
-      error = "끝나는 날이 시작하는 날보다 앞입니다.";
-      return;
+    for (const sch of blocks.filter((b) => b.type === "schedule")) {
+      if ((sch.end || sch.label.trim() || sch.memo.trim()) && !sch.start) {
+        error = "일정 블록의 시작일을 넣어 주세요.";
+        return;
+      }
+      if (sch.start && sch.end && sch.end < sch.start) {
+        error = "일정의 끝나는 날이 시작일보다 앞입니다.";
+        return;
+      }
     }
     if (isLibrary && seriesId === "__new" && !newSeries.trim()) {
       error = "새 시리즈 이름을 입력하세요.";
@@ -132,8 +143,7 @@
         }
         lib = { category, series_id: sid };
       }
-      const news = isNews ? { notice, period: pStart ? { start: pStart, end: pEnd || null } : null } : {};
-      const input = { title: title.trim(), blocks: body, ...lib, ...news };
+      const input = { title: title.trim(), blocks: body, ...lib, ...(hasNotice ? { notice } : {}) };
       leaving = true;
       if (editing && postId) {
         await api.updatePost(postId, input);
@@ -152,7 +162,7 @@
   const heading = $derived(
     editing
       ? "글 수정"
-      : `${isLibrary ? (categories.find((c) => c.key === category)?.label ?? meta?.label ?? "") : (meta?.label ?? "")} 글쓰기`,
+      : `${isLibrary ? (categories.find((c) => c.key === category)?.label ?? cfg?.label ?? meta?.label ?? "") : (cfg?.label ?? meta?.label ?? "")} 글쓰기`,
   );
   const cancelHref = $derived(
     editing ? postHref(board, postId!, isLibrary ? category : null) : `${boardBase(board, category)}/`,
@@ -197,24 +207,14 @@
       <span>제목</span>
       <input bind:value={title} maxlength="200" placeholder="제목" />
     </label>
-    {#if isNews}
+    {#if hasNotice}
       <div class="news-fields">
         <label class="chk"><input type="checkbox" bind:checked={notice} /> 공지(목록 맨 위)</label>
-        <div class="period">
-          <span>기간</span>
-          <input type="date" bind:value={pStart} aria-label="시작일" />
-          <span aria-hidden="true">~</span>
-          <input type="date" bind:value={pEnd} min={pStart || undefined} aria-label="종료일(선택)" />
-          {#if pStart || pEnd}
-            <button type="button" class="clear" onclick={() => ((pStart = ""), (pEnd = ""))}>지우기</button>
-          {/if}
-        </div>
-        <small>기간을 넣으면 일정으로 달력에 함께 표시됩니다.</small>
       </div>
     {/if}
     <div class="field">
       <span>본문</span>
-      <BlockEditor mode="member" bind:blocks />
+      <BlockEditor mode="member" allowed={cfg?.blocks ?? {}} level={myLevel} bind:blocks />
     </div>
     {#if error}<p class="err">{error}</p>{/if}
     <div class="buttons">
@@ -286,35 +286,5 @@
     align-items: center;
     gap: 6px;
     font-weight: 600;
-  }
-  .period {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 8px;
-  }
-  .period > span:first-child {
-    font-weight: 600;
-    margin-right: 4px;
-  }
-  .period input {
-    padding: 6px 8px;
-    border: 1px solid var(--color-rule);
-    border-radius: var(--radius-sm);
-    background: var(--color-surface);
-    font: inherit;
-  }
-  .period .clear {
-    padding: 4px 8px;
-    border: 0;
-    background: none;
-    color: var(--color-muted);
-    font: inherit;
-    font-size: 0.85rem;
-    cursor: pointer;
-  }
-  .news-fields small {
-    color: var(--color-muted);
-    font-size: 0.82rem;
   }
 </style>

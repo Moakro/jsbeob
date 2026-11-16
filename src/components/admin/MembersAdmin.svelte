@@ -2,7 +2,7 @@
   // 관리자 — 회원 목록·검색·등급 변경. 내 등급은 바꿀 수 없다.
   // 복원(2026-11-01): 배포본 _astro/AdminApp.*.js 에 함께 묶인 컴포넌트. 파일 이름은 추정.
   import { adminApi, fmtKst } from "../../lib/blocks";
-  import { LEVEL_LABEL } from "../../lib/api";
+  import { LEVEL, LEVEL_LABEL, LEVELS } from "../../lib/api";
   import { branchName } from "../../data/branches";
   import { confirmDialog } from "../../lib/confirm";
   import SelectMenu from "../SelectMenu.svelte";
@@ -17,7 +17,6 @@
   let filter = $state("all");
   let q = $state("");
 
-  const LEVELS = [0, 1, 2, 3, 4];
   const levelGroups = [{ options: LEVELS.map((l) => ({ value: String(l), label: LEVEL_LABEL[l] })) }];
   const PROVIDERS: Record<string, string> = { kakao: "카카오", google: "구글" };
 
@@ -64,11 +63,11 @@
 
   async function setLevel(u: any, level: number) {
     if (level === u.level || busy) return;
-    const risky = level === 4 || u.level === 4;
+    const risky = level === LEVEL.ADMIN || u.level === LEVEL.ADMIN;
     if (
       !(await confirmDialog({
         title: "등급 변경",
-        message: `${nick(u)} 님의 등급을 ${LEVEL_LABEL[u.level]} → ${ro(LEVEL_LABEL[level])} 바꿀까요?${level === 4 ? " 운영자는 사이트 관리 전체를 쓸 수 있습니다." : ""}`,
+        message: `${nick(u)} 님의 등급을 ${LEVEL_LABEL[u.level]} → ${ro(LEVEL_LABEL[level])} 바꿀까요?${level === LEVEL.ADMIN ? " 관리자는 사이트 관리 전체를 쓸 수 있습니다." : ""}`,
         confirmText: "바꾸기",
         tone: risky ? "danger" : "default",
       }))

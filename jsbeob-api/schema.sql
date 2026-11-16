@@ -10,7 +10,7 @@ CREATE TABLE users (
   display_name  TEXT,                             -- nickname, NULL until set
   avatar_url    TEXT,
   affiliation   TEXT,                             -- 단체 자가 표시 (선택)
-  level         INTEGER NOT NULL DEFAULT 0,       -- 0=대기, 1=일반, 2=검증, 3=큐레이터, 4=운영자
+  level         INTEGER NOT NULL DEFAULT 0,       -- 0=대기, 20=일반, 40=교인, 60=편집진, 80=운영진, 100=관리자 (src/data/levels.ts)
   is_seed       INTEGER NOT NULL DEFAULT 0,       -- 1=운영자 시드 계정 (콘텐츠 누적용 가짜 회원)
   created_at    TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at    TEXT NOT NULL DEFAULT (datetime('now')),

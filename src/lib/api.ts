@@ -65,6 +65,8 @@ export interface PostSummary {
 export interface PostDetail extends PostSummary {
   body_html: string;
   body_md: string;
+  /** 공식 콘텐츠 글의 실제 등록자 — 권한자에게만 온다 */
+  registered_by?: string;
   [k: string]: unknown;
 }
 
@@ -89,8 +91,9 @@ export interface ListPostsResult {
   pages?: number;
 }
 
-/** 회원 등급 라벨 */
-export const LEVEL_LABEL: Record<number, string> = { 0: "대기", 1: "일반", 2: "검증", 3: "큐레이터", 4: "운영자" };
+/** 회원 등급 라벨 — 정의는 src/data/levels.ts */
+export { LEVEL, LEVEL_LABEL, LEVELS } from "../data/levels";
+import { LEVEL } from "../data/levels";
 
 /** 오리알터 피드 필터 변경 이벤트(window CustomEvent) */
 export const ORIALTER_FILTER_EVENT = "jb:orialter-filter";
@@ -164,6 +167,9 @@ export const api = {
     return req<ListPostsResult>(`/api/posts?${sp.toString()}`);
   },
   getPost: (id: string) => req<{ post: PostDetail }>(`/api/posts/${id}`),
+  /** 게시판 설정(권한·블록) — 2026-11-16 게시판 관리 */
+  boards: () => req<{ boards: BoardConfig[] }>("/api/boards"),
+  board: (key: string) => req<{ board: BoardConfig }>(`/api/boards/${encodeURIComponent(key)}`),
   /** 최근에 글을 올린 회원(최근 등록순) — 도생광장 오른쪽 회원 목록 */
   listAuthors: (board: string, offset = 0, limit = 10) =>
     req<{ authors: any[]; has_more: boolean }>(
@@ -187,13 +193,40 @@ export const api = {
 };
 
 /** 보드 메타 — 라벨·설명·권한. */
+/** 게시판 설정 (DB boards 표 — jsbeob-api/boards.ts shapeBoard). 등급 값은 src/data/levels.ts, -1 = 비회원 */
+export interface BoardConfig {
+  key: string;
+  label: string;
+  description: string;
+  storage: "post" | "article" | "place";
+  view: "list" | "feed" | "doc" | "book";
+  menu: "community" | "archive" | "about" | "jeongak";
+  read_level: number;
+  read_scope: "all" | "own";
+  create_level: number;
+  edit_own: boolean;
+  edit_level: number;
+  delete_own: boolean;
+  delete_level: number;
+  comment_level: number | null;
+  /** {블록 종류: 최소 등급} — 없는 종류는 사용 안 함 */
+  blocks: Record<string, number>;
+  /** official: 공식 콘텐츠 — 공개 글쓴이 JSBeob, 실제 등록자는 권한자에게만 */
+  options: { notice?: boolean; title_optional?: boolean; photo?: boolean; official?: boolean };
+  sort_order: number;
+  status: "active" | "hidden";
+  builtin: boolean;
+  /** 관리자 목록에서만 */
+  post_count?: number;
+}
+
 export interface BoardMeta {
   key: string;
   label: string;
   desc: string;
   /** 사진 피드형이면 true. */
   photo?: boolean;
-  /** 작성 가능 최소 level (기본 1). 소식은 4(운영자). */
+  /** 작성 가능 최소 level (기본 LEVEL.GENERAL). 소식은 LEVEL.ADMIN. */
   writeLevel?: number;
   /** 도생광장 탭에 보이는 보드 */
   tab?: boolean;
@@ -208,15 +241,15 @@ export interface BoardMeta {
 export const BOARDS: Record<string, BoardMeta> = {
   // 도생광장(2026-09-28 사장 결정): 공지·법종교 소식 → '소식' 하나(공지는 상단 고정 글).
   // 도생 사진·갤러리 → '오리알터' 하나(교인이 쓰는 사진·글 — 2단계에서 SNS 형식으로 바꾼다). 순서 = 탭 순서.
-  orialter: { key: "orialter", label: "오리알터", desc: "도생들이 나누는 사진과 이야기", photo: true, writeLevel: 2, tab: true },
-  news: { key: "news", label: "소식", desc: "법종교 공지와 소식", writeLevel: 4, tab: true },
+  orialter: { key: "orialter", label: "오리알터", desc: "도생들이 나누는 사진과 이야기", photo: true, writeLevel: LEVEL.BELIEVER, tab: true },
+  news: { key: "news", label: "소식", desc: "법종교 공지와 소식", writeLevel: LEVEL.ADMIN, tab: true },
   // 자료실 '기타 자료' — 정형 자료(도서·주문)가 아닌 자료는 게시물로 올린다(2026-09-28 사장 결정).
   // 지금은 운영자만 쓴다. 편집자 등급을 열면 writeLevel 을 내린다(서버 index.ts BOARD_WRITE_LEVEL 과 같이).
   etc: {
     key: "etc",
     label: "기타 자료",
     desc: "그 밖의 자료",
-    writeLevel: 4,
+    writeLevel: LEVEL.ADMIN,
     base: "/archive/etc",
     parent: { href: "/archive/", label: "자료실" },
   },

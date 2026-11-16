@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { LEVEL } from "../data/levels";
   // 내 정보 — 닉네임·소속·등급, 정보 설정·관리자·로그아웃.
   // 복원(2026-11-01): 배포본 클라이언트(_astro/AccountPanel.*.js) 기준.
   import { onMount } from "svelte";
@@ -49,7 +50,7 @@
     </div>
     <div class="links">
       <a href="/account/nickname/">정보 설정</a>
-      {#if (me.level ?? 0) >= 4}<a href="/admin/">관리자</a>{/if}
+      {#if (me.level ?? 0) >= LEVEL.ADMIN}<a href="/admin/">관리자</a>{/if}
       <button onclick={logout}>로그아웃</button>
     </div>
   </div>

@@ -1,7 +1,7 @@
 // 자료(문서·장소·지도·홈) API (/api/content/*, /api/admin/content/*)
 // 복원: 2026-11-01 배포본(jsbeob-api-preview) 번들에서 복원. 원본 TS 타입 정보는 번들에서 사라져
 // 대부분 생략되었다(tsconfig strict:false). 동작은 배포본과 같다.
-import { BOARD_LABEL, PRIVATE_BOARDS_SQL } from "./boards";
+import { BOARD_LABEL, OFFICIAL_AUTHOR, PRIVATE_BOARDS_SQL, getBoard } from "./boards";
 import { isArticleCategory } from "./library";
 import { BlockError, DOC_MARKER, MEMBER_KEY_RE, allMediaIds, blocksForEditor, blocksFromLegacy, imageItems, loadRenderCtx, loadTargetBlocks, normalizeBlocks, parseStoredBlocks, plainFromBlocks, pointStyles, refHref, refsOf, renderBlocks, resolveBlocks, s, stripWiki } from "./blocks";
 
@@ -1352,10 +1352,10 @@ async function publicSearch(req, env) {
   }
   if (kinds.has("post")) {
     const rs = await env.DB.prepare(
-      `SELECT id, board, category, title FROM posts WHERE status='published' AND board NOT IN (${PRIVATE_BOARDS_SQL}) AND title LIKE ? ORDER BY created_at DESC LIMIT ?`
+      `SELECT p.id, p.board, p.category, p.title, bd.label AS board_label FROM posts p LEFT JOIN boards bd ON bd.key = p.board WHERE p.status='published' AND p.board NOT IN (${PRIVATE_BOARDS_SQL}) AND p.title LIKE ? ORDER BY p.created_at DESC LIMIT ?`
     ).bind(like, limit).all();
     for (const r of rs.results ?? []) {
-      items.push({ kind: "post", id: r.id, title: r.title, label: BOARD_LABELS[r.board] ?? "게시글", href: refHref("post", r) });
+      items.push({ kind: "post", id: r.id, title: r.title, label: r.board_label ?? BOARD_LABELS[r.board] ?? "게시글", href: refHref("post", r) });
     }
   }
   return json({ items });
@@ -1592,12 +1592,14 @@ async function publicCard(req, env, ctx) {
   }
   if (kind === "post") {
     const r = await env.DB.prepare(
-      `SELECT p.id, p.board, p.category, p.title, p.body_html, p.body_blocks, p.created_at, u.display_name AS author
-         FROM posts p JOIN users u ON u.id = p.author_id WHERE p.id=? AND p.status='published' AND p.board NOT IN (${PRIVATE_BOARDS_SQL})`
+      `SELECT p.id, p.board, p.category, p.title, p.body_html, p.body_blocks, p.created_at, u.display_name AS author, bd.label AS board_label
+         FROM posts p JOIN users u ON u.id = p.author_id LEFT JOIN boards bd ON bd.key = p.board WHERE p.id=? AND p.status='published' AND p.board NOT IN (${PRIVATE_BOARDS_SQL})`
     ).bind(id).first();
     if (!r) return json({ error: "not found" }, 404);
     const stored = parseStoredBlocks(r.body_blocks);
     const html = stored ? (await renderRowBlocks(env, stored)).html : r.body_html;
+    // 공식 콘텐츠 게시판은 글쓴이를 JSBeob 로
+    if ((await getBoard(env.DB, r.board))?.options?.official) r.author = OFFICIAL_AUTHOR;
     return json({
       card: {
         kind,
@@ -1605,7 +1607,7 @@ async function publicCard(req, env, ctx) {
         title: r.title,
         title_hanja: null,
         summary: r.author ? `${r.author} · ${String(r.created_at).slice(0, 10)}` : null,
-        label: BOARD_LABELS[r.board] ?? "게시글",
+        label: r.board_label ?? BOARD_LABELS[r.board] ?? "게시글",
         hero: null,
         href: refHref("post", r),
         body_html: html

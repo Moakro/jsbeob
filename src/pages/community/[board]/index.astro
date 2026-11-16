@@ -6,16 +6,18 @@ import PageTitle from "../../../components/content/PageTitle.astro";
 import Board from "../../../components/board/Board.svelte";
 import { BOARDS } from "../../../lib/api";
 import { KAKAO_CHANNEL_URL } from "../../../data/site-nav";
+import { getBoardConfig } from "../../../lib/content";
 
-export function getStaticPaths() {
-  // 복원: 추정 — 배포본 사이트맵에는 /community/help/ 만 있다(탭 보드·자료실 보드 제외).
-  return Object.values(BOARDS)
-    .filter((b) => !b.tab && !b.base)
-    .map((b) => ({ params: { board: b.key } }));
-}
-
+// 2026-11-16: 관리 화면에서 만든 게시판도 열리게 요청 때 그린다(게시판 설정은 DB boards).
+export const prerender = false;
 const { board } = Astro.params;
-const meta = BOARDS[board as string];
+const known = BOARDS[board as string];
+// 도생광장 탭·자료실 게시판은 제자리로
+if (known?.tab) return Astro.redirect("/community/");
+if (known?.base) return Astro.redirect(`${known.base}/`, 301);
+const cfg = await getBoardConfig(Astro.request, board as string).catch(() => null);
+if (!cfg || cfg.storage !== "post" || cfg.view !== "list") return new Response(null, { status: 404 });
+const meta = { label: cfg.label as string, desc: (cfg.description as string) || (known?.desc ?? "") };
 ---
 
 <Base title={meta.label} description={meta.desc} tight>

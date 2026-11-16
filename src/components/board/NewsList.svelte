@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { LEVEL } from "../../data/levels";
   // 소식 목록(쪽 번호) — 공지(고정)·일정 표시. 고르면 onpick(id).
   // 복원(2026-11-01): 배포본 SSR(NewsRows 청크)·클라이언트(_astro/NewsList.*.js) 기준.
   import { onMount } from "svelte";
@@ -55,7 +56,7 @@
 </script>
 
 <div class="nl">
-  {#if showWrite && (me?.level ?? 0) >= 4}
+  {#if showWrite && (me?.level ?? 0) >= LEVEL.ADMIN}
     <div class="nl-tools"><a class="btn btn-ghost sm" href="/community/news/write/">＋ 소식 쓰기</a></div>
   {/if}
   {#if error}
@@ -73,6 +74,7 @@
           >
             {#if n.is_pinned}<span class="tag notice">공지</span>{/if}
             {#if n.period}<span class="tag sched">일정</span>{/if}
+            {#if !n.is_pinned && !n.period}<span class="tag">소식</span>{/if}
             <span class="t">{n.title}</span>
             {#if n.period}
               <small class="period">{fmtPeriodFull(n.period)}</small>
@@ -164,20 +166,21 @@
     font-weight: 600;
     font-size: 1rem;
   }
+  /* 배지: 메인 '공지·일정·소식'(NewsRows)과 같은 모양 — 둥근 테두리형, 바탕 없음 (2026-11-16) */
   .tag {
     flex: none;
-    padding: 1px 8px;
-    border-radius: var(--radius-sm);
-    font-size: 0.82rem;
-    font-weight: 700;
+    font-size: 0.8rem;
+    line-height: 1.35;
+    padding: 0 7px;
+    border: 1px solid currentColor;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--color-primary);
+    font-weight: 600;
     white-space: nowrap;
-    color: #fff;
-  }
-  .notice {
-    background: var(--color-primary);
   }
   .sched {
-    background: var(--color-secondary);
+    color: var(--color-secondary);
   }
   small {
     flex: none;

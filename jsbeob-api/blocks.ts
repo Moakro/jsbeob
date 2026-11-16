@@ -3,8 +3,12 @@
 // 대부분 생략되었다(tsconfig strict:false). 동작은 배포본과 같다.
 import { BOARD_LABEL, PRIVATE_BOARDS_SQL } from "./boards";
 
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
 export class BlockError extends Error {}
-const TYPES = new Set(["heading", "text", "quote", "image", "video", "link", "imageref", "map", "verse"]);
+const TYPES = new Set(["heading", "text", "quote", "image", "video", "link", "imageref", "map", "verse", "schedule"]);
+// 일정(schedule) 블록 — 시작일·끝나는 날(선택)·일정 이름(선택). 저장하면 블록마다 달력 일정이 된다.
+// 한 글에 여러 개 — 같은 행사를 기간별로 묶는다(예: 61차 1차 수공 / 2차 수공) (2026-11-16 사용자 결정)
 // 경전 절(verse) 블록 — 문장마다 위치 표시(anchor, jsbooks 의 ^1-1-3 형식)를 붙여 문장 단위로 인용·관련링크를 건다 (2026-11-14)
 const ANCHOR_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,39}$/;
 const MAX_VERSE_LINES = 400;
@@ -186,6 +190,18 @@ export function normalizeBlocks(raw, opts) {
       }
       if (lines.length) block = { id, type, ...label ? { label } : {}, lines };
       else if (label) throw new BlockError("절 블록에 문장이 없습니다");
+    } else if (type === "schedule") {
+      const start = s(b.start, 10, "시작일");
+      const end = s(b.end, 10, "끝나는 날");
+      const label = s(typeof b.label === "string" ? b.label.replace(/\s*\n\s*/g, " ") : b.label, 200, "일정 이름");
+      // 메모 — 이 일정만의 안내(회차별 시간·장소 등). 글자만, 줄바꿈 유지 (2026-11-16)
+      const memo = s(b.memo, 1e3, "일정 메모", false);
+      if (start || end || label || memo?.trim()) {
+        if (!start || !DATE_RE.test(start)) throw new BlockError("일정 블록의 시작일을 넣어 주세요");
+        if (end && !DATE_RE.test(end)) throw new BlockError("일정 블록의 끝나는 날 형식이 잘못되었습니다");
+        if (end && end < start) throw new BlockError("일정의 끝나는 날이 시작일보다 앞입니다");
+        block = { id, type, start, ...end && end !== start ? { end } : {}, ...label ? { label } : {}, ...memo?.trim() ? { memo: memo.replace(/^\n+|\n+$/g, "") } : {} };
+      }
     } else if (type === "link") {
       const ref = b.ref;
       if (ref && typeof ref === "object" && REF_KINDS.has(ref.kind) && typeof ref.id === "string" && ref.id.length <= 64) {
@@ -422,9 +438,9 @@ export async function loadRenderCtx(db, blocks, urlFor) {
   }
   const po = byKind("post");
   if (po.length) {
-    const rs = await db.prepare(`SELECT id, board, category, title, status FROM posts WHERE id IN (${po.map(() => "?").join(",")}) AND board NOT IN (${PRIVATE_BOARDS_SQL})`).bind(...po).all();
+    const rs = await db.prepare(`SELECT p.id, p.board, p.category, p.title, p.status, bd.label AS board_label FROM posts p LEFT JOIN boards bd ON bd.key = p.board WHERE p.id IN (${po.map(() => "?").join(",")}) AND p.board NOT IN (${PRIVATE_BOARDS_SQL})`).bind(...po).all();
     for (const r of rs.results ?? []) {
-      ctx.refs.set(`post:${r.id}`, { title: r.title, href: refHref("post", r), kindLabel: BOARD_LABEL[r.board] ?? "게시글", visible: r.status === "published" });
+      ctx.refs.set(`post:${r.id}`, { title: r.title, href: refHref("post", r), kindLabel: r.board_label ?? BOARD_LABEL[r.board] ?? "게시글", visible: r.status === "published" });
     }
   }
   return ctx;
@@ -456,6 +472,11 @@ export function renderBlocks(blocks, ctx) {
       const label = b.label ? `<h3 class="vlabel">${esc(b.label)}</h3>` : "";
       const ps = (b.lines ?? []).map((l) => `<p class="vs"${l.a ? ` id="${esc(l.a)}"` : ""}>${wikiText(l.t ?? "")}</p>`).join("");
       return `<section class="blk blk-verse"${idAttr}>${label}${ps}</section>`;
+    }
+    if (b.type === "schedule") {
+      const fmt = (d) => d.replace(/-/g, ".");
+      const end = b.end ? b.end.slice(0, 4) === b.start.slice(0, 4) ? b.end.slice(5).replace("-", ".") : fmt(b.end) : "";
+      return `<aside class="blk blk-schedule"${idAttr}><span class="sch-badge">일정</span>${b.label ? `<strong class="sch-title">${esc(b.label)}</strong>` : ""}<time class="sch-date" datetime="${esc(b.start)}">${esc(fmt(b.start))}${end ? ` ~ ${esc(end)}` : ""}</time>${b.memo ? `<div class="sch-memo">${esc(b.memo).replace(/\n/g, "<br>")}</div>` : ""}</aside>`;
     }
     if (b.type === "quote") {
       let src = b.source ? esc(b.source) : "";
@@ -547,6 +568,7 @@ export function plainFromBlocks(blocks, ctx) {
     if (b.type === "quote") return [b.text, b.source ? `— ${b.source}` : ""].filter(Boolean).join("\n");
     if (b.type === "image") return [b.caption, ...imageItems(b).map((i) => i.caption)].filter(Boolean).join("\n");
     if (b.type === "video" || b.type === "imageref") return b.caption ?? "";
+    if (b.type === "schedule") return [[`일정 ${b.start}${b.end ? ` ~ ${b.end}` : ""}`, b.label].filter(Boolean).join(" · "), b.memo].filter(Boolean).join("\n");
     if (b.type === "link") return b.ref ? ctx?.refs.get(`${b.ref.kind}:${b.ref.id}`)?.title ?? "" : b.label ?? "";
     if (b.type === "map") return [b.point ? ctx?.points.get(b.point)?.name : "", b.caption].filter(Boolean).join(" · ");
     return "";

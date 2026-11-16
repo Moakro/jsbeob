@@ -25,9 +25,15 @@
     thumbId = null,
     heroId = null,
     onrole,
+    allowed = null,
+    level = 0,
   }: {
     blocks?: EditBlock[];
     mode?: "member" | "admin";
+    /** 게시판 블록 권한 {블록 종류: 최소 등급} — 없는 종류는 쓰지 않는다. null 이면 예전처럼(모드로만) (2026-11-16) */
+    allowed?: Record<string, number> | null;
+    /** 글쓴이(지금 편집하는 사람) 등급 */
+    level?: number;
     thumbId?: string | null;
     heroId?: string | null;
     onrole?: (role: "thumb" | "hero", media: { id: string; url: string }) => void;
@@ -43,19 +49,29 @@
     link: "링크",
     map: "지도",
     verse: "절",
+    schedule: "일정",
   };
   const ADDS = [
-    { type: "heading", label: "소제목 추가" },
-    { type: "text", label: "글 추가" },
-    { type: "quote", label: "인용 추가" },
-    { type: "image", label: "이미지 추가" },
-    { type: "imageref", label: "이미지 참조 추가" },
-    { type: "video", label: "영상 추가" },
-    { type: "link", label: "링크 추가" },
-    { type: "map", label: "지도 추가" },
+    { type: "heading", label: "소제목" },
+    { type: "text", label: "글" },
+    { type: "quote", label: "인용" },
+    { type: "image", label: "이미지" },
+    { type: "imageref", label: "이미지 참조" },
+    { type: "video", label: "영상" },
+    { type: "link", label: "링크" },
+    { type: "map", label: "지도" },
   ] as const;
   // 경전 절 블록은 관리자 문서에서만 (2026-11-14)
-  const adds = $derived(mode === "admin" ? [...ADDS, { type: "verse", label: "절 추가" } as const] : ADDS);
+  // 게시판 블록 권한이 있으면 그대로 거른다. 일정 블록은 게시판에서만, 한 글에 여러 개 가능 (2026-11-16)
+  const canUse = (type: string) => !allowed || (type in allowed && level >= allowed[type]);
+  const adds = $derived.by(() => {
+    const base: { type: EditBlock["type"]; label: string }[] = [...ADDS];
+    if (allowed) base.push({ type: "schedule", label: "일정" });
+    if (mode === "admin") base.push({ type: "verse", label: "절" });
+    return base.filter((a) => canUse(a.type));
+  });
+  /** 권한이 없는 블록 — 다른 사람이 넣은 것. 고치거나 지울 수 없다(순서만 옮길 수 있다) */
+  const locked = (b: EditBlock) => !canUse(b.type);
 
   /** 블록별 업로드 상태 문구 */
   const uploadNote = $state<Record<string, string>>({});
@@ -139,9 +155,10 @@
       window.dispatchEvent(new CustomEvent("jb:drawer-open", { detail: { kind: ref.kind, id: ref.id } }));
   }
 
-  function add(type: EditBlock["type"], atTop = false) {
+  /** 새 블록을 at 자리에 넣는다 — 맨 위 버튼은 0, 블록 아래 버튼은 그 블록 바로 다음 (2026-11-16) */
+  function add(type: EditBlock["type"], at: number) {
     const b = emptyBlock(type);
-    blocks = atTop ? [b, ...blocks] : [...blocks, b];
+    blocks = [...blocks.slice(0, at), b, ...blocks.slice(at)];
     queueMicrotask(() => {
       document.querySelector<HTMLElement>(`[data-bk="${b._k}"] input, [data-bk="${b._k}"] textarea`)?.focus();
     });
@@ -276,7 +293,7 @@
 <div class="be">
   <div class="adds top">
     {#each adds as a}
-      <button type="button" onclick={() => add(a.type, true)}>{a.label}</button>
+      <button type="button" aria-label={`${a.label} 블록 넣기`} onclick={() => add(a.type, 0)}>{a.label}</button>
     {/each}
   </div>
   {#each blocks as b, i (b._k)}
@@ -299,7 +316,7 @@
           ondragstart={(e) => dragStart(e, b._k)}
           ondragend={() => (draggingKey = null)}>⠿</span
         >
-        <span class="label">{LABEL[b.type]}</span>
+        <span class="label">{LABEL[b.type]}{#if locked(b)}<small class="locked-note"> · 권한이 없어 고칠 수 없습니다</small>{/if}</span>
         <span class="tools">
           <button type="button" aria-label="위로" title="위로" disabled={i === 0} onclick={() => move(i, -1)}
             >↑</button
@@ -311,10 +328,10 @@
             disabled={i === blocks.length - 1}
             onclick={() => move(i, 1)}>↓</button
           >
-          <button type="button" class="x" aria-label="삭제" title="삭제" onclick={() => remove(i)}>✕</button>
+          {#if !locked(b)}<button type="button" class="x" aria-label="삭제" title="삭제" onclick={() => remove(i)}>✕</button>{/if}
         </span>
       </div>
-      <div class="body">
+      <fieldset class="body" disabled={locked(b)}>
         {#if b.type === "heading"}
           <input class="title" placeholder="소제목" maxlength="200" bind:value={b.text} />
         {:else if b.type === "text"}
@@ -578,15 +595,33 @@
             한 줄이 한 문장입니다. 줄 끝의 <code>^1-1-3</code> 같은 표시는 그 문장의 위치(인용·관련링크가 가리키는 곳)이니
             지우거나 바꾸지 마세요. 새로 넣은 문장은 표시 없이 쓰면 저장할 때 다음 번호가 붙습니다.
           </p>
+        {:else if b.type === "schedule"}
+          <input class="title" placeholder="일정 이름 (비우면 글 제목)" maxlength="200" bind:value={b.label} />
+          <div class="sch-row">
+            <label>시작일 <input type="date" bind:value={b.start} required /></label>
+            <span aria-hidden="true">~</span>
+            <label>끝나는 날 <input type="date" bind:value={b.end} min={b.start || undefined} /></label>
+            {#if b.end}<button type="button" class="link" onclick={() => (b.end = "")}>하루 일정으로</button>{/if}
+          </div>
+          <textarea
+            class="sch-memo"
+            placeholder="메모 (선택) — 이 일정만의 안내. 예: 1회 12월 4일 오후 2시 ~ 6일 정오"
+            maxlength="1000"
+            rows="2"
+            bind:value={b.memo}
+            use:autosize
+          ></textarea>
+          <p class="hint">저장하면 달력에 일정으로 표시됩니다. 끝나는 날을 비우면 하루 일정입니다. 모든 일정에 공통인 내용은 본문에 쓰세요.</p>
         {/if}
-      </div>
+      </fieldset>
+    </div>
+    <!-- 블록마다 아래에 추가 버튼 — 누르면 이 블록 바로 다음에 들어간다 -->
+    <div class="adds after">
+      {#each adds as a}
+        <button type="button" aria-label={`${a.label} 블록 넣기`} onclick={() => add(a.type, i + 1)}>{a.label}</button>
+      {/each}
     </div>
   {/each}
-  <div class="adds">
-    {#each adds as a}
-      <button type="button" onclick={() => add(a.type)}>{a.label}</button>
-    {/each}
-  </div>
   {#if isEmpty}<p class="empty">본문이 비어 있습니다. 블록을 하나 이상 채워 주세요.</p>{/if}
 </div>
 {#if pickingFor}
@@ -657,6 +692,32 @@
     display: grid;
     gap: 8px;
     padding: 10px;
+    margin: 0;
+    border: 0;
+    min-width: 0;
+  }
+  .body:disabled {
+    opacity: 0.75;
+  }
+  .locked-note {
+    font-weight: 400;
+    color: var(--color-muted);
+  }
+  /* 일정 블록 (2026-11-16) */
+  .sch-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+  }
+  .sch-row label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.88rem;
+  }
+  .sch-row input[type="date"] {
+    width: auto;
   }
   input:not([type="file"]),
   textarea {

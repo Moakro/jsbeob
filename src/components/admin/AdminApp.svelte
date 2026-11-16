@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { LEVEL } from "../../data/levels";
   // 관리자 화면(/admin/) — 해시 라우팅으로 섹션 탭·편집기를 오간다. 운영자(level 4)만.
   //   #about · #jeongak · #archive · #map · #media · #photos · #tags · #home · #members
   //   #article/<id|new>?section=&parent=  ·  #place/<id|new>  ·  #point/<id|new>?place=  ·  #tag/<id|new>
@@ -18,6 +19,7 @@
   import TagsAdmin from "./TagsAdmin.svelte";
   import HomeTiles from "./HomeTiles.svelte";
   import MediaVideos from "./MediaVideos.svelte";
+  import BoardsAdmin from "./BoardsAdmin.svelte";
   import MembersAdmin from "./MembersAdmin.svelte";
   import BranchesAdmin from "./BranchesAdmin.svelte";
 
@@ -40,6 +42,7 @@
     { key: "tags", label: "태그" },
     { key: "home", label: "홈 편성" },
     { key: "members", label: "회원" },
+    { key: "boards", label: "게시판" }, // 2026-11-16 게시판 관리
   ];
   const TABS = new Set([
     ...SECTION_TABS.filter((t) => t.enabled).map((t) => t.key),
@@ -124,7 +127,7 @@
   <p class="dim">확인 중…</p>
 {:else if !me}
   <p>로그인이 필요합니다. <a href={`/login?next=${encodeURIComponent("/admin/")}`}>로그인</a></p>
-{:else if (me.level ?? 0) < 4}
+{:else if (me.level ?? 0) < LEVEL.ADMIN}
   <p>운영자만 사용할 수 있는 화면입니다.</p>
 {:else}
   <nav class="tabs">
@@ -155,6 +158,8 @@
       <TagsAdmin />
     {:else if route.tab === "home"}
       <HomeTiles />
+    {:else if route.tab === "boards"}
+      <BoardsAdmin />
     {:else if route.tab === "members"}
       <MembersAdmin meId={me.id} />
     {:else if route.tab === "photos"}

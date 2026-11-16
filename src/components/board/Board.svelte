@@ -1,11 +1,18 @@
 <script lang="ts">
+  import { LEVEL } from "../../data/levels";
   // 게시판 목록 — 문의(help)·자료실 기타 자료(etc) 등. 비공개 보드는 로그인해야 자기 글이 보인다.
   // 복원(2026-11-01): 9월 버전을 배포본 클라이언트(_astro/Board.*.js) 기준으로 갱신.
   import { onMount } from "svelte";
-  import { api, BOARDS, boardBase, postHref, type PostSummary, type MeUser } from "../../lib/api";
+  import { api, BOARDS, boardBase, postHref, type BoardConfig, type PostSummary, type MeUser } from "../../lib/api";
 
   let { board }: { board: string } = $props();
-  const meta = BOARDS[board];
+  // 게시판 설정(DB) — 기본 게시판은 BOARDS 표시 정보와 함께 쓴다 (2026-11-16 게시판 관리)
+  let cfg = $state<BoardConfig | null>(null);
+  const meta = $derived({
+    ...(BOARDS[board] ?? {}),
+    private: cfg ? cfg.read_scope === "own" : BOARDS[board]?.private,
+    photo: cfg ? !!cfg.options?.photo : BOARDS[board]?.photo,
+  });
 
   let posts = $state<PostSummary[]>([]);
   let me = $state<MeUser | null>(null);
@@ -15,7 +22,12 @@
   let hasMore = $state(false);
   let q = $state("");
 
-  const canWrite = $derived(!!me && (me.level ?? 0) >= (meta?.writeLevel ?? 1) && !!me.display_name);
+  const canWrite = $derived(
+    !!me &&
+      !!me.display_name &&
+      !!cfg &&
+      ((me.level ?? 0) >= LEVEL.ADMIN || (cfg.status === "active" && (me.level ?? 0) >= cfg.create_level)),
+  );
 
   function fmtDate(iso: string): string {
     const d = new Date(iso);
@@ -49,6 +61,9 @@
   onMount(async () => {
     try {
       me = (await api.me()).user;
+    } catch {}
+    try {
+      cfg = (await api.board(board)).board;
     } catch {}
     await load();
   });

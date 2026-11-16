@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { LEVEL } from "../data/levels";
   // 자료 서랍(오른쪽, 모바일은 아래 시트) — 이 페이지에 연결된 사이트 자료 카드, 페이지 피드(교인 댓글), 페이지 목록.
   // 본문의 [data-drawer-kind][data-drawer-id] / [data-ref-kind][data-ref-id] 링크를 누르면 카드로 연다.
   // 지도(KakaoMap·MapBundle)는 jb:drawer-open / jb:drawer-bundle / jb:drawer-clear 로 장소 카드를 띄운다.
@@ -37,7 +38,7 @@
   let draft = $state("");
   let posting = $state(false);
   let replyTo = $state<string | null>(null);
-  const MIN_LEVEL = 2;
+  const MIN_LEVEL = LEVEL.BELIEVER;
   const roots = $derived((feed ?? []).filter((c) => !c.parent_id));
   const repliesOf = (id: string) => (feed ?? []).filter((c) => c.parent_id === id);
   const feedCount = $derived((feed ?? []).filter((c) => c.status === "published").length);

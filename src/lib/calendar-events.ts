@@ -24,6 +24,11 @@ export interface CalendarEvent {
   owner_name?: string | null;
   /** 소식 글에서 온 일정이면 그 글 id (jsbeob) */
   source_post_id?: string | null;
+  /** 그 글의 게시판·분류 (2026-11-16 — 소식 밖 게시판의 일정 블록) */
+  source_board?: string | null;
+  source_category?: string | null;
+  /** 그 글의 일정 블록 번호 — 눌렀을 때 그 일정 카드로 이동 */
+  source_block_id?: string | null;
   /** GET /api/events 응답 — 1=내 일정, 0=공개된 타인 일정 */
   is_mine?: 0 | 1;
 }
