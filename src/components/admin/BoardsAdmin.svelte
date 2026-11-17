@@ -211,6 +211,34 @@
 </div>
 {#if notice}<p class="notice" role="status">{notice}</p>{/if}
 
+<div class="split" class:open={!!form}>
+<div class="side">
+{#if loading}
+  <p class="dim">불러오는 중…</p>
+{:else if error}
+  <p class="err">{error}</p>
+{:else}
+  <ul class="list">
+    {#each boards as b (b.key)}
+      <li class:hidden={b.status === "hidden"} class:active={editing === b.key}>
+        <div class="who">
+          <strong>{b.label}</strong>
+          {#if b.builtin}<span class="tag">기본</span>{/if}
+          {#if b.status === "hidden"}<span class="tag">숨김</span>{/if}
+          <span class="sub">{b.key} · {VIEW_LABEL[b.view]} · {MENU_LABEL[b.menu]}</span>
+        </div>
+        <span class="meta">읽기 {lvName(b.read_level)}{b.read_scope === "own" ? " · 본인 글만" : ""}</span>
+        <span class="meta">쓰기 {lvName(b.create_level)}</span>
+        <span class="meta">글 {b.post_count ?? 0}</span>
+        <button type="button" class="btn btn-ghost sm" aria-current={editing === b.key ? "true" : undefined} onclick={() => switchTo(b)}
+          >{editing === b.key ? "편집 중" : "설정"}</button
+        >
+      </li>
+    {/each}
+  </ul>
+{/if}
+</div>
+
 {#if form}
   <form class="panel" onsubmit={save} bind:this={formEl}>
     <h3>{editing ? `${current?.label ?? ""} 설정` : "새 게시판"}</h3>
@@ -341,33 +369,37 @@
     </div>
   </form>
 {/if}
-
-{#if loading}
-  <p class="dim">불러오는 중…</p>
-{:else if error}
-  <p class="err">{error}</p>
-{:else}
-  <ul class="list">
-    {#each boards as b (b.key)}
-      <li class:hidden={b.status === "hidden"} class:active={editing === b.key}>
-        <div class="who">
-          <strong>{b.label}</strong>
-          {#if b.builtin}<span class="tag">기본</span>{/if}
-          {#if b.status === "hidden"}<span class="tag">숨김</span>{/if}
-          <span class="sub">{b.key} · {VIEW_LABEL[b.view]} · {MENU_LABEL[b.menu]}</span>
-        </div>
-        <span class="meta">읽기 {lvName(b.read_level)}{b.read_scope === "own" ? " · 본인 글만" : ""}</span>
-        <span class="meta">쓰기 {lvName(b.create_level)}</span>
-        <span class="meta">글 {b.post_count ?? 0}</span>
-        <button type="button" class="btn btn-ghost sm" aria-current={editing === b.key ? "true" : undefined} onclick={() => switchTo(b)}
-          >{editing === b.key ? "편집 중" : "설정"}</button
-        >
-      </li>
-    {/each}
-  </ul>
-{/if}
+</div>
 
 <style>
+  .split.open {
+    display: grid;
+    grid-template-columns: minmax(260px, 340px) minmax(0, 1fr);
+    gap: 16px;
+    align-items: start;
+  }
+  .split.open .side {
+    position: sticky;
+    top: 12px;
+  }
+  .split.open .panel {
+    margin-bottom: 0;
+  }
+  .split.open .list li {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .split.open .list li .meta {
+    display: none;
+  }
+  @media (max-width: 900px) {
+    .split.open {
+      grid-template-columns: 1fr;
+    }
+    .split.open .side {
+      position: static;
+      order: 2;
+    }
+  }
   .head {
     display: flex;
     justify-content: space-between;
