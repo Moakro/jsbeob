@@ -44,6 +44,18 @@
 
   /** 교인(2) 이상 + 닉네임 */
   const canPost = $derived(!!me && !!me.display_name && (me.level ?? 0) >= LEVEL.BELIEVER);
+  /** 로그인 확인이 끝났는지 — 끝나기 전엔 글쓰기 폼을 기본 문구로 잠가 둔다(깜빡임 방지) */
+  let meReady = $state(false);
+  /** 글쓰기 폼 안내 문구 — 쓸 수 없으면 그 이유를 보여 준다 */
+  const composerHint = $derived(
+    canPost || !meReady
+      ? "새로운 소식을 남겨보세요"
+      : !me
+        ? "로그인 후 글을 쓸 수 있습니다"
+        : !me.display_name
+          ? "닉네임을 정한 뒤 글을 쓸 수 있습니다"
+          : "교인 등급부터 글을 쓸 수 있습니다",
+  );
 
   // 글쓰기
   let text = $state("");
@@ -179,6 +191,7 @@
       try {
         me = (await api.me()).user;
       } catch {}
+      meReady = true;
       if (openId) openPost(openId, true);
       await load();
       if (openId) {
@@ -549,15 +562,16 @@
     </div>
   {/if}
 
-  {#if canPost && !filter.author && !filter.q?.length}
+  {#if !filter.author && !filter.q?.length}
     <form
       class="card composer"
+      class:locked={!canPost}
       onsubmit={(e) => {
         e.preventDefault();
-        submit();
+        if (canPost) submit();
       }}
     >
-      <textarea rows="3" placeholder="새로운 소식을 남겨보세요" aria-label="글" bind:value={text}></textarea>
+      <textarea rows="3" placeholder={composerHint} aria-label="글" disabled={!canPost} bind:value={text}></textarea>
       {#if videoCount(text)}
         <p class="yt-note">
           ▶ 유튜브 영상 {videoCount(text)}개가 글과 함께 올라갑니다(주소는 글에서 빠집니다)
@@ -577,7 +591,7 @@
         <button
           type="button"
           class="tool"
-          disabled={files.length >= MAX_PHOTOS}
+          disabled={!canPost || files.length >= MAX_PHOTOS}
           onclick={() => fileInput?.click()}
         >
           <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"
@@ -600,7 +614,7 @@
           bind:this={fileInput}
           onchange={pickFiles}
         />
-        <button class="btn btn-primary go" disabled={posting || (!text.trim() && !files.length)}
+        <button class="btn btn-primary go" disabled={!canPost || posting || (!text.trim() && !files.length)}
           >{posting ? "올리는 중…" : "올리기"}</button
         >
       </div>
@@ -1030,6 +1044,15 @@
     font: inherit;
     color: var(--color-fg);
     outline: none;
+  }
+  .composer.locked textarea {
+    resize: none;
+    cursor: not-allowed;
+  }
+  .composer.locked .tool:disabled,
+  .composer.locked .go:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
   }
   .picks {
     list-style: none;
