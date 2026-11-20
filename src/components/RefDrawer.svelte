@@ -306,6 +306,8 @@
 
   // ── 모바일 시트 ──
   let mapPage = $state(false);
+  /** 페이지가 [data-drawer-nofab] 이면 오른쪽 서랍 버튼을 숨긴다(소개 등). 목록 시트·링크 카드는 그대로 */
+  let noFab = $state(false);
   let sheetMedia = $state(false);
   const sheet = $derived(sheetMedia);
   let vh = $state(800);
@@ -487,6 +489,7 @@
   onMount(() => {
     pageTitle = document.querySelector("h1")?.textContent?.trim() || document.title.split("·")[0].trim();
     scanRefs();
+    noFab = !!document.querySelector("[data-drawer-nofab]");
     // 페이지 피드 대상(자료 문서)
     const pf = document.querySelector<HTMLElement>("[data-page-feed]");
     if (pf?.dataset.kind && pf.dataset.id)
@@ -617,7 +620,7 @@
   </li>
 {/snippet}
 
-{#if (refs.length || feedTarget) && !open && !modal}
+{#if (refs.length || feedTarget) && !open && !modal && !noFab}
   <button
     type="button"
     class="sd-fab"

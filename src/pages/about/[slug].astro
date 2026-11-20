@@ -55,9 +55,8 @@ const listLabel = "소개 목록";
 <Base title={title} description={summary ?? void 0} tight>
   {" "}
   <PreviewNotice status={status} editHref={editHref} />{" "}
-  {status === "published" && (
-    <div hidden data-page-feed data-kind="article" data-id={id} data-title={title}></div>
-  )}
+  {/* 소개는 교단 공식 안내 — 페이지 피드(교인 댓글)·자료 서랍 버튼을 두지 않는다 (2026-11-20). 모바일 '목록' 시트는 그대로 */}
+  <div hidden data-drawer-nofab></div>
   <AboutSubnav articles={all} current={entry.kind} />
   <div class:list={[{ "doc-split": split }]}>
     <div class="doc-main">
@@ -72,7 +71,7 @@ const listLabel = "소개 목록";
     </div>
     {split && <SideList label={listLabel} items={side} draftLabel="비공개" />}
   </div>
-  {(prev || next) && <DocPager prev={prev} next={next} />}
+  {split && <DocPager prev={prev} next={next} />}
 </Base>
 
 <style>
