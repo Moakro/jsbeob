@@ -7,9 +7,13 @@ interface Props {
   items: any[];
 }
 const { items } = Astro.props;
-const groups = (["지부", "분원"] as const)
+// 기관(청장년회·여성회 등, 2026-11-20)도 같은 카드로 — 지도 링크는 지부·분원만.
+const groups = (["지부", "분원", "기관"] as const)
   .map((kind) => ({ kind, items: items.filter((b) => b.kind === kind) }))
   .filter((g) => g.items.length);
+const ORG_NOTE = "사단법인 증산법종교 종무원 산하";
+/** 대표자 직함 — 지부장·분원장, 기관은 이름+장(청장년회장) */
+const headTitle = (kind: string, name: string) => (kind === "기관" ? `${name}장` : `${kind}장`);
 const kakaoLink = (b: any) =>
   b.lat != null && b.lng != null
     ? `https://map.kakao.com/link/map/${encodeURIComponent(b.name)},${b.lat},${b.lng}`
@@ -27,8 +31,9 @@ const kakaoLink = (b: any) =>
       {groups.map((g) => (
         <section>
           <h2>
-            {g.kind} <small>{g.items.length}곳</small>
+            {g.kind} {g.kind !== "기관" && <small>{g.items.length}곳</small>}
           </h2>
+          {g.kind === "기관" && <p class="group-note">{ORG_NOTE}</p>}
           <ul>
             {g.items.map((b) => (
               <li id={`branch-${b.code}`}>
@@ -44,7 +49,7 @@ const kakaoLink = (b: any) =>
                   <dl>
                     {b.head_name && (
                       <>
-                        <dt>{g.kind}장</dt>
+                        <dt>{headTitle(g.kind, b.name)}</dt>
                         <dd>{b.head_name}</dd>
                       </>
                     )}
@@ -95,6 +100,11 @@ const kakaoLink = (b: any) =>
     margin: 22px 0 10px;
     padding-bottom: 6px;
     border-bottom: 2px solid var(--color-fg);
+  }
+  .group-note {
+    margin: -4px 0 10px;
+    color: var(--color-muted);
+    font-size: 0.9rem;
   }
   h2 small {
     color: var(--color-muted);

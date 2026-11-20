@@ -17,7 +17,10 @@
   const isList = code === undefined;
 
   const STATUS: Record<string, string> = { published: "공개", draft: "작성 중", hidden: "숨김" };
-  const KINDS = ["지부", "분원"] as const;
+  // 기관(청장년회·여성회 등, 2026-11-20) — 소개 > 지부·분원 페이지에 같은 카드로 나온다. 회원 소속·지도에는 안 쓴다.
+  const KINDS = ["지부", "분원", "기관"] as const;
+  /** 대표자 직함 — 지부장·분원장, 기관은 이름+장(청장년회장) */
+  const headTitle = (kind: string, name: string) => (kind === "기관" ? `${name.trim() || "기관"}장` : `${kind}장`);
 
   // ── 목록
   let items = $state<any[]>([]);
@@ -27,7 +30,7 @@
   let filling = $state(false);
 
   const groups = $derived(KINDS.map((k) => ({ kind: k, items: items.filter((b) => b.kind === k) })));
-  const missingCoord = $derived(items.filter((b) => b.address && (b.lat == null || b.lng == null)));
+  const missingCoord = $derived(items.filter((b) => b.kind !== "기관" && b.address && (b.lat == null || b.lng == null)));
 
   async function loadList() {
     try {
@@ -225,7 +228,7 @@
     msg = null;
     if (!currentCode && !/^[a-z0-9][a-z0-9-]{1,29}$/.test(f.code.trim().toLowerCase()))
       return (msg = { tone: "err", text: "주소 이름은 영문 소문자·숫자·-로 2~30자 입력해 주세요 (예: gwangju)" });
-    if (!f.name.trim()) return (msg = { tone: "err", text: "지부·분원명을 입력해 주세요." });
+    if (!f.name.trim()) return (msg = { tone: "err", text: "이름을 입력해 주세요." });
     saving = true;
     try {
       const body = payload();
@@ -290,7 +293,7 @@
 {#if isList}
   <div class="head">
     <p class="dim">
-      소개 &gt; 지부·분원 페이지와 지도의 "지부·분원" 버튼에 나옵니다. 순서는 ↑↓로 바꾸면 바로 저장됩니다.
+      소개 &gt; 지부·분원 페이지(기관 포함)와 지도의 "지부·분원" 버튼(지부·분원만)에 나옵니다. 순서는 ↑↓로 바꾸면 바로 저장됩니다.
     </p>
     <div class="head-btns">
       {#if missingCoord.length}
@@ -299,7 +302,7 @@
           >{filling ? "좌표 찾는 중…" : `좌표 채우기 (${missingCoord.length})`}</button
         >
       {/if}
-      <a class="btn btn-primary" href="#branch/new">＋ 새 지부·분원</a>
+      <a class="btn btn-primary" href="#branch/new">＋ 새 지부·분원·기관</a>
     </div>
   </div>
   {#if note}<p class="dim note">{note}</p>{/if}
@@ -320,13 +323,13 @@
                   {#if b.photo}<img src={b.photo.url} alt="" loading="lazy" />{:else}<span class="ph"></span>{/if}
                   <span class="t">
                     <strong>{b.name}</strong>
-                    <small>{[b.head_name, formatPhone(b.phone)].filter(Boolean).join(" · ") || "지부장·연락처 없음"}</small>
+                    <small>{[b.head_name, formatPhone(b.phone)].filter(Boolean).join(" · ") || "대표자·연락처 없음"}</small>
                     <small class="addr">{b.address ?? "주소 없음"}</small>
                   </span>
                 </a>
-                <span class="pin" class:none={b.lat == null} title={b.lat == null ? "좌표 없음 — 지도에 안 나옴" : "지도에 표시"}
+                {#if b.kind !== "기관"}<span class="pin" class:none={b.lat == null} title={b.lat == null ? "좌표 없음 — 지도에 안 나옴" : "지도에 표시"}
                   >{b.lat == null ? "좌표 없음" : "지도 ✓"}</span
-                >
+                >{:else}<span class="pin none" title="기관은 지도에 표시하지 않습니다">지도 —</span>{/if}
                 <span class={`badge ${b.status}`}>{STATUS[b.status] ?? b.status}</span>
                 <span class="tools"
                   ><button type="button" aria-label="위로" disabled={i === 0} onclick={() => move(b.code, -1)}>↑</button>
@@ -369,7 +372,7 @@
         </div>
       </div>
       <div class="grid2">
-        <label><span>지부·분원명 *</span><input bind:value={f.name} maxlength="40" placeholder="예: 서울 지부" /></label>
+        <label><span>이름 *</span><input bind:value={f.name} maxlength="40" placeholder={f.kind === "기관" ? "예: 청장년회" : "예: 서울 지부"} /></label>
         <label
           ><span>주소 이름 * <small>{currentCode ? "바꿀 수 없음" : "영문 소문자·숫자·- (회원 소속에 쓰임)"}</small></span><input
             bind:value={f.code}
@@ -380,7 +383,7 @@
         >
       </div>
       <div class="grid2">
-        <label><span>{f.kind}장</span><input bind:value={f.head_name} maxlength="40" placeholder="예: 홍길동" /></label>
+        <label><span>{headTitle(f.kind, f.name)}</span><input bind:value={f.head_name} maxlength="40" placeholder="예: 홍길동" /></label>
         <label
           ><span>연락처 <small>휴대폰·일반전화</small></span><input
             type="tel"

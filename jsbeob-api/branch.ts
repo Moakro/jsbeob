@@ -10,7 +10,8 @@
 import { BRANCHES } from "../src/data/branches";
 import { mediaUrl } from "./content";
 
-const KINDS = new Set(["지부", "분원"]);
+// 기관(청장년회·여성회 등, 2026-11-20): 같은 카드로 보이지만 회원 소속·지도에는 쓰지 않는다.
+const KINDS = new Set(["지부", "분원", "기관"]);
 const STATUSES = new Set(["published", "draft", "hidden"]);
 const CODE_RE = /^[a-z0-9][a-z0-9-]{1,29}$/;
 /** 지도 버튼용 태그 — 없으면 만든다 */
@@ -50,7 +51,7 @@ function phoneDigits(v: unknown): string | null {
 export async function branchCodeSet(env: any): Promise<Set<string>> {
   const set = new Set(BRANCHES.map((b) => b.code));
   try {
-    const rs = await env.DB.prepare("SELECT code FROM branches").all();
+    const rs = await env.DB.prepare("SELECT code FROM branches WHERE kind <> '기관'").all();
     for (const r of rs.results ?? []) set.add(r.code);
   } catch {
     /* 마이그레이션 전 */
@@ -107,7 +108,8 @@ async function ensureMapTag(env: any) {
  * 지부가 공개가 아니거나 좌표가 없으면 지도 장소를 숨김으로 둔다(지우지는 않음 — 글의 지도 블록이 참조할 수 있어서).
  */
 async function syncMapPoint(env: any, b: any, uid: string) {
-  const hasCoord = typeof b.lat === "number" && typeof b.lng === "number";
+  // 기관은 지도 장소로 만들지 않는다 — 이미 있으면 아래에서 숨김으로 돌린다
+  const hasCoord = b.kind !== "기관" && typeof b.lat === "number" && typeof b.lng === "number";
   let pointId: string | null = b.map_point_id;
   if (pointId) {
     const p = await env.DB.prepare("SELECT id FROM map_points WHERE id=?").bind(pointId).first();
@@ -169,9 +171,9 @@ async function save(req: Request, env: any, code: string | null, uid: string) {
   if (!newCode || !CODE_RE.test(newCode)) throw new InputError("주소 이름은 영문 소문자·숫자·-로 2~30자 입력해 주세요 (예: gwangju)");
   if (!existing && (await loadOne(env, newCode))) return json({ error: `이미 있는 주소 이름입니다: ${newCode}` }, 409);
   const kind = raw.kind;
-  if (!KINDS.has(kind)) throw new InputError("분류(지부/분원)를 골라 주세요");
-  const name = str(raw.name, 40, "지부·분원명");
-  if (!name) throw new InputError("지부·분원명을 입력해 주세요");
+  if (!KINDS.has(kind)) throw new InputError("분류(지부/분원/기관)를 골라 주세요");
+  const name = str(raw.name, 40, "이름");
+  if (!name) throw new InputError("이름을 입력해 주세요");
   const lat = coord(raw.lat, -90, 90, "위도");
   const lng = coord(raw.lng, -180, 180, "경도");
   if ((lat === null) !== (lng === null)) throw new InputError("위도와 경도를 함께 입력해 주세요");
@@ -188,7 +190,7 @@ async function save(req: Request, env: any, code: string | null, uid: string) {
   const vals = [
     kind,
     name,
-    str(raw.head_name, 40, "지부·분원장"),
+    str(raw.head_name, 40, "대표자"),
     phoneDigits(raw.phone),
     str(raw.postcode, 10, "우편번호"),
     str(raw.address, 200, "주소"),
