@@ -1,38 +1,20 @@
 ---
 import Base from "../../layouts/Base.astro";
-import { ABOUT_KINDS, ABOUT_NAV } from "../../lib/content-types";
+import { aboutBlocks, aboutCats, GUIDE_LABEL } from "../../lib/about-groups";
 import { listArticles } from "../../lib/content";
 import Thumb from "../../components/Thumb.astro";
 import AboutSubnav from "../../components/content/AboutSubnav.astro";
 import DraftBadge from "../../components/content/DraftBadge.astro";
 export const prerender = false;
 const all = await listArticles(Astro.request, "about");
-// 메인에는 하위 메뉴(ABOUT_NAV)에 없는 분류(조직·교가 등)도 모두 보인다. 작성 중 글은 관리자에게만 '비공개' 배지로 (2026-11-20)
-const kindOrder = [...new Set([...ABOUT_NAV, ...Object.keys(ABOUT_KINDS), ...all.map((a) => a.kind)])];
-const cats = kindOrder
-  .filter((k) => all.some((a) => a.kind === k))
-  .map((k) => ({
-    kind: k,
-    label: ABOUT_KINDS[k] ?? k,
-    items: all.filter((a) => a.kind === k),
-  }));
+// 메인에는 하위 메뉴에 없는 분류(조직·교가 등)도 모두 보인다. 작성 중 글은 관리자에게만 '비공개' 배지로 (2026-11-20)
+const cats = aboutCats(all);
 const want = Astro.url.searchParams.get("cat");
 const current = cats.find((c) => c.kind === want) ?? null;
 const shown = current ? [current] : cats;
 const PREVIEW = 6;
-// 전체 보기: 글이 한 편뿐인 분류는 분류 제목이 카드 제목과 겹치므로 '교단 안내' 한 칸에 모은다.
-// 창교(사진 카드)와 글이 여러 편인 분류만 제목을 단 칸으로 둔다. 모인 칸은 첫 단독 분류 자리에 놓는다.
-const isGroup = (c) => c.kind === "person" || c.items.length > 1;
-const singles = current ? [] : shown.filter((c) => !isGroup(c));
-const blocks = current
-  ? shown.map((c) => ({ type: "cat", cat: c }))
-  : shown.flatMap((c) =>
-      isGroup(c)
-        ? [{ type: "cat", cat: c }]
-        : c === singles[0]
-          ? [{ type: "guide", items: singles.map((s) => ({ ...s.items[0], catLabel: s.label })) }]
-          : [],
-    );
+// 전체 보기: 한 편짜리 분류는 '교단 안내' 한 칸으로 (src/lib/about-groups.ts)
+const blocks = current ? shown.map((c) => ({ type: "cat", cat: c })) : aboutBlocks(shown);
 ---
 
 <Base
@@ -47,7 +29,7 @@ const blocks = current
   {blocks.map((bl) => bl.type === "guide" ? (
     <section class="block" id="cat-guide">
       <div class="sec-head">
-        <h2>교단 안내</h2>
+        <h2>{GUIDE_LABEL}</h2>
       </div>
       <ul class="guide">
         {bl.items.map((e) => (

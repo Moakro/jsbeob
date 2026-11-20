@@ -1,6 +1,6 @@
 ---
 import Base from "../../layouts/Base.astro";
-import { ABOUT_KINDS } from "../../lib/content-types";
+import { aboutBlocks, aboutCats, GUIDE_LABEL } from "../../lib/about-groups";
 import { getArticle, listArticles, listBranches } from "../../lib/content";
 import AboutSubnav from "../../components/content/AboutSubnav.astro";
 import AdminEditLink from "../../components/content/AdminEditLink.astro";
@@ -28,24 +28,28 @@ const branches = isBranches ? await listBranches(Astro.request) : [];
 const editHref = isBranches ? "/admin/#branches" : `/admin/#article/${entry.id}`;
 const { title, title_hanja, summary, hero, gallery = [], body_html = "", status, id } = entry;
 const href = (slug) => `/about/${slug}/`;
-const side = all
-  .filter((a) => a.kind === entry.kind)
-  .map((a) => ({
-    key: a.slug,
-    title: a.title,
-    hanja: a.title_hanja,
-    href: href(a.slug),
-    on: a.slug === entry.slug,
-    draft: a.status === "draft",
-  }));
-if (side.length && !side.some((s) => s.on))
-  side.unshift({ key: entry.slug, title, hanja: title_hanja, href: href(entry.slug), on: true });
+// 오른쪽 목록은 소개 전체 — 메인과 같은 묶음(창교 / 교단 안내 …)으로, 한 편짜리 분류 글에도 빈칸이 없게 (2026-11-20)
+const toSide = (a, group) => ({
+  key: a.slug,
+  title: a.title,
+  hanja: a.title_hanja,
+  href: href(a.slug),
+  on: a.slug === entry.slug,
+  draft: a.status === "draft",
+  group,
+});
+const side = aboutBlocks(aboutCats(all)).flatMap((bl) =>
+  bl.type === "guide" ? bl.items.map((a) => toSide(a, GUIDE_LABEL)) : bl.cat.items.map((a) => toSide(a, bl.cat.label)),
+);
+if (!side.some((s) => s.on))
+  side.unshift({ key: entry.slug, title, hanja: title_hanja, href: href(entry.slug), on: true, draft: status === "draft", group: undefined });
 const split = side.length > 1;
-const at = side.findIndex((s) => s.on);
-const prev = split && at > 0 ? { href: side[at - 1].href, label: side[at - 1].title } : null;
-const next =
-  split && at >= 0 && at < side.length - 1 ? { href: side[at + 1].href, label: side[at + 1].title } : null;
-const listLabel = `${ABOUT_KINDS[entry.kind] ?? "소개"} 목록`;
+// 이전·다음 글은 지금처럼 같은 분류 안에서만
+const sameKind = all.filter((a) => a.kind === entry.kind);
+const at = sameKind.findIndex((a) => a.slug === entry.slug);
+const prev = at > 0 ? { href: href(sameKind[at - 1].slug), label: sameKind[at - 1].title } : null;
+const next = at >= 0 && at < sameKind.length - 1 ? { href: href(sameKind[at + 1].slug), label: sameKind[at + 1].title } : null;
+const listLabel = "소개 목록";
 ---
 
 <Base title={title} description={summary ?? void 0} tight>
@@ -66,9 +70,9 @@ const listLabel = `${ABOUT_KINDS[entry.kind] ?? "소개"} 목록`;
         <Prose html={body_html} /> <ContentGallery items={gallery} fallbackAlt={title} />
       </article>
     </div>
-    {split && <SideList label={listLabel} items={side} />}
+    {split && <SideList label={listLabel} items={side} draftLabel="비공개" />}
   </div>
-  {split && <DocPager prev={prev} next={next} />}
+  {(prev || next) && <DocPager prev={prev} next={next} />}
 </Base>
 
 <style>

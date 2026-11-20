@@ -1,11 +1,14 @@
 ---
 import DraftBadge from "./DraftBadge.astro";
-const { label, items } = Astro.props;
+// items[].group: 앞 항목과 다르면 그 앞에 묶음 제목 줄을 넣는다(소개 전체 목록, 2026-11-20). draftLabel: 배지 글자.
+const { label, items, draftLabel } = Astro.props;
 ---
 
 <aside class="side" aria-label={label} data-page-list data-list-label={label}>
   <ul class="list">
-    {items.map((s) => (
+    {items.map((s, i) => (
+      <>
+      {s.group && s.group !== items[i - 1]?.group && <li class="grp" aria-hidden="true">{s.group}</li>}
       <li>
         {" "}
         <a
@@ -17,12 +20,13 @@ const { label, items } = Astro.props;
         >
           {" "}
           <span class="t">{s.title}</span> {s.hanja && <span class="hanja">{s.hanja}</span>}{" "}
-          {s.draft && <DraftBadge />} {s.sub && <span class="sub">{s.sub}</span>}{" "}
+          {s.draft && <DraftBadge label={draftLabel} />} {s.sub && <span class="sub">{s.sub}</span>}{" "}
           <span class="chev" aria-hidden="true">
             ›
           </span>{" "}
         </a>{" "}
       </li>
+      </>
     ))}
   </ul>
 </aside>
@@ -61,6 +65,14 @@ const { label, items } = Astro.props;
   }
   .list li + li {
     border-top: 1px solid var(--color-rule);
+  }
+  .list .grp {
+    padding: 9px 14px 5px;
+    background: var(--color-surface-2);
+    color: var(--color-muted);
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
   }
   .list a {
     display: flex;
