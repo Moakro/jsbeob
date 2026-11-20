@@ -55,8 +55,8 @@ const listLabel = "소개 목록";
 <Base title={title} description={summary ?? void 0} tight>
   {" "}
   <PreviewNotice status={status} editHref={editHref} />{" "}
-  {/* 소개는 교단 공식 안내 — 페이지 피드(교인 댓글)·자료 서랍 버튼을 두지 않는다 (2026-11-20). 모바일 '목록' 시트는 그대로 */}
-  <div hidden data-drawer-nofab></div>
+  {/* 소개는 교단 공식 안내 — 페이지 피드(교인 댓글)는 두지 않는다 (2026-11-20).
+      자료 서랍 버튼은 본문에 자료 인용 링크가 있는 글(창교 등)에만 저절로 나온다 */}
   <AboutSubnav articles={all} current={entry.kind} />
   <div class:list={[{ "doc-split": split }]}>
     <div class="doc-main">
