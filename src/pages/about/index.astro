@@ -7,15 +7,32 @@ import AboutSubnav from "../../components/content/AboutSubnav.astro";
 import DraftBadge from "../../components/content/DraftBadge.astro";
 export const prerender = false;
 const all = await listArticles(Astro.request, "about");
-const cats = ABOUT_NAV.filter((k) => all.some((a) => a.kind === k)).map((k) => ({
-  kind: k,
-  label: ABOUT_KINDS[k] ?? k,
-  items: all.filter((a) => a.kind === k),
-}));
+// 메인에는 하위 메뉴(ABOUT_NAV)에 없는 분류(조직·교가 등)도 모두 보인다. 작성 중 글은 관리자에게만 '비공개' 배지로 (2026-11-20)
+const kindOrder = [...new Set([...ABOUT_NAV, ...Object.keys(ABOUT_KINDS), ...all.map((a) => a.kind)])];
+const cats = kindOrder
+  .filter((k) => all.some((a) => a.kind === k))
+  .map((k) => ({
+    kind: k,
+    label: ABOUT_KINDS[k] ?? k,
+    items: all.filter((a) => a.kind === k),
+  }));
 const want = Astro.url.searchParams.get("cat");
 const current = cats.find((c) => c.kind === want) ?? null;
 const shown = current ? [current] : cats;
 const PREVIEW = 6;
+// 전체 보기: 글이 한 편뿐인 분류는 분류 제목이 카드 제목과 겹치므로 '교단 안내' 한 칸에 모은다.
+// 창교(사진 카드)와 글이 여러 편인 분류만 제목을 단 칸으로 둔다. 모인 칸은 첫 단독 분류 자리에 놓는다.
+const isGroup = (c) => c.kind === "person" || c.items.length > 1;
+const singles = current ? [] : shown.filter((c) => !isGroup(c));
+const blocks = current
+  ? shown.map((c) => ({ type: "cat", cat: c }))
+  : shown.flatMap((c) =>
+      isGroup(c)
+        ? [{ type: "cat", cat: c }]
+        : c === singles[0]
+          ? [{ type: "guide", items: singles.map((s) => ({ ...s.items[0], catLabel: s.label })) }]
+          : [],
+    );
 ---
 
 <Base
@@ -27,7 +44,29 @@ const PREVIEW = 6;
   <div class="subnav">
     <AboutSubnav articles={all} current={current?.kind} />
   </div>
-  {shown.map((c) => (
+  {blocks.map((bl) => bl.type === "guide" ? (
+    <section class="block" id="cat-guide">
+      <div class="sec-head">
+        <h2>교단 안내</h2>
+      </div>
+      <ul class="guide">
+        {bl.items.map((e) => (
+          <li>
+            <a href={`/about/${e.slug}/`}>
+              <span class="g-body">
+                <strong>
+                  {e.title} {e.title_hanja && <span class="hanja"> {e.title_hanja}</span>}
+                  {e.status === "draft" && <DraftBadge label="비공개" />}
+                </strong>
+                {e.summary && <small>{e.summary}</small>}
+              </span>
+              <span class="g-go" aria-hidden="true">→</span>
+            </a>
+          </li>
+        ))}
+      </ul>
+    </section>
+  ) : (() => { const c = bl.cat; return (
     <section class="block" id={`cat-${c.kind}`}>
       {" "}
       {!current && (
@@ -61,7 +100,7 @@ const PREVIEW = 6;
               <h3>
                 {" "}
                 {e.title} {e.title_hanja && <span class="hanja"> {e.title_hanja}</span>}{" "}
-                {e.status === "draft" && <DraftBadge />}{" "}
+                {e.status === "draft" && <DraftBadge label="비공개" />}{" "}
               </h3>{" "}
               {e.summary && <p>{e.summary}</p>}{" "}
             </div>{" "}
@@ -69,7 +108,7 @@ const PREVIEW = 6;
         ))}{" "}
       </div>{" "}
     </section>
-  ))}
+  ); })())}
   {!cats.length && <p class="empty">아직 올라온 소개 자료가 없습니다.</p>}
 </Base>
 
@@ -114,6 +153,51 @@ const PREVIEW = 6;
     color: var(--color-muted);
     font-weight: 500;
     font-size: 0.82em;
+  }
+  .guide {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 10px;
+  }
+  .guide a {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    height: 100%;
+    padding: 16px 18px;
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-md);
+    background: var(--color-surface);
+    color: var(--color-fg);
+    text-decoration: none;
+    transition: border-color 0.15s;
+  }
+  .guide a:hover {
+    border-color: var(--color-primary);
+  }
+  .g-body {
+    flex: 1;
+    min-width: 0;
+    display: grid;
+    gap: 4px;
+  }
+  .g-body strong {
+    font-size: 1rem;
+  }
+  .g-body small {
+    color: var(--color-muted);
+    font-size: 0.86rem;
+    line-height: 1.5;
+  }
+  .g-go {
+    flex: none;
+    color: var(--color-muted);
+  }
+  .guide a:hover .g-go {
+    color: var(--color-primary);
   }
   .empty {
     color: var(--color-muted);
