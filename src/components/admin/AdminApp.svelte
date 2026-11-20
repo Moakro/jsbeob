@@ -37,7 +37,7 @@
     enabled: ENABLED.has(n.slug),
   }));
   const EXTRA_TABS = [
-    { key: "branches", label: "지부·분원" }, // 2026-11-06
+    { key: "branches", label: "지부·분원·기관" }, // 2026-11-06, 기관 2026-11-20
     { key: "photos", label: "사진 창고" },
     { key: "tags", label: "태그" },
     { key: "home", label: "홈 편성" },

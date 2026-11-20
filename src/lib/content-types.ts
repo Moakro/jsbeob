@@ -31,11 +31,14 @@ export const ABOUT_KINDS: Record<string, string> = {
   doctrine: "교기·교지·교리",
   history: "연혁",
   org: "조직",
-  branches: "지부·분원",
+  branches: "지부·분원·기관",
   anthem: "교가",
   directions: "찾아오시는 길",
   overview: "일반 소개",
 };
+
+/** 소개 메인·옆 목록에서 빼는 분류 — 조직표는 싣지 않는다 (2026-11-20 사용자 결정) */
+export const ABOUT_HIDDEN = new Set(["org"]);
 
 /** 소개 페이지 하위 메뉴 순서 */
 export const ABOUT_NAV = ["person", "doctrine", "history", "branches", "directions"];
