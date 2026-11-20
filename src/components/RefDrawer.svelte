@@ -23,7 +23,8 @@
   let refs = $state<Ref[]>([]);
   /** refs(자료) | feed(피드) | list(페이지 목록) */
   let tab = $state<"refs" | "feed" | "list">("refs");
-  let pageList = $state<{ title: string; sub: string; href: string; on: boolean }[]>([]);
+  /** group: 묶음 제목(앞 항목과 다르면 제목 줄), draft: 비공개 배지 글자 — SideList 의 data-* 를 그대로 옮긴다 (2026-11-20) */
+  let pageList = $state<{ title: string; sub: string; href: string; on: boolean; group: string; draft: string }[]>([]);
   let pageListLabel = $state("목록");
   let narrow = $state(false);
   /** 페이지 목록 탭은 좁은 화면에서만(넓으면 옆에 목록이 있다) */
@@ -548,6 +549,8 @@
         sub: a.dataset.sub ?? "",
         href: a.getAttribute("href") ?? "",
         on: a.classList.contains("on"),
+        group: a.dataset.group ?? "",
+        draft: a.dataset.draft ?? "",
       }));
     }
     const mqNarrow = window.matchMedia("(max-width: 860px)");
@@ -733,11 +736,15 @@
     {#if tab === "list" && showList}
       <div class="sd-body sd-pagelist">
         <ul aria-label={pageListLabel}>
-          {#each pageList as it (it.href)}
+          {#each pageList as it, i (it.href)}
+            {#if it.group && it.group !== pageList[i - 1]?.group}
+              <li class="grp" aria-hidden="true">{it.group}</li>
+            {/if}
             <li>
               <a href={it.href} data-direct="" aria-current={it.on ? "page" : undefined} class:on={it.on}>
                 <span class="t">{it.title}</span>
                 {#if it.sub}<span class="sub">{it.sub}</span>{/if}
+                {#if it.draft}<span class="draft">{it.draft}</span>{/if}
               </a>
             </li>
           {/each}
@@ -924,6 +931,26 @@
   }
   .sd-pagelist li + li {
     border-top: 1px solid var(--color-rule);
+  }
+  .sd-pagelist .grp {
+    padding: 9px 12px 5px;
+    background: var(--color-surface-2);
+    color: var(--color-muted);
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+  }
+  /* 비공개 배지 — DraftBadge 와 같은 모양 */
+  .sd-pagelist .draft {
+    flex: none;
+    padding: 1px 7px;
+    border-radius: 999px;
+    background: var(--color-primary-bg);
+    color: var(--color-primary);
+    font-size: 0.72rem;
+    font-weight: 600;
+    line-height: 1.5;
+    white-space: nowrap;
   }
   .sd-pagelist a {
     display: flex;

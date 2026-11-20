@@ -17,6 +17,8 @@ const { label, items, draftLabel } = Astro.props;
           aria-current={s.on ? "page" : void 0}
           data-title={s.title}
           data-sub={s.sub ?? s.hanja ?? ""}
+          data-group={s.group ?? void 0}
+          data-draft={s.draft ? (draftLabel ?? "작성 중") : void 0}
         >
           {" "}
           <span class="t">{s.title}</span> {s.hanja && <span class="hanja">{s.hanja}</span>}{" "}
