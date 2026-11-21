@@ -645,7 +645,8 @@
     const list = document.querySelector<HTMLElement>("[data-page-list]");
     if (list) {
       pageListLabel = list.dataset.listLabel ?? "목록";
-      pageList = [...list.querySelectorAll<HTMLAnchorElement>("a[href]")].map((a) => ({
+      // 머리 줄(책 이름·책 메인)은 목록 항목이 아니다 — 위치(1/10) 계산에서 뺀다
+      pageList = [...list.querySelectorAll<HTMLAnchorElement>("a[href]:not([data-list-head])")].map((a) => ({
         title: a.dataset.title ?? a.textContent?.trim() ?? "",
         sub: a.dataset.sub ?? "",
         href: a.getAttribute("href") ?? "",

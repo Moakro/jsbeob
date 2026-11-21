@@ -1,11 +1,20 @@
 ---
 import DraftBadge from "./DraftBadge.astro";
 // items[].group: 앞 항목과 다르면 그 앞에 묶음 제목 줄을 넣는다(소개 전체 목록, 2026-11-20). draftLabel: 배지 글자.
-const { label, items, draftLabel } = Astro.props;
+// head: 목록 맨 위의 머리 줄 {title, hanja, href} — 책 차례에서 책 이름·책 메인 링크 (2026-11-21)
+const { label, items, draftLabel, head = null } = Astro.props;
 ---
 
 <aside class="side" aria-label={label} data-page-list data-list-label={label}>
   <ul class="list">
+    {head && (
+      <li class="head">
+        <a href={head.href} data-list-head>
+          <span class="t">{head.title}</span> {head.hanja && <span class="hanja">{head.hanja}</span>}
+          <span class="hd-go">책 메인 ›</span>
+        </a>
+      </li>
+    )}
     {items.map((s, i) => (
       <>
       {s.group && s.group !== items[i - 1]?.group && <li class="grp" aria-hidden="true">{s.group}</li>}
@@ -67,6 +76,21 @@ const { label, items, draftLabel } = Astro.props;
   }
   .list li + li {
     border-top: 1px solid var(--color-rule);
+  }
+  .list .head a {
+    background: var(--color-surface-2);
+    min-height: 48px;
+  }
+  .list .head .t {
+    font-weight: 700;
+  }
+  .list .head .hd-go {
+    margin-left: auto;
+    color: var(--color-muted);
+    font-size: 0.8rem;
+  }
+  .list .head a:hover .hd-go {
+    color: var(--color-primary);
   }
   .list .grp {
     padding: 9px 14px 5px;

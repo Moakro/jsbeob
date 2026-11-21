@@ -87,7 +87,7 @@ const pos = { at: at + 1, total: toc.length, pct: toc.length ? Math.round(((at +
         </nav>
       </article>
     </div>
-    <SideList label={`${book.title} 차례`} items={toc} />
+    <SideList label={`${book.title} 차례`} items={toc} head={{ title: book.title, hanja: book.title_hanja, href: bookHref }} />
   </div>
   <DocPager prev={prev} next={next} />{" "}
 </Base>
