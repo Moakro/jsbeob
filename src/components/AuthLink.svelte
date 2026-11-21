@@ -87,6 +87,8 @@
     {#if open}
       <div class="auth-dropdown" role="menu">
         <a role="menuitem" href="/account/" onclick={() => (open = false)}>내 정보</a>
+        <!-- 내가 쓴 문의만(문의 게시판 '내 문의' 탭) — 2026-11-21 -->
+        <a role="menuitem" href="/community/help/?mine=1" onclick={() => (open = false)}>내 문의</a>
         {#if (user.level ?? 0) >= LEVEL.ADMIN}
           <a role="menuitem" href="/admin/" onclick={() => (open = false)}>사이트 관리</a>
         {/if}

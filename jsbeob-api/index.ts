@@ -2116,7 +2116,7 @@ function normBoardInput(raw, existing) {
   const opt = raw.options !== void 0 ? raw.options : cur.options;
   out.options = {
     ...(existing?.options ?? {}),
-    ...(opt && typeof opt === "object" ? { notice: !!opt.notice, title_optional: !!opt.title_optional, official: !!opt.official, private_posts: !!opt.private_posts } : {})
+    ...(opt && typeof opt === "object" ? { notice: !!opt.notice, title_optional: !!opt.title_optional, official: !!opt.official, private_posts: !!opt.private_posts, plain_editor: !!opt.plain_editor } : {})
   };
   out.sort_order = raw.sort_order !== void 0 ? Math.trunc(Number(raw.sort_order)) || 0 : cur.sort_order;
   out.status = raw.status !== void 0 ? (raw.status === "hidden" ? "hidden" : "active") : cur.status;

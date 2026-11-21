@@ -50,6 +50,7 @@
     </div>
     <div class="links">
       <a href="/account/nickname/">정보 설정</a>
+      <a href="/community/help/?mine=1">내 문의</a>
       {#if (me.level ?? 0) >= LEVEL.ADMIN}<a href="/admin/">관리자</a>{/if}
       <button onclick={logout}>로그아웃</button>
     </div>

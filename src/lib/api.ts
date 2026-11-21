@@ -231,7 +231,7 @@ export interface BoardConfig {
   /** {블록 종류: 최소 등급} — 없는 종류는 사용 안 함 */
   blocks: Record<string, number>;
   /** official: 공식 콘텐츠 — 공개 글쓴이 JSBeob, 실제 등록자는 권한자에게만 */
-  options: { notice?: boolean; title_optional?: boolean; photo?: boolean; official?: boolean; private_posts?: boolean };
+  options: { notice?: boolean; title_optional?: boolean; photo?: boolean; official?: boolean; private_posts?: boolean; plain_editor?: boolean };
   sort_order: number;
   status: "active" | "hidden";
   builtin: boolean;

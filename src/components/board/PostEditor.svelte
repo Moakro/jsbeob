@@ -28,6 +28,9 @@
   /** 글마다 비공개(options.private_posts, 새 글에만 — 등록 뒤에는 글 보기 상단에서 바꾼다). 기본 공개 */
   const hasPrivate = $derived(!!cfg?.options?.private_posts && !editing);
   let isPrivate = $state(false);
+  /** 일반 글쓰기 폼(options.plain_editor, 문의 등) — 블록 편집기 대신 글 상자 하나. 줄바꿈 그대로, 빈 줄로 문단 (2026-11-21) */
+  const plain = $derived(!!cfg?.options?.plain_editor);
+  let text = $state("");
   let newSeries = $state("");
   let categories = $state<any[]>([]);
   let seriesList = $state<any[]>([]);
@@ -64,7 +67,7 @@
     return cfg.status === "active" && myLevel >= cfg.create_level;
   });
 
-  const snapshot = () => JSON.stringify({ title, blocks: toApi(blocks), category, seriesId, notice });
+  const snapshot = () => JSON.stringify({ title, blocks: toApi(blocks), text, category, seriesId, notice });
 
   onMount(() => {
     (async () => {
@@ -82,6 +85,7 @@
           title = p.title;
           authorId = p.author_id ?? null;
           blocks = fromApi(p.blocks);
+          text = p.body_md ?? "";
           if (isLibrary) {
             category = p.category ?? category;
             seriesId = p.series_id ?? "";
@@ -116,8 +120,8 @@
       return;
     }
     const body = toApi(blocks);
-    if (!body.length) {
-      error = "본문이 비어 있습니다. 블록을 하나 이상 채워 주세요.";
+    if (plain ? !text.trim() : !body.length) {
+      error = plain ? "본문을 입력하세요." : "본문이 비어 있습니다. 블록을 하나 이상 채워 주세요.";
       return;
     }
     for (const sch of blocks.filter((b) => b.type === "schedule")) {
@@ -146,7 +150,12 @@
         }
         lib = { category, series_id: sid };
       }
-      const input = { title: title.trim(), blocks: body, ...lib, ...(hasNotice ? { notice } : {}) };
+      const input = {
+        title: title.trim(),
+        ...(plain ? { body: text.trim() } : { blocks: body }),
+        ...lib,
+        ...(hasNotice ? { notice } : {}),
+      };
       leaving = true;
       if (editing && postId) {
         await api.updatePost(postId, input);
@@ -223,7 +232,11 @@
     {/if}
     <div class="field">
       <span>본문</span>
-      <BlockEditor mode="member" allowed={cfg?.blocks ?? {}} level={myLevel} bind:blocks />
+      {#if plain}
+        <textarea class="plain" bind:value={text} rows="12" maxlength="20000" placeholder="내용을 입력하세요"></textarea>
+      {:else}
+        <BlockEditor mode="member" allowed={cfg?.blocks ?? {}} level={myLevel} bind:blocks />
+      {/if}
     </div>
     {#if error}<p class="err">{error}</p>{/if}
     <div class="buttons">
@@ -289,6 +302,18 @@
     display: grid;
     gap: 8px;
     margin: 0 0 16px;
+  }
+  .plain {
+    width: 100%;
+    min-height: 240px;
+    padding: 12px 14px;
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-md);
+    background: var(--color-surface);
+    color: var(--color-ink);
+    font: inherit;
+    line-height: 1.7;
+    resize: vertical;
   }
   .private-field {
     display: grid;

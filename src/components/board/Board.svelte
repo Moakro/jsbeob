@@ -21,6 +21,10 @@
   let next = $state<string | null>(null);
   let hasMore = $state(false);
   let q = $state("");
+  // '전체 | 내 글' 탭 — 글마다 비공개 게시판(문의)에서. 주소 ?mine=1 (계정 메뉴 '내 문의'가 쓴다, 2026-11-21)
+  const hasMineTab = $derived(!!cfg?.options?.private_posts);
+  let mine = $state(false);
+  const tabLabel = $derived(cfg?.label ?? BOARDS[board]?.label ?? "글");
 
   const canWrite = $derived(
     !!me &&
@@ -44,6 +48,7 @@
     try {
       const r = await api.listPosts({
         board,
+        author: mine && me ? me.id : undefined,
         q: q || undefined,
         before: reset ? undefined : next || undefined,
         has_image: meta?.photo || undefined,
@@ -65,8 +70,25 @@
     try {
       cfg = (await api.board(board)).board;
     } catch {}
+    mine = hasMineTab && new URLSearchParams(location.search).get("mine") === "1";
+    if (mine && !me) {
+      loading = false;
+      return;
+    }
     await load();
   });
+
+  function setMine(v: boolean) {
+    if (mine === v) return;
+    mine = v;
+    const u = new URL(location.href);
+    if (v) u.searchParams.set("mine", "1");
+    else u.searchParams.delete("mine");
+    history.replaceState(history.state, "", u);
+    posts = [];
+    if (v && !me) return;
+    load(true);
+  }
 
   function search(e: Event) {
     e.preventDefault();
@@ -75,6 +97,16 @@
 </script>
 
 <div class="board">
+  {#if hasMineTab}
+    <div class="tabs" role="tablist" aria-label={`${tabLabel} 보기`}>
+      <button type="button" role="tab" aria-selected={!mine} class:on={!mine} onclick={() => setMine(false)}
+        >전체 {tabLabel}</button
+      >
+      <button type="button" role="tab" aria-selected={mine} class:on={mine} onclick={() => setMine(true)}
+        >내 {tabLabel}</button
+      >
+    </div>
+  {/if}
   <div class="toolbar">
     <form class="search" onsubmit={search} hidden={meta?.private && !me}>
       <input type="search" bind:value={q} placeholder="검색" aria-label="게시글 검색" />
@@ -91,9 +123,18 @@
     <p class="state">불러오는 중…</p>
   {:else if error}
     <p class="state err">{error}</p>
+  {:else if mine && !me}
+    <p class="state">
+      <a href={`/login/?next=${encodeURIComponent(`${boardBase(board)}/?mine=1`)}`}>로그인</a>하면 내가 남긴 {tabLabel}를 볼 수 있습니다.
+    </p>
   {:else if meta?.private && !me}
     <p class="state">
       <a href={`/login/?next=${encodeURIComponent(`${boardBase(board)}/`)}`}>로그인</a>하면 문의를 남기고 답변을 볼 수 있습니다.
+    </p>
+  {:else if posts.length === 0 && mine}
+    <p class="state">
+      아직 남긴 {tabLabel}가 없습니다.
+      {#if canWrite}<a href={`${boardBase(board)}/write/`}>{tabLabel}하기</a>{/if}
     </p>
   {:else if posts.length === 0}
     <p class="state">
@@ -159,6 +200,27 @@
 </div>
 
 <style>
+  .tabs {
+    display: flex;
+    gap: 0;
+    margin-bottom: 16px;
+    border-bottom: 1px solid var(--color-rule);
+  }
+  .tabs button {
+    padding: 10px 16px;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    background: none;
+    color: var(--color-muted);
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .tabs button.on {
+    color: var(--color-primary);
+    border-bottom-color: var(--color-primary);
+  }
   .toolbar {
     display: flex;
     gap: 10px;
