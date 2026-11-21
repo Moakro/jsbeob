@@ -51,6 +51,10 @@ export interface PostSummary {
   view_count: number;
   comment_count: number;
   is_pinned: boolean;
+  /** 글마다 비공개(options.private_posts 게시판, 2026-11-21) */
+  is_private?: boolean;
+  /** 볼 수 없는 비공개 글 — 제목·글쓴이·본문이 비어 있고 등록일시만 온다 */
+  locked?: boolean;
   /** 목록용 본문 앞부분(오리알터 피드 카드) */
   excerpt?: string;
   period: Period | null;
@@ -167,6 +171,21 @@ export const api = {
     return req<ListPostsResult>(`/api/posts?${sp.toString()}`);
   },
   getPost: (id: string) => req<{ post: PostDetail }>(`/api/posts/${id}`),
+  /** 글 보기 — 볼 수 없는 비공개 글이면 locked 로 등록일시만 돌려준다 (2026-11-21) */
+  getPostOrLocked: async (id: string): Promise<{ post: PostDetail } | { locked: { id: string; created_at: string } }> => {
+    const res = await fetch(`/api/posts/${id}`, { credentials: "same-origin" });
+    const data = await res.json().catch(() => null);
+    if (res.status === 403 && data?.private) return { locked: { id, created_at: data.post?.created_at ?? "" } };
+    if (!res.ok) throw new Error(data?.error || `요청 실패 (${res.status})`);
+    return data as { post: PostDetail };
+  },
+  /** 비공개 전환 — 글쓴이는 양쪽, 관리자는 비공개로만 */
+  setPostPrivate: (id: string, isPrivate: boolean) =>
+    req<{ ok: boolean; is_private: boolean }>(`/api/posts/${id}/private`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ private: isPrivate }),
+    }),
   /** 게시판 설정(권한·블록) — 2026-11-16 게시판 관리 */
   boards: () => req<{ boards: BoardConfig[] }>("/api/boards"),
   board: (key: string) => req<{ board: BoardConfig }>(`/api/boards/${encodeURIComponent(key)}`),
@@ -212,7 +231,7 @@ export interface BoardConfig {
   /** {블록 종류: 최소 등급} — 없는 종류는 사용 안 함 */
   blocks: Record<string, number>;
   /** official: 공식 콘텐츠 — 공개 글쓴이 JSBeob, 실제 등록자는 권한자에게만 */
-  options: { notice?: boolean; title_optional?: boolean; photo?: boolean; official?: boolean };
+  options: { notice?: boolean; title_optional?: boolean; photo?: boolean; official?: boolean; private_posts?: boolean };
   sort_order: number;
   status: "active" | "hidden";
   builtin: boolean;
@@ -253,7 +272,7 @@ export const BOARDS: Record<string, BoardMeta> = {
     base: "/archive/etc",
     parent: { href: "/archive/", label: "자료실" },
   },
-  help: { key: "help", label: "문의", desc: "문의와 제안 — 글쓴이와 운영자만 봅니다", private: true },
+  help: { key: "help", label: "문의", desc: "문의와 제안 — 비공개로 쓰면 글쓴이와 운영자만 봅니다" },
 };
 
 /** 보드 글 경로의 기준. 자료실 게시물은 카테고리 경로(/archive/<category>) 아래에 있다. */

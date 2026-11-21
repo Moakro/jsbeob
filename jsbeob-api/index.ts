@@ -30,7 +30,7 @@ export interface Env {
 // 복원: 2026-11-01 배포본(jsbeob-api-preview) 번들에서 복원. 원본 TS 타입 정보는 번들에서 사라져
 // 대부분 생략되었다(tsconfig strict:false). 동작은 배포본과 같다.
 import { LEVEL, LEVELS } from "../src/data/levels";
-import { GUEST_LEVEL, OFFICIAL_AUTHOR, POST_BLOCK_TYPES, PRIVATE_BOARDS_SQL, blockPermissionError, maskOfficialAuthor, canCommentIn, canCreateIn, canDeleteIn, canEditIn, canReadBoard, canSeePostIn, getBoard, invalidateBoards, loadBoards, shapeBoard } from "./boards";
+import { GUEST_LEVEL, OFFICIAL_AUTHOR, POST_BLOCK_TYPES, PRIVATE_BOARDS_SQL, blockPermissionError, maskOfficialAuthor, maskPrivatePost, canSeePrivatePost, canSetPrivate, canCommentIn, canCreateIn, canDeleteIn, canEditIn, canReadBoard, canSeePostIn, getBoard, invalidateBoards, loadBoards, shapeBoard } from "./boards";
 import { LIBRARY_BOARD, handleLibrary, normLibraryPostFields } from "./library";
 import { BlockError, allKeys, allPointIds, blocksForEditor, imageItems, normalizeBlocks, parseStoredBlocks, plainFromBlocks, resolveBlocks, s } from "./blocks";
 import { handleContent, mediaUrl, refIndexStmts, renderRowBlocks, siteHosts } from "./content";
@@ -120,11 +120,12 @@ export default {
       if (path === "/api/posts" && req.method === "GET") return listPosts(req, env);
       if (path === "/api/posts" && req.method === "POST") return createPost(req, env);
       if (path === "/api/posts/authors" && req.method === "GET") return listPostAuthors(req, env);
-      const pm = path.match(/^\/api\/posts\/([^/]+)(?:\/(pin))?$/);
+      const pm = path.match(/^\/api\/posts\/([^/]+)(?:\/(pin|private))?$/);
       if (pm) {
         const id = pm[1];
         const sub = pm[2];
         if (sub === "pin" && req.method === "POST") return pinPost(req, env, id);
+        if (sub === "private" && req.method === "POST") return setPostPrivate(req, env, id);
         if (req.method === "GET") return getPost(req, env, id);
         if (req.method === "PATCH") return updatePost(req, env, id);
         if (req.method === "DELETE") return deletePost(req, env, id);
@@ -903,7 +904,12 @@ async function listComments(req, env) {
   const targetId = rest.join(":");
   if (!ALLOWED_TARGET_TYPES.has(targetType)) return json({ error: "invalid target type" }, 400);
   const tp = await postBoardOf(env, targetType, targetId);
-  if (tp && !(await canSeePost(env, tp.board, tp.author_id, await viewerOf(req, env)))) return json({ error: "not found" }, 404);
+  if (tp) {
+    const cv = await viewerOf(req, env);
+    if (!(await canSeePost(env, tp.board, tp.author_id, cv))) return json({ error: "not found" }, 404);
+    // 비공개 글의 답변은 글쓴이·관리자만
+    if (tp.is_private === 1 && !canSeePrivatePost(tp.author_id, cv)) return json({ error: "비공개 글입니다", private: true }, 403);
+  }
   const rows = await env.DB.prepare(
     `SELECT c.id, c.target_type, c.target_id, c.parent_id, c.body, c.body_html, c.type,
             c.status, c.attachments, c.is_pinned, c.promoted_to_note_id, c.created_at, c.updated_at,
@@ -991,6 +997,7 @@ async function createComment(req, env) {
     const tb = await getBoard(env.DB, tp.board);
     const cu = { id: uid, level: u.level ?? 0 };
     if (!canSeePostIn(tb, tp.author_id, cu)) return json({ error: "not found" }, 404);
+    if (tp.is_private === 1 && !canSeePrivatePost(tp.author_id, cu)) return json({ error: "비공개 글입니다", private: true }, 403);
     if (!canCommentIn(tb, cu)) return json({ error: "이 게시판에는 댓글을 쓸 수 없습니다" }, 403);
   }
   // 페이지 피드(자료 글·장소 댓글)는 쓰지 않는다 (2026-11-21 운영 결정) — 교인 이야기는 도생광장 오리알터에서.
@@ -2109,7 +2116,7 @@ function normBoardInput(raw, existing) {
   const opt = raw.options !== void 0 ? raw.options : cur.options;
   out.options = {
     ...(existing?.options ?? {}),
-    ...(opt && typeof opt === "object" ? { notice: !!opt.notice, title_optional: !!opt.title_optional, official: !!opt.official } : {})
+    ...(opt && typeof opt === "object" ? { notice: !!opt.notice, title_optional: !!opt.title_optional, official: !!opt.official, private_posts: !!opt.private_posts } : {})
   };
   out.sort_order = raw.sort_order !== void 0 ? Math.trunc(Number(raw.sort_order)) || 0 : cur.sort_order;
   out.status = raw.status !== void 0 ? (raw.status === "hidden" ? "hidden" : "active") : cur.status;
@@ -2159,7 +2166,7 @@ async function adminBoards(req, env, key) {
 /** 댓글 대상이 게시글이면 그 글의 게시판·글쓴이 */
 async function postBoardOf(env, targetType, targetId) {
   if (targetType !== "post") return null;
-  return await env.DB.prepare("SELECT board, author_id FROM posts WHERE id=?").bind(targetId).first();
+  return await env.DB.prepare("SELECT board, author_id, is_private FROM posts WHERE id=?").bind(targetId).first();
 }
 function parseAttachments(raw) {
   if (!raw) return [];
@@ -2182,6 +2189,7 @@ function shapePost(r, includeBody) {
     view_count: r.view_count,
     comment_count: r.comment_count ?? 0,
     is_pinned: r.is_pinned === 1,
+    is_private: r.is_private === 1,
     // 목록용 본문 앞부분(오리알터 피드 카드) — 목록에서만 채운다
     ...r.excerpt != null ? { excerpt: r.excerpt } : {},
     // 소식 일정 기간(달력에 들어간 일정) — 없으면 null
@@ -2243,6 +2251,11 @@ async function listPosts(req, env) {
     where.push("p.author_id=?");
     binds.push(author);
   }
+  // 비공개 글은 검색·글쓴이 모아 보기로 찾을 수 없게(제목·본문·글쓴이가 드러나므로) — 본인·관리자 빼고
+  if ((qs.length || author) && (viewer?.level ?? GUEST_LEVEL) < LEVEL.ADMIN) {
+    where.push("(p.is_private = 0 OR p.author_id = ?)");
+    binds.push(viewer?.id ?? "");
+  }
   if (hasImage) where.push("p.cover_image IS NOT NULL");
   for (const t of qs) {
     where.push("(p.title LIKE ? OR p.body_md LIKE ?)");
@@ -2265,7 +2278,7 @@ async function listPosts(req, env) {
   }
   const rows = await env.DB.prepare(
     `SELECT p.id, p.board, p.category, p.title, p.attachments, p.cover_image,
-            p.view_count, p.is_pinned, p.status, p.created_at, p.updated_at,
+            p.view_count, p.is_pinned, p.is_private, p.status, p.created_at, p.updated_at,
             substr(p.body_md, 1, 1200) AS excerpt, mp.branch AS author_branch,
             lc.body AS lc_body, lc.created_at AS lc_at, lcu.display_name AS lc_author,
             (SELECT MIN(e.start_date) FROM events e WHERE e.source_post_id = p.id) AS ev_start,
@@ -2294,7 +2307,8 @@ async function listPosts(req, env) {
   const nextCursor = hasMore ? page[page.length - 1]?.created_at ?? null : null;
   return json({
     // 공식 콘텐츠 게시판은 글쓴이를 JSBeob 로 (권한자에게만 실제 등록자)
-    posts: page.map((r) => maskOfficialAuthor(shapePost(r, false), cfg.get(r.board), viewer)),
+    // 비공개 글은 볼 수 없는 사람에게 '비공개' 표시와 등록일시만
+    posts: page.map((r) => maskPrivatePost(maskOfficialAuthor(shapePost(r, false), cfg.get(r.board), viewer), viewer)),
     next: pageNo ? null : nextCursor,
     has_more: hasMore,
     ...pageNo ? { page: pageNo, total, pages: Math.max(1, Math.ceil((total ?? 0) / limit)) } : {}
@@ -2304,7 +2318,7 @@ async function listPostAuthors(req, env) {
   const url = new URL(req.url);
   const board = url.searchParams.get("board") ?? "";
   const ab = await getBoard(env.DB, board);
-  if (!ab || ab.read_scope === "own" || !canReadBoard(ab, await viewerOf(req, env))) return json({ error: "invalid board" }, 400);
+  if (!ab || ab.read_scope === "own" || ab.options?.private_posts || !canReadBoard(ab, await viewerOf(req, env))) return json({ error: "invalid board" }, 400);
   const limit = Math.min(30, Math.max(1, Number(url.searchParams.get("limit")) || 10));
   const offset = Math.max(0, Number(url.searchParams.get("offset")) || 0);
   const rs = await env.DB.prepare(
@@ -2394,6 +2408,8 @@ async function createPost(req, env) {
     libSeries = lf.series_id;
   }
   const id = uuid();
+  // 글마다 비공개(options.private_posts 게시판만, 기본 공개)
+  const isPrivate = bc.options?.private_posts && body.is_private === true ? 1 : 0;
   if (body.blocks !== void 0) {
     let pb;
     try {
@@ -2405,8 +2421,8 @@ async function createPost(req, env) {
     if (!title) title = autoTitleFromBlocks(pb);
     await env.DB.batch([
       env.DB.prepare(
-        `INSERT INTO posts (id, board, category, title, body_md, body_html, body_blocks, author_id, attachments, cover_image, series_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO posts (id, board, category, title, body_md, body_html, body_blocks, author_id, attachments, cover_image, series_id, is_private)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).bind(
         id,
         board,
@@ -2418,7 +2434,8 @@ async function createPost(req, env) {
         uid,
         pb.attachments.length ? JSON.stringify(pb.attachments) : null,
         pb.cover,
-        libSeries
+        libSeries,
+        isPrivate
       ),
       ...refIndexStmts(env, "post", id, pb.blocks),
       ...noticeStmts(env, bc, id, body),
@@ -2436,8 +2453,8 @@ async function createPost(req, env) {
   const attJson = attachments.length > 0 ? JSON.stringify(attachments) : null;
   const cover = attachments.find((a) => a.type === "image");
   await env.DB.prepare(
-    `INSERT INTO posts (id, board, category, title, body_md, body_html, author_id, attachments, cover_image)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO posts (id, board, category, title, body_md, body_html, author_id, attachments, cover_image, is_private)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(
     id,
     board,
@@ -2447,14 +2464,15 @@ async function createPost(req, env) {
     renderNewsMarkdown(text),
     uid,
     attJson,
-    cover?.url ?? null
+    cover?.url ?? null,
+    isPrivate
   ).run();
   return json({ ok: true, id });
 }
 async function getPost(req, env, id) {
   const r = await env.DB.prepare(
     `SELECT p.id, p.board, p.category, p.series_id, p.title, p.body_md, p.body_html, p.body_blocks, p.attachments, p.cover_image,
-            p.view_count, p.is_pinned, p.status, p.created_at, p.updated_at,
+            p.view_count, p.is_pinned, p.is_private, p.status, p.created_at, p.updated_at,
             u.id AS author_uid, u.display_name AS author_name, u.avatar_url AS author_avatar,
             u.affiliation AS author_affiliation, u.level AS author_level, mp.branch AS author_branch,
             (SELECT MIN(e.start_date) FROM events e WHERE e.source_post_id = p.id) AS ev_start,
@@ -2469,6 +2487,13 @@ async function getPost(req, env, id) {
   const rb = await getBoard(env.DB, r.board);
   if (!canSeePostIn(rb, r.author_uid, viewer)) {
     return json({ error: "not found" }, 404);
+  }
+  // 비공개 글 — 글쓴이·관리자가 아니면 내용 없이 '비공개' 표시와 등록일시만
+  if (r.is_private === 1 && !canSeePrivatePost(r.author_uid, viewer)) {
+    return json(
+      { error: "비공개 글입니다", private: true, post: { id: r.id, board: r.board, is_private: true, locked: true, created_at: toIsoUtc(r.created_at) } },
+      403
+    );
   }
   await env.DB.prepare("UPDATE posts SET view_count = view_count + 1 WHERE id=?").bind(id).run();
   const shaped = maskOfficialAuthor(shapePost(r, true), rb, viewer);
@@ -2584,6 +2609,25 @@ async function deletePost(req, env, id) {
     env.DB.prepare("DELETE FROM events WHERE source_post_id=?").bind(id)
   ]);
   return json({ ok: true });
+}
+/**
+ * 비공개 전환(글 보기 상단 체크, 2026-11-21) — body {private: boolean}.
+ * 글쓴이는 공개·비공개 모두, 관리자는 남의 글을 비공개로만 바꿀 수 있다.
+ */
+async function setPostPrivate(req, env, id) {
+  const uid = await currentUserId(req, env);
+  if (!uid) return json({ error: "not authenticated" }, 401);
+  const u = await loadUser(env, uid);
+  const post = await env.DB.prepare("SELECT author_id, board, status FROM posts WHERE id=?").bind(id).first();
+  if (!post || post.status !== "published") return json({ error: "not found" }, 404);
+  const body = await req.json().catch(() => ({}));
+  if (typeof body.private !== "boolean") return json({ error: "private 값이 필요합니다" }, 400);
+  const bc = await getBoard(env.DB, post.board);
+  if (!canSetPrivate(bc, post.author_id, { id: uid, level: u?.level ?? 0 }, body.private)) {
+    return json({ error: "공개 여부를 바꿀 권한이 없습니다" }, 403);
+  }
+  await env.DB.prepare("UPDATE posts SET is_private=?, updated_at=datetime('now') WHERE id=?").bind(body.private ? 1 : 0, id).run();
+  return json({ ok: true, is_private: body.private });
 }
 async function pinPost(req, env, id) {
   const uid = await currentUserId(req, env);

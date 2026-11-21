@@ -47,6 +47,36 @@
   /** 상단 고정은 관리자가 공지를 쓰는 게시판(소식 등)·탭 보드에서만 */
   const canPin = $derived(isAdmin && (!!cfg?.options?.notice || !!meta?.tab));
 
+  // ── 글마다 비공개 (2026-11-21) ──
+  /** 볼 수 없는 비공개 글 — 등록일시만 */
+  let locked = $state<{ created_at: string } | null>(null);
+  const privateOn = $derived(!!cfg?.options?.private_posts);
+  const isAuthor = $derived(!!me && !!post && me.id === post.author_id);
+  /** 상단 비공개 상자: 글쓴이는 양쪽으로, 관리자는 남의 공개 글을 비공개로만 */
+  const showPrivacyBox = $derived(privateOn && !!post && (isAuthor || isAdmin));
+  const canTogglePrivate = $derived(!!post && (isAuthor || (isAdmin && !post.is_private)));
+  let savingPrivate = $state(false);
+  let privateError = $state<string | null>(null);
+  async function togglePrivate(e: Event) {
+    if (!post) return;
+    const box = e.currentTarget as HTMLInputElement;
+    const want = box.checked;
+    const before = !!post.is_private;
+    post = { ...post, is_private: want }; // 먼저 바꿔 보이고, 실패하면 되돌린다
+    savingPrivate = true;
+    privateError = null;
+    try {
+      const r = await api.setPostPrivate(id, want);
+      post = { ...post, is_private: r.is_private };
+    } catch (err) {
+      post = { ...post, is_private: before };
+      box.checked = before;
+      privateError = err instanceof Error ? err.message : "저장하지 못했습니다";
+    } finally {
+      savingPrivate = false;
+    }
+  }
+
   let pinning = $state(false);
   async function togglePin() {
     if (!post) return;
@@ -84,8 +114,12 @@
       cfg = (await api.board(board)).board;
     } catch {}
     try {
-      post = (await api.getPost(id)).post;
-      await loadComments();
+      const r = await api.getPostOrLocked(id);
+      if ("locked" in r) locked = r.locked;
+      else {
+        post = r.post;
+        await loadComments();
+      }
     } catch (e) {
       error = e instanceof Error ? e.message : "불러오기 실패";
     } finally {
@@ -140,6 +174,15 @@
 
 {#if loading}
   <p class="state">불러오는 중…</p>
+{:else if locked}
+  <div class="locked-post">
+    <p class="lock-title"><span class="lock">🔒 비공개</span> 비공개 글입니다.</p>
+    <p class="dim">글쓴이와 운영자만 볼 수 있습니다.{locked.created_at ? ` · 등록 ${fmt(locked.created_at)}` : ""}</p>
+    {#if !me}
+      <p class="dim"><a href={`/login/?next=${encodeURIComponent(location.pathname)}`}>로그인</a>하면 내가 쓴 글을 볼 수 있습니다.</p>
+    {/if}
+    <p><a href={`${boardBase(board)}/`}>← {cfg?.label ?? meta?.label ?? "목록"}으로</a></p>
+  </div>
 {:else if error || !post}
   <p class="state err">{error ?? "글을 찾을 수 없습니다."}</p>
 {:else}
@@ -150,8 +193,34 @@
         <a href={`${boardBase(board, post.category)}/`}>{cfg?.label ?? meta?.label ?? board}</a>
       </nav>
     {/if}
+    {#if showPrivacyBox}
+      <!-- 비공개 전환 — 글쓴이(양쪽)·관리자(비공개로만). 바로 저장 (2026-11-21) -->
+      <div class="privacy" class:is-private={post.is_private} role="group" aria-label="공개 설정">
+        <p class="pv-state">
+          {#if post.is_private}
+            🔒 비공개 글입니다. {isAuthor ? "나와" : "글쓴이와"} 운영자만 봅니다.
+          {:else}
+            🌐 이 글은 모두에게 공개되어 있습니다.
+          {/if}
+        </p>
+        <label class="pv-check" class:disabled={!canTogglePrivate}>
+          <input
+            type="checkbox"
+            checked={post.is_private}
+            disabled={!canTogglePrivate || savingPrivate}
+            onchange={togglePrivate}
+          />
+          비공개로 하기 — {isAuthor ? "나와" : "글쓴이와"} 운영자만 볼 수 있습니다
+          {#if savingPrivate}<small>저장 중…</small>{/if}
+        </label>
+        {#if isAdmin && !isAuthor && post.is_private}
+          <small class="pv-note">비공개 글은 글쓴이만 공개로 되돌릴 수 있습니다.</small>
+        {/if}
+        {#if privateError}<small class="pv-err">{privateError}</small>{/if}
+      </div>
+    {/if}
     <header class="post-head">
-      <h1>{post.title}</h1>
+      <h1>{#if post.is_private && !showPrivacyBox}<span class="lock">🔒 비공개</span> {/if}{post.title}</h1>
       <div class="byline">
         <span class="author">{post.author.display_name ?? "회원"}</span>
         {#if post.registered_by}<span class="reg" title="권한자에게만 보입니다">등록 {post.registered_by}</span>{/if}
@@ -206,6 +275,10 @@
     <section class="comments" hidden={!commentsOn}>
       <h2>댓글 <span>{comments.length}</span></h2>
       {#if canComment}
+        {#if privateOn && isAdmin && !post.is_private}
+          <!-- 공개 문의의 답변은 누구나 본다 — 운영자가 개인 정보를 적지 않도록 -->
+          <p class="pv-note">공개 글입니다. 답변도 모두에게 보입니다.</p>
+        {/if}
         <form class="comment-form" onsubmit={submitComment}>
           <textarea bind:value={commentText} placeholder="댓글을 남겨보세요" rows="2"></textarea>
           <button class="btn btn-primary" disabled={posting || !commentText.trim()}>
@@ -231,6 +304,69 @@
 {/if}
 
 <style>
+  .lock {
+    display: inline-block;
+    padding: 1px 8px;
+    border-radius: 999px;
+    background: var(--color-surface-2);
+    color: var(--color-muted);
+    font-size: 0.72rem;
+    font-weight: 600;
+    vertical-align: 3px;
+  }
+  .locked-post {
+    max-width: 760px;
+    padding: 48px 0;
+    text-align: center;
+  }
+  .locked-post .lock-title {
+    font-size: 1.1rem;
+    font-weight: 700;
+  }
+  .locked-post .dim {
+    color: var(--color-muted);
+  }
+  .privacy {
+    display: grid;
+    gap: 6px;
+    margin: 0 0 18px;
+    padding: 14px 16px;
+    border: 2px solid var(--color-primary);
+    border-radius: var(--radius-md);
+    background: var(--color-primary-bg);
+  }
+  .privacy.is-private {
+    border-color: var(--color-rule);
+    background: var(--color-surface-2);
+  }
+  .pv-state {
+    margin: 0;
+    font-weight: 700;
+  }
+  .pv-check {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.95rem;
+    cursor: pointer;
+  }
+  .pv-check input {
+    width: 20px;
+    height: 20px;
+    accent-color: var(--color-primary);
+  }
+  .pv-check.disabled {
+    cursor: default;
+    color: var(--color-muted);
+  }
+  .pv-note {
+    color: var(--color-muted);
+    font-size: 0.85rem;
+  }
+  .pv-err {
+    color: var(--color-primary);
+    font-size: 0.85rem;
+  }
   .state {
     color: var(--color-muted);
     text-align: center;

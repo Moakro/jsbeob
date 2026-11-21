@@ -593,7 +593,7 @@ async function usersOfPoint(env, id) {
        FROM content_refs cr
        LEFT JOIN articles a ON cr.from_type='article' AND a.id=cr.from_id
        LEFT JOIN places pl ON cr.from_type='place' AND pl.id=cr.from_id
-       LEFT JOIN posts po ON cr.from_type='post' AND po.id=cr.from_id AND po.status<>'deleted'
+       LEFT JOIN posts po ON cr.from_type='post' AND po.id=cr.from_id AND po.status<>'deleted' AND po.board NOT IN (${PRIVATE_BOARDS_SQL})
       WHERE cr.to_type='point' AND cr.to_id=?`
   ).bind(id).all();
   return (rs.results ?? []).filter((r) => r.title !== null);
@@ -1488,7 +1488,7 @@ async function publicBacklinks(req, env) {
        FROM content_refs r
        LEFT JOIN articles a ON r.from_type='article' AND a.id=r.from_id
        LEFT JOIN places p ON r.from_type='place' AND p.id=r.from_id
-       LEFT JOIN posts po ON r.from_type='post' AND po.id=r.from_id
+       LEFT JOIN posts po ON r.from_type='post' AND po.id=r.from_id AND po.board NOT IN (${PRIVATE_BOARDS_SQL})
       WHERE r.to_type=? AND r.to_id=?
       LIMIT 200`
   ).bind(kind, id).all();

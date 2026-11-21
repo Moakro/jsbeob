@@ -10,6 +10,7 @@ import AlbumGrid from "../board/AlbumGrid.svelte";
 import CommunityModals from "../board/CommunityModals.svelte";
 import NewsModal from "../board/NewsModal.svelte";
 import NewsRows from "../board/NewsRows.astro";
+import HelpBox from "../board/HelpBox.svelte";
 import { listRecentNews, listRecentPhotos } from "../../lib/content";
 const {
   openId = null,
@@ -61,6 +62,10 @@ const MTABS = [
       </h2>
       {news.length ? <NewsRows news={news} /> : <p class="empty">아직 올라온 소식이 없습니다.</p>}
     </section>
+    {/* 문의 — 최근 문의(비공개는 배지·등록일시만)와 '문의하기' (2026-11-21) */}
+    <section class="lib-sec cm-help pc-only" aria-labelledby="cm-help-h">
+      <HelpBox client:media="(min-width: 861px)" />
+    </section>
     <section class="lib-sec cm-photos pc-only" aria-labelledby="cm-photos-h">
       <h2 id="cm-photos-h">
         최근 사진
@@ -96,6 +101,9 @@ const MTABS = [
       data-panel="news"
     >
       <NewsPanel client:media="(max-width: 860px)" />
+      <section class="lib-sec cm-help-m" aria-labelledby="cm-help-m-h">
+        <HelpBox client:media="(max-width: 860px)" hid="cm-help-m-h" />
+      </section>
     </div>
     <div
       class="cm-panel m-only"
@@ -238,7 +246,7 @@ const MTABS = [
   .cm-split {
     display: grid;
     grid-template-columns: minmax(0, 6fr) minmax(0, 4fr);
-    grid-template-rows: auto auto 1fr;
+    grid-template-rows: auto auto auto auto 1fr;
     column-gap: 24px;
     row-gap: 16px;
     align-items: start;
@@ -249,10 +257,11 @@ const MTABS = [
   }
   .cm-feed {
     grid-column: 1;
-    grid-row: 1 / span 3;
+    grid-row: 1 / span 5;
     min-width: 0;
   }
   .cm-news,
+  .cm-help,
   .cm-photos,
   .cm-members {
     grid-column: 2;
@@ -260,6 +269,9 @@ const MTABS = [
   }
   .m-only {
     display: none;
+  }
+  .cm-help-m {
+    margin-top: 20px;
   }
   .h-link,
   .more {

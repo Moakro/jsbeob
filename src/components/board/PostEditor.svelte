@@ -25,6 +25,9 @@
   let authorId = $state<string | null>(null);
   const hasNotice = $derived(!!cfg?.options?.notice);
   let notice = $state(false);
+  /** 글마다 비공개(options.private_posts, 새 글에만 — 등록 뒤에는 글 보기 상단에서 바꾼다). 기본 공개 */
+  const hasPrivate = $derived(!!cfg?.options?.private_posts && !editing);
+  let isPrivate = $state(false);
   let newSeries = $state("");
   let categories = $state<any[]>([]);
   let seriesList = $state<any[]>([]);
@@ -149,7 +152,7 @@
         await api.updatePost(postId, input);
         window.location.href = postHref(board, postId, isLibrary ? category : null);
       } else {
-        const r = await api.createPost({ board, ...input });
+        const r = await api.createPost({ board, ...input, ...(hasPrivate ? { is_private: isPrivate } : {}) });
         window.location.href = postHref(board, r.id, isLibrary ? category : null);
       }
     } catch (err) {
@@ -207,6 +210,12 @@
       <span>제목</span>
       <input bind:value={title} maxlength="200" placeholder="제목" />
     </label>
+    {#if hasPrivate}
+      <div class="private-field">
+        <label class="chk"><input type="checkbox" bind:checked={isPrivate} /> 비공개 (나와 운영자만 봅니다)</label>
+        <small>{isPrivate ? "글쓴이와 운영자만 볼 수 있습니다." : "체크하지 않으면 모두에게 공개됩니다. 등록한 뒤에도 바꿀 수 있습니다."}</small>
+      </div>
+    {/if}
     {#if hasNotice}
       <div class="news-fields">
         <label class="chk"><input type="checkbox" bind:checked={notice} /> 공지(목록 맨 위)</label>
@@ -280,6 +289,23 @@
     display: grid;
     gap: 8px;
     margin: 0 0 16px;
+  }
+  .private-field {
+    display: grid;
+    gap: 4px;
+    padding: 10px 12px;
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-md);
+    background: var(--color-surface);
+  }
+  .private-field .chk {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-weight: 600;
+  }
+  .private-field small {
+    color: var(--color-muted);
   }
   .news-fields .chk {
     display: inline-flex;
