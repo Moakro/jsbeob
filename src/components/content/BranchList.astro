@@ -14,12 +14,6 @@ const groups = (["지부", "분원", "기관"] as const)
 const ORG_NOTE = "사단법인 증산법종교 종무원 산하";
 /** 대표자 직함 — 지부장·분원장, 기관은 이름+장(청장년회장) */
 const headTitle = (kind: string, name: string) => (kind === "기관" ? `${name}장` : `${kind}장`);
-const kakaoLink = (b: any) =>
-  b.lat != null && b.lng != null
-    ? `https://map.kakao.com/link/map/${encodeURIComponent(b.name)},${b.lat},${b.lng}`
-    : b.address
-      ? `https://map.kakao.com/?q=${encodeURIComponent(b.address)}`
-      : null;
 ---
 
 {
@@ -67,11 +61,6 @@ const kakaoLink = (b: any) =>
                         <dd>
                           {b.address}
                           {b.address_detail && ` ${b.address_detail}`}
-                          {kakaoLink(b) && (
-                            <a class="go" href={kakaoLink(b)} target="_blank" rel="noopener">
-                              카카오맵
-                            </a>
-                          )}
                         </dd>
                       </>
                     )}
@@ -163,11 +152,6 @@ const kakaoLink = (b: any) =>
   dd {
     margin: 0;
     word-break: keep-all;
-  }
-  .go {
-    margin-left: 6px;
-    font-size: 0.8rem;
-    white-space: nowrap;
   }
   @media (max-width: 480px) {
     ul {
