@@ -9,7 +9,22 @@ type Opts = { preview?: boolean; viewer?: boolean };
  * API GET. preview/viewer 요청이면 쿠키를 넘겨 로그인 사용자 기준(초안 보기 등)으로 받는다.
  * env.API(service binding)가 있으면 그것으로, 없으면(dev) 같은 출처 fetch.
  */
+/**
+ * 이 요청을 그리는 동안 자료 API 가 실패했는가 — 실패한 화면(빈 목록 등)을 비회원 페이지 캐시에 넣지 않으려고
+ * src/middleware.ts 가 본다 (2026-11-21, D1 읽기 한도 초과 때 빈 화면이 캐시될 뻔했다).
+ */
+export const failedRenders = new WeakSet<Request>();
+
 async function contentGet(path: string, request: Request, opts: Opts = {}): Promise<any> {
+  try {
+    return await contentGetRaw(path, request, opts);
+  } catch (e) {
+    failedRenders.add(request);
+    throw e;
+  }
+}
+
+async function contentGetRaw(path: string, request: Request, opts: Opts = {}): Promise<any> {
   const headers: Record<string, string> = { Accept: "application/json" };
   if (opts.preview || opts.viewer) {
     const cookie = request.headers.get("cookie");

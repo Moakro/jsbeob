@@ -2,7 +2,8 @@
 // 규칙은 src/lib/old-urls.ts. 새 사이트에는 '/_' 로 시작하는 페이지가 없어 다른 주소와 겹치지 않는다.
 import { defineMiddleware } from "astro:middleware";
 import { oldUrlTarget } from "./lib/old-urls";
-import { PAGE_CACHE_TTL, isCacheable, isStorable, withCacheHeaders } from "./lib/page-cache";
+import { isCacheable, isStorable, ttlFor, withCacheHeaders } from "./lib/page-cache";
+import { failedRenders } from "./lib/content";
 
 export const onRequest = defineMiddleware(async (ctx, next) => {
   // www.jsbeob.com → jsbeob.com (주소 하나로 — 검색 중복 방지, 2026-11-21)
@@ -28,9 +29,11 @@ export const onRequest = defineMiddleware(async (ctx, next) => {
   const hit = await edge.match(key).catch(() => undefined);
   if (hit) return withCacheHeaders(hit, "HIT");
   const res = await next();
-  if (!isStorable(res)) return res;
+  // 자료 API 가 실패한 채 그린 화면은 저장하지 않는다
+  if (!isStorable(res) || failedRenders.has(ctx.request)) return res;
   const store = new Response(res.clone().body, res);
-  store.headers.set("Cache-Control", `public, s-maxage=${PAGE_CACHE_TTL}, max-age=${PAGE_CACHE_TTL}`);
+  const ttl = ttlFor(reqUrl);
+  store.headers.set("Cache-Control", `public, s-maxage=${ttl}, max-age=${ttl}`);
   store.headers.delete("X-Page-Cache");
   const put = edge.put(key, store).catch(() => {});
   const wait = (ctx.locals as any).cfContext?.waitUntil;

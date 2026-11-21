@@ -7,6 +7,9 @@
 // 응답 헤더 X-Page-Cache: HIT | MISS 로 확인할 수 있다.
 
 export const PAGE_CACHE_TTL = 300; // 5분
+/** 옛 글 보관함은 바뀌지 않는 데이터라 하루 (크롤러가 글마다 들어와도 하루 한 번만 그린다) */
+export const LEGACY_CACHE_TTL = 86400;
+export const ttlFor = (url: URL) => (url.pathname.startsWith("/legacy/") ? LEGACY_CACHE_TTL : PAGE_CACHE_TTL);
 
 const SESSION_COOKIE = "jb_session";
 const SKIP_PREFIX = ["/admin", "/account", "/login", "/api/", "/_astro/", "/_image", "/_server-islands/"];
