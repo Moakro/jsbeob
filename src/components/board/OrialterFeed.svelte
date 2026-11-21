@@ -188,12 +188,14 @@
       .filter(Boolean);
     filter = { q: qs.length ? qs : undefined, author: sp.get("author") ?? undefined };
     (async () => {
-      try {
-        me = (await api.me()).user;
-      } catch {}
-      meReady = true;
+      // 로그인 확인과 글 목록을 동시에 — 글 목록은 로그인과 상관없이 같아서 기다릴 필요가 없다 (2026-11-21)
+      const meP = api
+        .me()
+        .then((r) => (me = r.user))
+        .catch(() => {})
+        .finally(() => (meReady = true));
       if (openId) openPost(openId, true);
-      await load();
+      await Promise.all([load(), meP]);
       if (openId) {
         if (!posts.some((p) => p.id === openId) && !filter.q?.length && !filter.author)
           await loadFrom(openId);

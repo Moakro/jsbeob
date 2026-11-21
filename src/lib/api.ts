@@ -145,18 +145,34 @@ async function req<T = any>(path: string, init?: RequestInit): Promise<T> {
   return data as T;
 }
 
+/**
+ * 로그인 확인은 한 페이지에서 한 번만 보내고 나눠 쓴다 (2026-11-21) — 계정 메뉴·피드·문의 상자·소식 팝업 등이
+ * 각자 /api/me 를 부르면 같은 요청이 4~5번 나갔다. 실패하면 다음 호출 때 다시 보낸다.
+ * 닉네임 저장·로그아웃 뒤에는 resetMe() 로 비운다(대개 페이지를 다시 불러오므로 함께 비워진다).
+ */
+let mePromise: Promise<{ user: MeUser | null }> | null = null;
+export function resetMe() {
+  mePromise = null;
+}
+
 export const api = {
-  me: () => req<{ user: MeUser | null }>("/api/me"),
+  me: () => {
+    if (!mePromise) {
+      mePromise = req<{ user: MeUser | null }>("/api/me");
+      mePromise.catch(() => (mePromise = null));
+    }
+    return mePromise;
+  },
   loginUrl: (provider: "kakao" | "google", next: string) =>
     `/api/auth/login?provider=${provider}&next=${encodeURIComponent(next)}`,
-  logout: () => req("/api/auth/logout", { method: "POST" }),
+  logout: () => (resetMe(), req("/api/auth/logout", { method: "POST" })),
   /** 정보 설정 저장. member: 생략=변경 없음, null=교인 정보 삭제, 객체=저장 */
   setNickname: (nickname: string, affiliation?: string, member?: MemberInfo | null) =>
-    req<{ ok: boolean }>("/api/me/nickname", {
+    (resetMe(), req<{ ok: boolean }>("/api/me/nickname", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(member === undefined ? { nickname, affiliation } : { nickname, affiliation, member }),
-    }),
+    })),
   listPosts: (params: ListPostsParams) => {
     const sp = new URLSearchParams();
     if (params.board) sp.set("board", params.board);
