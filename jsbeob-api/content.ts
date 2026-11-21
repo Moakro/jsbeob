@@ -1422,6 +1422,17 @@ async function publicFind(req, env) {
   for (const r of po.results ?? []) {
     push({ title: r.title, hanja: null, label: `자료실 · ${catLabel.get(r.category) ?? "기타 자료"}`, href: refHref("post", r), rank: 4 }, [r.title], null, r.body_blocks, r.body_md, r.refs);
   }
+  // 도생광장 글(오리알터·소식 등 공개 게시판) — 비공개·회원 전용 게시판과 글마다 비공개 글은 뺀다 (2026-11-21)
+  const cm = await env.DB.prepare(
+    `SELECT p.id, p.board, p.category, p.title, p.body_blocks, p.body_md, bd.label AS board_label, ${refTitles("post", "p")} AS refs
+       FROM posts p LEFT JOIN boards bd ON bd.key = p.board
+      WHERE p.status='published' AND p.board <> 'etc' AND p.is_private = 0 AND p.board NOT IN (${PRIVATE_BOARDS_SQL})
+        AND ${where(`p.title || ' ' || COALESCE(p.body_blocks, p.body_md) || ' ' || ${refTitles("post", "p")}`)}
+      ORDER BY p.created_at DESC LIMIT ?`
+  ).bind(...likes, LIMIT).all();
+  for (const r of cm.results ?? []) {
+    push({ title: r.title, hanja: null, label: `도생광장 · ${r.board_label ?? BOARD_LABEL[r.board] ?? r.board}`, href: refHref("post", r), rank: 5 }, [r.title], null, r.body_blocks, r.body_md, r.refs);
+  }
   hits.sort((a, b) => Number(b.inTitle) - Number(a.inTitle) || a.rank - b.rank);
   return json({
     items: hits.slice(0, LIMIT).map((h) => ({

@@ -727,8 +727,11 @@
       height: 44px;
     }
     .hs-field .hs-panel {
-      right: -62px;
       max-height: 62vh;
+    }
+    /* 옆에 AI 대화 버튼이 있을 때만 그 아래까지 넓힌다 — 버튼을 숨기면(SHOW_AI_CHAT) 화면 밖으로 넘쳤다 (2026-11-21) */
+    :global(.hero-search-row:has(.hero-ai)) .hs-field .hs-panel {
+      right: -62px;
     }
     .hdr-btn {
       width: 34px;
