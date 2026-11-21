@@ -369,8 +369,10 @@
     // 끈 뒤 바로 오는 click 은 무시
     justDragged = true;
     setTimeout(() => (justDragged = false), 0);
-    const dy = e.clientY - d.y0;
-    const h = dragH ?? d.h0;
+    finishDrag(e.clientY - d.y0, dragH ?? d.h0);
+  }
+  /** 끌기를 놓았을 때 — 위로 40px 이상이면 펼치기, 아래로 40px 이상이면 접기(이미 접혀 있으면 닫기) */
+  function finishDrag(dy: number, h: number) {
     dragH = null;
     if (dy <= -40) expanded = true;
     else if (dy >= 40) {
@@ -378,6 +380,66 @@
       else open = false;
     }
   }
+
+  // 머리 줄로 끌기 (2026-11-21) — 손잡이뿐 아니라 제목 줄 어디를 잡아도. 버튼·링크는 그대로 눌린다.
+  function headDown(e: PointerEvent) {
+    if (!sheet || (e.target as Element).closest("button, a, input")) return;
+    gripDown(e);
+  }
+
+  // 내용에서 아래로 당겨 닫기 (2026-11-21) — 내용이 맨 위일 때 아래로 당기면 시트가 따라 내려온다.
+  // 세로 스크롤과 겨루므로 터치 이벤트로(passive: false) 받아, 시트를 움직일 때만 기본 스크롤을 막는다.
+  let pull: { x0: number; y0: number; h0: number; active: boolean; body: HTMLElement } | null = null;
+  function pullStart(e: TouchEvent) {
+    pull = null;
+    if (!sheet || e.touches.length !== 1) return;
+    const body = (e.target as Element).closest<HTMLElement>(".sd-body");
+    if (!body || body.scrollTop > 0) return;
+    const t = e.touches[0];
+    pull = { x0: t.clientX, y0: t.clientY, h0: sheetH, active: false, body };
+  }
+  function pullMove(e: TouchEvent) {
+    if (!pull) return;
+    const t = e.touches[0];
+    const dy = t.clientY - pull.y0;
+    const dx = t.clientX - pull.x0;
+    if (!pull.active) {
+      if (Math.abs(dy) < 8 && Math.abs(dx) < 8) return;
+      // 아래로, 세로가 뚜렷하고, 내용이 여전히 맨 위일 때만 시트를 끈다(그 밖엔 평소 스크롤·카드 넘기기)
+      if (dy > 0 && Math.abs(dy) > Math.abs(dx) * 1.2 && pull.body.scrollTop <= 0) pull.active = true;
+      else {
+        pull = null;
+        return;
+      }
+    }
+    e.preventDefault();
+    dragH = Math.max(0, Math.min(highH, pull.h0 - dy));
+  }
+  function pullEnd(e: TouchEvent) {
+    const p = pull;
+    pull = null;
+    if (!p?.active) return;
+    const t = e.changedTouches[0];
+    finishDrag(t ? t.clientY - p.y0 : 0, dragH ?? p.h0);
+  }
+  $effect(() => {
+    const el = root;
+    if (!el || !sheet) return;
+    const cancel = () => {
+      if (pull?.active) dragH = null;
+      pull = null;
+    };
+    el.addEventListener("touchstart", pullStart, { passive: true });
+    el.addEventListener("touchmove", pullMove, { passive: false });
+    el.addEventListener("touchend", pullEnd);
+    el.addEventListener("touchcancel", cancel);
+    return () => {
+      el.removeEventListener("touchstart", pullStart);
+      el.removeEventListener("touchmove", pullMove);
+      el.removeEventListener("touchend", pullEnd);
+      el.removeEventListener("touchcancel", cancel);
+    };
+  });
   function gripCancel() {
     drag = null;
     dragH = null;
@@ -751,7 +813,15 @@
     {/if}
     <!-- 복원: 배포본 템플릿의 공백으로 보아 이 자리에 주석이 둘 있었다 -->
     <!-- 지도에서 연 장소 카드는 머리에 장소 이름 -->
-    <header class="sd-top" class:is-place={mapMode && view === "card" && !!current}>
+    <!-- svelte-ignore a11y_no_static_element_interactions — 끌기는 손잡이(button)와 같은 보조 동작, 키보드는 손잡이로 -->
+    <header
+      class="sd-top"
+      class:is-place={mapMode && view === "card" && !!current}
+      onpointerdown={headDown}
+      onpointermove={gripMove}
+      onpointerup={gripUp}
+      onpointercancel={gripCancel}
+    >
       {#if mapMode && view === "card" && current}
         <div class="sd-title">
           {#if current.card}
@@ -1216,7 +1286,7 @@
     display: grid;
     place-items: center;
     width: 100%;
-    height: 22px;
+    height: 30px; /* 손가락으로 잡기 쉽게 (22 → 30) */
     padding: 0;
     border: 0;
     background: var(--color-primary-bg);
@@ -1227,6 +1297,14 @@
   }
   .sd.is-sheet .sd-top {
     padding: 2px 14px 8px;
+    /* 머리 줄로도 끌 수 있게 — 세로 스크롤 제스처를 시트가 받는다 */
+    touch-action: none;
+    cursor: grab;
+    user-select: none;
+  }
+  /* 내용을 맨 위에서 당길 때 페이지 '당겨서 새로고침'이 끼어들지 않게 */
+  .sd.is-sheet .sd-body {
+    overscroll-behavior-y: contain;
   }
   .sd.is-sheet .sd-collapse {
     display: grid;
