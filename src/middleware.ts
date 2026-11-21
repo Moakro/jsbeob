@@ -4,6 +4,12 @@ import { defineMiddleware } from "astro:middleware";
 import { oldUrlTarget } from "./lib/old-urls";
 
 export const onRequest = defineMiddleware((ctx, next) => {
+  // www.jsbeob.com → jsbeob.com (주소 하나로 — 검색 중복 방지, 2026-11-21)
+  if (ctx.url.hostname === "www.jsbeob.com") {
+    const to = new URL(ctx.url);
+    to.hostname = "jsbeob.com";
+    return new Response(null, { status: 301, headers: { Location: to.toString() } });
+  }
   const p = ctx.url.pathname;
   if (p.startsWith("/_") && !p.startsWith("/_astro/") && !p.startsWith("/_image") && !p.startsWith("/_server-islands/")) {
     const to = oldUrlTarget(ctx.url);
