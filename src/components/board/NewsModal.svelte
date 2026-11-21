@@ -3,7 +3,8 @@
   // 소식 모달 — 'jb:news-open' 이벤트로 열고, 글 + 소식 목록을 함께 보인다. syncUrl 이면 주소를 글 주소로 바꾼다.
   // 복원(2026-11-01): 배포본 SSR(NewsRows 청크)·클라이언트(_astro/NewsModal.*.js) 기준.
   import { onMount, tick } from "svelte";
-  import { api, fmtPeriodFull, NEWS_OPEN_EVENT, postHref, type MeUser, type PostDetail } from "../../lib/api";
+  import { api, fmtPeriodFull, NEWS_OPEN_EVENT, postHref, type BoardConfig, type MeUser, type PostDetail } from "../../lib/api";
+  import { confirmDialog } from "../../lib/confirm";
   import ModalFrame from "../ModalFrame.svelte";
   import NewsList from "./NewsList.svelte";
 
@@ -17,6 +18,36 @@
   let me = $state<MeUser | null>(null);
   let returnUrl = "";
   let root = $state<HTMLElement | undefined>(undefined);
+
+  // 삭제 — 게시판 설정(소식)의 삭제 권한을 따른다: 관리자, 삭제 등급 이상, 또는 본인 글 삭제 허용 시 글쓴이 (2026-11-21)
+  let cfg = $state<BoardConfig | null>(null);
+  const lv = $derived(me?.level ?? 0);
+  const canDelete = $derived(
+    !!me &&
+      !!post &&
+      (lv >= LEVEL.ADMIN || (!!cfg && ((cfg.delete_own && me.id === post.author_id) || lv >= cfg.delete_level))),
+  );
+  let deleting = $state(false);
+  async function remove() {
+    if (!post || deleting) return;
+    const ok = await confirmDialog({
+      title: "소식 삭제",
+      message: `'${post.title}' 소식을 삭제할까요? 달력에 들어간 일정도 함께 지워집니다.`,
+      confirmText: "삭제",
+      tone: "danger",
+    });
+    if (!ok) return;
+    deleting = true;
+    try {
+      await api.deletePost(post.id);
+      // 목록·도생광장·홈의 소식 상자가 서버에서 그려지므로 닫고 새로 불러온다
+      close();
+      location.reload();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "삭제하지 못했습니다");
+      deleting = false;
+    }
+  }
 
   const when = (iso: string) => {
     const d = new Date(iso);
@@ -85,6 +116,10 @@
       .me()
       .then((r) => (me = r.user))
       .catch(() => {});
+    api
+      .board("news")
+      .then((r) => (cfg = r.board))
+      .catch(() => {});
     if (openId) show(openId, location.hash.startsWith("#b-") ? decodeURIComponent(location.hash.slice(3)) : null);
     else if (syncUrl && location.hash === "#news" && matchMedia("(min-width: 861px)").matches) show(null);
     return () => window.removeEventListener(NEWS_OPEN_EVENT, onOpen);
@@ -113,6 +148,9 @@
             <!-- 공식 글 실제 등록자 — 권한자에게만 온다 (2026-11-16) -->
             {#if post.registered_by}<span class="reg" title="권한자에게만 보입니다">등록 {post.registered_by}</span>{/if}
             {#if (me?.level ?? 0) >= LEVEL.ADMIN}<a href={`${postHref("news", post.id)}edit/`}>수정</a>{/if}
+            {#if canDelete}<button type="button" class="del" disabled={deleting} onclick={remove}
+                >{deleting ? "삭제 중…" : "삭제"}</button
+              >{/if}
           </p>
           <div class="body" class:plain-one={plainOne}>{@html post.body_html}</div>
         </article>
@@ -198,6 +236,22 @@
   .by a {
     margin-left: auto;
     color: var(--color-muted);
+  }
+  .by .del {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--color-primary);
+    font: inherit;
+    cursor: pointer;
+  }
+  /* 수정 링크가 없으면(권한 차이) 삭제가 오른쪽 끝으로 */
+  .by span + .del {
+    margin-left: auto;
+  }
+  .by .del:disabled {
+    opacity: 0.6;
+    cursor: default;
   }
   .body {
     font-size: 1.02rem;
