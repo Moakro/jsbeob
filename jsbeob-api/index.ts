@@ -993,6 +993,9 @@ async function createComment(req, env) {
     if (!canSeePostIn(tb, tp.author_id, cu)) return json({ error: "not found" }, 404);
     if (!canCommentIn(tb, cu)) return json({ error: "이 게시판에는 댓글을 쓸 수 없습니다" }, 403);
   }
+  // 페이지 피드(자료 글·장소 댓글)는 쓰지 않는다 (2026-11-21 운영 결정) — 교인 이야기는 도생광장 오리알터에서.
+  // 다시 켜려면 이 줄을 지우고 페이지에 [data-page-feed] 를 되돌린다.
+  if (FEED_TARGETS.has(targetType)) return json({ error: "이 페이지에는 피드를 쓸 수 없습니다" }, 403);
   if (FEED_TARGETS.has(targetType)) {
     if ((u.level ?? 0) < MEMBER_LEVEL) return json({ error: "교인 인증 회원만 피드를 쓸 수 있습니다" }, 403);
     const table = targetType === "article" ? "articles" : "places";

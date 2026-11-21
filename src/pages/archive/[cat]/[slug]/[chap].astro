@@ -62,9 +62,7 @@ const bookHref = articleHref(key, bookSlug) + q;
         <AdminEditLink href={`/admin/#article/${entry.id}`} inline />
       </PageTitle>{" "}
       <PreviewNotice status={entry.status} editHref={`/admin/#article/${entry.id}`} />{" "}
-      {entry.status === "published" && (
-        <div hidden data-page-feed data-kind="article" data-id={entry.id} data-title={entry.title}></div>
-      )}
+      {/* 페이지 피드는 쓰지 않는다 (2026-11-21) */}
       <article class="doc">
         {entry.summary && <p class="summary">{entry.summary}</p>} <Prose html={entry.body_html ?? ""} />
         <nav class="pager" aria-label="이전·다음 장">

@@ -26,9 +26,7 @@ const rest = hero ? gallery : gallery.slice(1);
 <Base title={name} description={summary ?? void 0} tight>
   {" "}
   <PreviewNotice status={status} editHref={`/admin/#place/${id}`} />{" "}
-  {status === "published" && (
-    <div hidden data-page-feed data-kind="place" data-id={id} data-title={name}></div>
-  )}
+  {/* 페이지 피드는 쓰지 않는다 (2026-11-21) */}
   <article class="doc">
     <PageTitle title={name} hanja={name_hanja} sub={built ? `건립 ${built}` : null}>
       <AdminEditLink href={`/admin/#place/${id}`} inline />
