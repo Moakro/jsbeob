@@ -104,8 +104,15 @@ const pos = { at: at + 1, total: toc.length, pct: toc.length ? Math.round(((at +
     if (!now || !label || !verses.length) return;
     const pin = now.parentElement;
     const show = () => {
+      // 막대가 위에 붙었을 때만 보인다 — 제자리(진행 표시 아래)에 있을 땐 본문 첫 절을 가리므로 숨긴다
+      const pinTop = pin ? pin.getBoundingClientRect().top : 0;
+      const stuckAt = pin ? parseFloat(getComputedStyle(pin).top) || 0 : 0;
+      if (pinTop > stuckAt + 1) {
+        now.classList.remove("on");
+        return;
+      }
       // 막대 아래 가장자리까지 올라온 절을 지금 읽는 절로 본다
-      const top = (pin ? pin.getBoundingClientRect().top : 0) + (now.offsetHeight || 36) + 4;
+      const top = pinTop + (now.offsetHeight || 36) + 4;
       let cur = null;
       for (const v of verses) {
         if (v.getBoundingClientRect().top - top <= 0) cur = v;

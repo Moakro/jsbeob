@@ -24,7 +24,8 @@ export const onRequest = defineMiddleware(async (ctx, next) => {
   }
   // 비회원 페이지 캐시 — src/lib/page-cache.ts
   const edge = (globalThis as any).caches?.default as Cache | undefined;
-  if (!edge || !isCacheable(ctx.request, reqUrl)) return next();
+  // 로컬 개발(astro dev)에서는 캐시하지 않는다 — 고친 화면이 5분 동안 안 보이는 혼란을 막는다
+  if (import.meta.env.DEV || !edge || !isCacheable(ctx.request, reqUrl)) return next();
   const key = new Request(reqUrl.toString(), { method: "GET" });
   const hit = await edge.match(key).catch(() => undefined);
   if (hit) return withCacheHeaders(hit, "HIT");
