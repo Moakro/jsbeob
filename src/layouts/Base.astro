@@ -27,7 +27,10 @@ const pageTitle = title ? `${title} · 증산법종교` : "증산법종교";
 const siteBase = Astro.site ?? new URL("https://jsbeob.com");
 const ogUrl = new URL(Astro.url.pathname, siteBase).href;
 // 따로 정한 이미지가 없으면 모바일 히어로 사진(관리 화면), 그것도 없으면 그 사진으로 만든 /og-default.jpg
-const ogImage = new URL(image || (await getDefaultOgImage(Astro.request)) || "/og-default.jpg", siteBase).href;
+const ogRaw = image || (await getDefaultOgImage(Astro.request)) || "/og-default.jpg";
+// 업로드 사진(WebP)은 공유용 JPG 주소(/og/…)로 — 밴드 등이 WebP 미리보기를 쓰지 않는다 (src/pages/og)
+const ogPath = ogRaw.replace(/^\/api\/files\/((?:comments|media)\/[A-Za-z0-9/_-]+)\.webp$/, "/og/$1.jpg");
+const ogImage = new URL(ogPath, siteBase).href;
 const active = resolveSection(Astro.url.pathname);
 ---
 
