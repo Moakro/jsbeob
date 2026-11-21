@@ -360,7 +360,8 @@
       files = [];
       await load();
     } catch (e) {
-      flash(e instanceof Error ? e.message : "올리지 못했습니다");
+      // 오류 안내(사진 형식 등)는 읽을 시간을 넉넉히
+      flash(e instanceof Error ? e.message : "올리지 못했습니다", 7000);
     } finally {
       posting = false;
     }
@@ -520,9 +521,9 @@
     } catch {}
   }
 
-  function flash(msg: string) {
+  function flash(msg: string, ms = 2200) {
     toast = msg;
-    setTimeout(() => (toast = null), 2200);
+    setTimeout(() => (toast = null), ms);
   }
 
   const loginHref = () => `/login/?next=${encodeURIComponent(location.pathname)}`;

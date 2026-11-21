@@ -95,8 +95,42 @@ export const adminApi = {
 };
 
 /** 사진을 긴 변 max 픽셀 이하 WebP 로 줄인다(EXIF 방향 반영). */
+/** 브라우저가 읽지 못한 사진 — 형식 안내를 붙여 보인다 (2026-11-21) */
+export class ImageDecodeError extends Error {}
+
+/**
+ * 사진 열기 — createImageBitmap 이 못 읽으면 <img> 로 한 번 더 시도한다
+ * (Safari 의 HEIC 처럼 <img> 로만 열리는 경우가 있다). 둘 다 안 되면 ImageDecodeError.
+ */
+async function decodeImage(file: Blob): Promise<ImageBitmap | HTMLImageElement> {
+  try {
+    return await createImageBitmap(file, { imageOrientation: "from-image" });
+  } catch {
+    /* 아래에서 다시 */
+  }
+  const url = URL.createObjectURL(file);
+  try {
+    const img = new Image();
+    img.src = url;
+    await img.decode();
+    if (!img.naturalWidth) throw new Error("empty");
+    return img;
+  } catch {
+    const name = (file as File).name ?? "";
+    const heic = /\.(heic|heif)$/i.test(name) || /hei[cf]/i.test(file.type);
+    throw new ImageDecodeError(
+      heic
+        ? "아이폰 HEIC 사진은 이 브라우저에서 열 수 없습니다. JPG로 바꿔 올리거나, 아이폰 설정 > 카메라 > 포맷에서 '높은 호환성'을 골라 주세요."
+        : `사진을 열 수 없습니다${name ? ` (${name})` : ""}. JPG·PNG·WebP 사진인지, 파일이 손상되지 않았는지 확인해 주세요.`,
+    );
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
 export async function resizeImage(file: Blob, max = 2400) {
-  const bmp = await createImageBitmap(file, { imageOrientation: "from-image" });
+  const src = await decodeImage(file);
+  const bmp = { width: (src as any).naturalWidth || src.width, height: (src as any).naturalHeight || src.height };
   const scale = Math.min(1, max / Math.max(bmp.width, bmp.height));
   const width = Math.max(1, Math.round(bmp.width * scale));
   const height = Math.max(1, Math.round(bmp.height * scale));
@@ -105,8 +139,8 @@ export async function resizeImage(file: Blob, max = 2400) {
   canvas.height = height;
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("사진을 처리할 수 없습니다");
-  ctx.drawImage(bmp, 0, 0, width, height);
-  (bmp as any).close?.();
+  ctx.drawImage(src, 0, 0, width, height);
+  (src as any).close?.();
   const blob = await new Promise<Blob | null>((r) => canvas.toBlob(r, "image/webp", 0.88));
   if (!blob) throw new Error("사진 변환에 실패했습니다");
   return { blob, width, height };
