@@ -17,6 +17,10 @@ export interface LibRow {
   thumb?: any;
   draft?: boolean;
   series?: any;
+  /** 책 카드용 (2026-11-21) — 장 수·소개·표지 한 줄 */
+  chapters?: number;
+  summary?: string | null;
+  byline?: string | null;
 }
 
 const fromArticle = (a: any, extra: Partial<LibRow> = {}): LibRow => ({
@@ -26,6 +30,9 @@ const fromArticle = (a: any, extra: Partial<LibRow> = {}): LibRow => ({
   hanja: a.title_hanja,
   href: articleHref(a.kind, a.slug),
   meta: a.chapter_count ? `${a.chapter_count}장` : null, // 책(2026-10-02): 장 수
+  chapters: a.chapter_count ?? 0,
+  summary: a.summary ?? null,
+  byline: a.meta?.byline ?? null,
   pinned: !!a.pinned,
   featured: !!a.featured,
   order: a.sort_order ?? 0,

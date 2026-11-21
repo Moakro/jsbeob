@@ -43,6 +43,8 @@ const at = toc.findIndex((t) => t.on);
 const prev = at > 0 ? { href: toc[at - 1].href, label: toc[at - 1].title } : null;
 const next = at >= 0 && at < toc.length - 1 ? { href: toc[at + 1].href, label: toc[at + 1].title } : null;
 const bookHref = articleHref(key, bookSlug) + q;
+// 위치 표시 (2026-11-21) — 몇 번째 장인지, 이어 읽기용 기록
+const pos = { at: at + 1, total: toc.length, pct: toc.length ? Math.round(((at + 1) / toc.length) * 100) : 0 };
 ---
 
 <Base
@@ -61,6 +63,16 @@ const bookHref = articleHref(key, bookSlug) + q;
       >
         <AdminEditLink href={`/admin/#article/${entry.id}`} inline />
       </PageTitle>{" "}
+      <div class="where" aria-label={`${book.title} ${pos.total}개 장 중 ${pos.at}번째`}>
+        <span class="pos">{pos.at} / {pos.total}</span>
+        <span class="bar" aria-hidden="true"><i style={`width:${pos.pct}%`}></i></span>
+      </div>
+      <!-- 지금 읽는 절 — 스크롤하면 위에 붙어 따라온다(아래 스크립트) -->
+      <div class="now-pin" aria-hidden="true">
+        <div class="now" data-now>
+          <a href={bookHref}>{book.title}</a><span class="sep">›</span><span>{entry.title}</span><span class="sep">›</span><strong data-now-verse></strong>
+        </div>
+      </div>
       <PreviewNotice status={entry.status} editHref={`/admin/#article/${entry.id}`} />{" "}
       {/* 페이지 피드는 쓰지 않는다 (2026-11-21) */}
       <article class="doc">
@@ -79,6 +91,36 @@ const bookHref = articleHref(key, bookSlug) + q;
   </div>
   <DocPager prev={prev} next={next} />{" "}
 </Base>
+
+<!-- 이어 읽기 기록 + 지금 읽는 절 표시 (2026-11-21) -->
+<script is:inline define:vars={{ bookSlug, chapSlug: entry.slug, chapTitle: entry.title, chapHref: chapterHref(key, bookSlug, entry.slug) }}>
+  (() => {
+    try {
+      localStorage.setItem("jb:book:" + bookSlug, JSON.stringify({ href: chapHref, title: chapTitle, slug: chapSlug }));
+    } catch {}
+    const now = document.querySelector("[data-now]");
+    const label = now && now.querySelector("[data-now-verse]");
+    const verses = [...document.querySelectorAll(".doc .blk-verse")];
+    if (!now || !label || !verses.length) return;
+    const show = () => {
+      const top = (parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--header-h")) || 64) + 48;
+      let cur = null;
+      for (const v of verses) {
+        if (v.getBoundingClientRect().top - top <= 0) cur = v;
+        else break;
+      }
+      const name = cur ? (cur.querySelector(".vlabel")?.textContent || "").trim() : "";
+      now.classList.toggle("on", !!name);
+      if (name) label.textContent = name;
+    };
+    let raf = 0;
+    addEventListener("scroll", () => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(show);
+    }, { passive: true });
+    show();
+  })();
+</script>
 
 <!-- 검색 결과로 들어온 경우(?q=) 본문의 찾은 낱말 강조 — 옛 Pagefind 강조를 대신한다 (2026-11-14) -->
 <script is:inline>
@@ -121,6 +163,81 @@ const bookHref = articleHref(key, bookSlug) + q;
   .summary {
     margin: 0 0 1.4em;
     color: var(--color-muted);
+  }
+  /* 위치 표시 */
+  .where {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: -4px 0 18px;
+    color: var(--color-muted);
+    font-size: 0.82rem;
+  }
+  .where .bar {
+    flex: 1;
+    max-width: 240px;
+    height: 4px;
+    border-radius: 999px;
+    background: var(--color-rule);
+    overflow: hidden;
+  }
+  .where .bar i {
+    display: block;
+    height: 100%;
+    background: var(--color-primary);
+  }
+  /* 자리를 차지하지 않게 높이 0 의 붙박이 위에 띄운다 — 나타날 때 본문이 밀리지 않는다 */
+  .now-pin {
+    position: sticky;
+    top: calc(var(--header-h, 64px) + 6px);
+    z-index: 5;
+    height: 0;
+  }
+  .now {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(-4px);
+    transition:
+      opacity 0.15s,
+      transform 0.15s,
+      visibility 0.15s;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 12px;
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-md);
+    background: var(--color-surface);
+    box-shadow: 0 4px 12px #28190f14;
+    font-size: 0.86rem;
+    white-space: nowrap;
+    overflow: hidden;
+  }
+  .now.on {
+    opacity: 1;
+    visibility: visible;
+    transform: none;
+  }
+  .now a {
+    color: var(--color-muted);
+    text-decoration: none;
+  }
+  .now span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--color-muted);
+  }
+  .now .sep {
+    flex: none;
+  }
+  .now strong {
+    flex: none;
+    color: var(--color-primary);
   }
   .pager {
     display: flex;

@@ -1,0 +1,76 @@
+---
+// 자료실 책 카드 (2026-11-21, jsbooks 서재 참고) — 장이 있는 책을 표지 카드로: 제목·한자, 표지 한 줄, 소개, 장 수
+import DraftBadge from "./DraftBadge.astro";
+const { rows } = Astro.props;
+---
+
+<ul class="books">
+  {rows.map((r) => (
+    <li>
+      <a href={r.href}>
+        <span class="t">
+          <strong>{r.title}</strong>
+          {r.hanja && <span class="hanja">{r.hanja}</span>}
+          {r.draft && <DraftBadge />}
+        </span>
+        {r.byline && <span class="by">{r.byline}</span>}
+        {r.summary && <span class="sm">{r.summary}</span>}
+        {r.chapters > 0 && <span class="n">{r.chapters}장</span>}
+      </a>
+    </li>
+  ))}
+</ul>
+
+<style>
+  .books {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 12px;
+  }
+  .books a {
+    display: grid;
+    gap: 6px;
+    height: 100%;
+    padding: 16px 18px;
+    border: 1px solid var(--color-rule);
+    border-left: 4px solid var(--color-primary);
+    border-radius: var(--radius-md);
+    background: var(--color-surface);
+    color: var(--color-ink);
+    text-decoration: none;
+  }
+  .books a:hover {
+    border-color: var(--color-primary);
+  }
+  .books a:hover strong {
+    color: var(--color-primary);
+  }
+  .t {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 6px;
+  }
+  .t strong {
+    font-size: 1.08rem;
+  }
+  .hanja {
+    color: var(--color-muted);
+    font-size: 0.85rem;
+  }
+  .by {
+    color: var(--color-muted);
+    font-size: 0.85rem;
+  }
+  .sm {
+    font-size: 0.92rem;
+    line-height: 1.7;
+  }
+  .n {
+    color: var(--color-muted);
+    font-size: 0.8rem;
+  }
+</style>

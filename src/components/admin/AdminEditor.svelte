@@ -41,6 +41,8 @@
   let savedKind = $state("");
   let savedSection = $state(section);
   let parentId = $state<string | null>(parent);
+  /** 불러온 글의 추가 정보 전체 — 저장할 때 이 화면에 없는 키를 지키려고 */
+  let origMeta: Record<string, unknown> = {};
   let book = $state<any>(null);
   let chapters = $state<any[]>([]);
   let ordering = $state(false);
@@ -96,6 +98,8 @@
     status: "draft",
     birth: "",
     aliases: "",
+    /** 자료실 책 표지 한 줄(편술·간행) — meta.byline (2026-11-21) */
+    byline: "",
     built: "",
     lat: "" as number | string,
     lng: "" as number | string,
@@ -192,7 +196,12 @@
       tags: [...f.tags].sort(),
     };
     if (isArticle) {
-      const meta: Record<string, unknown> = {};
+      // 이 화면에 칸이 없는 추가 정보(편술자 editor 등)는 그대로 둔다 — 예전엔 저장할 때마다 지워졌다 (2026-11-21)
+      const meta: Record<string, unknown> = { ...origMeta };
+      delete meta.birth;
+      delete meta.aliases;
+      delete meta.byline;
+      if (f.section === "library" && !parentId && f.byline.trim()) meta.byline = f.byline.trim();
       if (f.kind === "person" && f.birth.trim()) meta.birth = f.birth.trim();
       if (f.kind === "person" || f.section === "library") {
         const aliases = f.aliases
@@ -235,6 +244,8 @@
     f.pinned = !!it.pinned;
     f.featured = !!it.featured;
     f.status = it.status ?? "draft";
+    origMeta = it.meta && typeof it.meta === "object" ? { ...it.meta } : {};
+    f.byline = it.meta?.byline ?? "";
     f.birth = it.meta?.birth ?? "";
     f.aliases = Array.isArray(it.meta?.aliases) ? it.meta.aliases.join(", ") : "";
     f.built = it.built ?? "";
@@ -639,6 +650,14 @@
         {/if}
         {#if isArticle && f.kind === "person"}
           <label><span>생몰·생년</span><input bind:value={f.birth} maxlength="500" /></label>
+        {/if}
+        {#if isArticle && f.section === "library" && !parentId}
+          <label
+            ><span>표지 한 줄 <small>책일 때 — 편술·간행 (예: 정사 김병철(金炳徹) 편술 · 1960년 초간)</small></span><input
+              bind:value={f.byline}
+              maxlength="200"
+            /></label
+          >
         {/if}
         {#if isArticle && (f.kind === "person" || f.section === "library")}
           <label

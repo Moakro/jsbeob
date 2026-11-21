@@ -14,6 +14,7 @@ import AdminEditLink from "../../../components/content/AdminEditLink.astro";
 import ArchiveFeatured from "../../../components/content/ArchiveFeatured.astro";
 import ArchiveTabs from "../../../components/content/ArchiveTabs.astro";
 import LibRows from "../../../components/content/LibRows.astro";
+import BookCards from "../../../components/content/BookCards.astro";
 export const prerender = false;
 const key = Astro.params.cat;
 const categories = await listLibraryCategories(Astro.request);
@@ -48,7 +49,12 @@ const paged = !!Astro.url.searchParams.get("before");
   <div class="lib-split">
     <div class="lib-main">
       {cat.type === "post" && <AdminEditLink href={`${catHref(cat.key)}write/`} label="글쓰기" />}{" "}
-      {rows.length ? <LibRows rows={rows} /> : <p class="none">아직 올라온 자료가 없습니다.</p>}{" "}
+      {/* 장이 있는 책만 모인 분류(도서)는 책 카드로 (2026-11-21) */}
+      {rows.length ? (
+        rows.every((r) => r.chapters > 0) ? <BookCards rows={rows} /> : <LibRows rows={rows} />
+      ) : (
+        <p class="none">아직 올라온 자료가 없습니다.</p>
+      )}{" "}
       {(next || paged) && (
         <nav class="pager" aria-label="목록 넘기기">
           {" "}

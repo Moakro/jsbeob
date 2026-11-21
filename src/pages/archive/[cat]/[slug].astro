@@ -148,6 +148,29 @@ if (cat.type === "article") {
 }
 const body_html = entry ? alignMantraHtml(entry.body_html ?? "") : "";
 const chapters = entry && !entry.parent_id ? (entry.chapters ?? []) : [];
+// 책 표지 + 묶은 차례 (2026-11-21, jsbooks 서재 참고) — 서문·본문·부록으로 묶고, '제1장 유소시대 — 부제'를 나눠 보인다
+const isBook = chapters.length > 0;
+const byline = (entry?.meta?.byline as string | undefined) ?? null;
+const groupOf = (t: string) => (/^(서문|序|머리말|일러두기)/.test(t) ? "서문" : /^(부록|附錄|후기|발문|跋)/.test(t) ? "부록" : "본문");
+const chapterCards = chapters.map((c, i) => {
+  const m = /^(제\s*\d+\s*장)\s*(.*)$/.exec(c.title ?? "");
+  const rest = m ? m[2] : (c.title ?? "");
+  const [name, sub] = rest.split(/\s+—\s+/);
+  return {
+    no: m ? m[1].replace(/\s+/g, "") : null,
+    name: name || c.title,
+    sub: sub ?? null,
+    hanja: c.title_hanja,
+    href: chapterHref(entry.kind, entry.slug, c.slug) + q,
+    slug: c.slug,
+    group: groupOf(c.title ?? ""),
+    i,
+  };
+});
+const groups = ["서문", "본문", "부록"]
+  .map((g) => ({ g, items: chapterCards.filter((c) => c.group === g) }))
+  .filter((x) => x.items.length);
+const firstHref = chapterCards[0]?.href ?? null;
 const split = side.length > 0;
 const pageTitle = entry?.title ?? post?.title ?? "";
 ---
@@ -167,21 +190,42 @@ const pageTitle = entry?.title ?? post?.title ?? "";
           {/* 페이지 피드는 쓰지 않는다 (2026-11-21) */}
           <article class="doc">
             {" "}
-            {entry.summary && <p class="summary">{entry.summary}</p>} <Prose html={body_html} />{" "}
-            {chapters.length > 0 && (
-              <ol class="toc" aria-label="차례">
-                {" "}
-                {chapters.map((c) => (
-                  <li>
-                    {" "}
-                    <a href={chapterHref(entry.kind, entry.slug, c.slug) + q}>
-                      {" "}
-                      <span class="name">{c.title}</span>{" "}
-                      {c.title_hanja && <span class="hanja">{c.title_hanja}</span>}{" "}
-                    </a>{" "}
-                  </li>
-                ))}{" "}
-              </ol>
+            {isBook ? (
+              <div class="cover" data-book={entry.slug}>
+                {byline && <p class="byline">{byline}</p>}
+                {entry.summary && <p class="intro">{entry.summary}</p>}
+                <p class="read">
+                  {firstHref && <a class="btn btn-primary" href={firstHref}>처음부터 읽기</a>}
+                  {/* 이 기기에서 마지막으로 읽던 장 — 장 화면이 localStorage 에 남긴다 */}
+                  <a class="btn btn-ghost resume" href="#" hidden data-resume>이어 읽기</a>
+                </p>
+              </div>
+            ) : (
+              entry.summary && <p class="summary">{entry.summary}</p>
+            )}{" "}
+            <Prose html={body_html} />{" "}
+            {isBook && (
+              <nav class="contents" aria-label="차례">
+                {groups.map((grp) => (
+                  <section>
+                    {groups.length > 1 && <h2>{grp.g}</h2>}
+                    <ol class:list={["cards", { one: grp.items.length === 1 }]}>
+                      {grp.items.map((c) => (
+                        <li>
+                          <a href={c.href} data-chap={c.slug}>
+                            {c.no && <span class="no">{c.no}</span>}
+                            <span class="nm">
+                              <strong>{c.name}</strong>
+                              {c.hanja && <span class="hanja">{c.hanja}</span>}
+                              {c.sub && <small>{c.sub}</small>}
+                            </span>
+                          </a>
+                        </li>
+                      ))}
+                    </ol>
+                  </section>
+                ))}
+              </nav>
             )}{" "}
             <ContentGallery items={entry.gallery ?? []} fallbackAlt={entry.title} />{" "}
           </article>{" "}
@@ -224,6 +268,87 @@ const pageTitle = entry?.title ?? post?.title ?? "";
     max-width: 760px;
     margin-top: 20px;
   }
+  /* 책 표지 */
+  .cover {
+    margin: 0 0 8px;
+  }
+  .byline {
+    margin: 0 0 10px;
+    color: var(--color-muted);
+    font-size: 0.95rem;
+  }
+  .intro {
+    margin: 0 0 16px;
+    line-height: 1.8;
+  }
+  .read {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 0 0 8px;
+  }
+  /* 묶은 차례 */
+  .contents section {
+    margin-top: 22px;
+  }
+  .contents h2 {
+    margin: 0 0 10px;
+    color: var(--color-primary);
+    font-size: 1.05rem;
+  }
+  .cards {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 8px;
+  }
+  .cards a {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    height: 100%;
+    padding: 12px 14px;
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-md);
+    background: var(--color-surface);
+    color: var(--color-ink);
+    text-decoration: none;
+  }
+  .cards a:hover {
+    border-color: var(--color-primary);
+  }
+  .cards a:hover strong {
+    color: var(--color-primary);
+  }
+  .cards a.on {
+    box-shadow: inset 3px 0 0 var(--color-primary);
+  }
+  .cards .no {
+    flex: none;
+    min-width: 48px;
+    padding: 3px 8px;
+    border-radius: 999px;
+    background: var(--color-primary-bg);
+    color: var(--color-primary);
+    font-size: 0.8rem;
+    font-weight: 700;
+    text-align: center;
+  }
+  .cards .nm {
+    display: grid;
+    gap: 2px;
+    min-width: 0;
+  }
+  .cards .nm .hanja {
+    color: var(--color-muted);
+    font-size: 0.82em;
+  }
+  .cards .nm small {
+    color: var(--color-muted);
+    font-size: 0.85rem;
+  }
   .toc {
     list-style: none;
     margin: 0;
@@ -253,3 +378,21 @@ const pageTitle = entry?.title ?? post?.title ?? "";
     color: var(--color-muted);
   }
 </style>
+
+<!-- 이어 읽기 — 장 화면이 남긴 마지막 장(localStorage jb:book:<책>) (2026-11-21) -->
+<script is:inline>
+  (() => {
+    const cover = document.querySelector("[data-book]");
+    if (!cover) return;
+    let last = null;
+    try {
+      last = JSON.parse(localStorage.getItem("jb:book:" + cover.dataset.book) || "null");
+    } catch {}
+    if (!last || !last.href) return;
+    const a = cover.querySelector("[data-resume]");
+    a.href = last.href;
+    a.textContent = "이어 읽기 · " + (last.title || "");
+    a.hidden = false;
+    document.querySelector('[data-chap="' + CSS.escape(last.slug || "") + '"]')?.classList.add("on");
+  })();
+</script>
