@@ -3,6 +3,7 @@
 // 대부분 생략되었다(tsconfig strict:false). 동작은 배포본과 같다.
 import { BOARD_LABEL, OFFICIAL_AUTHOR, PRIVATE_BOARDS_SQL, getBoard } from "./boards";
 import { isArticleCategory } from "./library";
+import { formatPhone } from "../src/lib/phone";
 import { BlockError, DOC_MARKER, MEMBER_KEY_RE, allMediaIds, blocksForEditor, blocksFromLegacy, imageItems, loadRenderCtx, loadTargetBlocks, normalizeBlocks, parseStoredBlocks, plainFromBlocks, pointStyles, refHref, refsOf, renderBlocks, resolveBlocks, s, stripWiki } from "./blocks";
 
 const ARTICLE_KINDS = {
@@ -1576,6 +1577,33 @@ async function publicCard(req, env, ctx) {
         summary = summary ?? pr.summary;
       }
     }
+    // 지부·분원 장소 — 지부·분원 표(branches)의 지부장·연락처·주소·사진으로 카드를 채운다 (2026-11-21)
+    let label = MAP_KIND_LABEL[r.kind] ?? "장소";
+    if (r.kind === "branch" && r.branch_code) {
+      const b = await env.DB.prepare("SELECT * FROM branches WHERE code=? AND status='published'").bind(r.branch_code).first();
+      if (b) {
+        const e = (t) => String(t ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+        const rows = [];
+        if (b.head_name) rows.push(`<dt>${e(b.kind)}장</dt><dd>${e(b.head_name)}</dd>`);
+        if (b.phone) rows.push(`<dt>연락처</dt><dd><a href="tel:${e(String(b.phone).replace(/\D/g, ""))}">${e(formatPhone(b.phone))}</a></dd>`);
+        const addr = [b.address, b.address_detail].filter(Boolean).join(" ");
+        if (addr) rows.push(`<dt>주소</dt><dd>${e(addr)}</dd>`);
+        const lat = b.lat ?? r.lat;
+        const lng = b.lng ?? r.lng;
+        const links = [];
+        if (lat != null && lng != null) {
+          const nm = encodeURIComponent(b.name);
+          links.push(`<a href="https://map.kakao.com/link/map/${nm},${lat},${lng}" target="_blank" rel="noopener">카카오맵</a>`);
+          links.push(`<a href="https://map.kakao.com/link/to/${nm},${lat},${lng}" target="_blank" rel="noopener">길찾기</a>`);
+        }
+        if (b.phone) links.push(`<a href="tel:${e(String(b.phone).replace(/\D/g, ""))}">전화 걸기</a>`);
+        html = `<dl class="branch-info">${rows.join("")}</dl>${links.length ? `<p class="branch-links">${links.join("")}</p>` : ""}${html}`;
+        summary = null; // 주소는 위 표에 있다
+        label = b.kind;
+        href = `/about/branches/#branch-${b.code}`;
+        if (b.photo_media_id && !hero) hero = pick(await loadMediaMap(env, [b.photo_media_id], true), b.photo_media_id);
+      }
+    }
     return json({
       card: {
         kind,
@@ -1583,7 +1611,7 @@ async function publicCard(req, env, ctx) {
         title: r.name,
         title_hanja: r.name_hanja,
         summary,
-        label: MAP_KIND_LABEL[r.kind] ?? "장소",
+        label,
         hero,
         href,
         body_html: html

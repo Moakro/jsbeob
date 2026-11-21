@@ -1526,6 +1526,36 @@
     margin: 0 0 12px;
     color: var(--color-muted);
   }
+  /* 지도 지부·분원 카드 — API 가 그려 주는 지부장·연락처·주소 표와 링크 (2026-11-21) */
+  .sd-content :global(dl.branch-info) {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 6px 14px;
+    margin: 0 0 12px;
+    font-size: 0.95rem;
+  }
+  .sd-content :global(dl.branch-info dt) {
+    color: var(--color-muted);
+  }
+  .sd-content :global(dl.branch-info dd) {
+    margin: 0;
+    word-break: keep-all;
+  }
+  .sd-content :global(p.branch-links) {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 0 0 12px;
+  }
+  .sd-content :global(p.branch-links a) {
+    padding: 6px 12px;
+    border: 1px solid var(--color-rule);
+    border-radius: 999px;
+    background: var(--color-surface);
+    color: var(--color-ink);
+    font-size: 0.86rem;
+    text-decoration: none;
+  }
   .sd-content :global(h1) {
     display: none;
   }
