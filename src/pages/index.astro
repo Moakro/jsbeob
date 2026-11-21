@@ -231,7 +231,8 @@ const posterSm = heroPhoto ? `url(${JSON.stringify(heroPhoto.url)})` : `url(/her
       </aside>
     </div>
   </div>
-  {news.length > 0 && <NewsModal client:load />}
+  {/* 소식이 없어도 '다가오는 날'의 일정 링크가 쓰므로 늘 둔다 */}
+  <NewsModal client:load />
 </Base>{" "}
 <script>
   // 복원: 배포본 번들(압축)에서 되살린 스크립트 — 변수 이름은 압축 결과 그대로다.
@@ -252,16 +253,14 @@ const posterSm = heroPhoto ? `url(${JSON.stringify(heroPhoto.url)})` : `url(/her
         })) && (location.href = e.href));
     }),
   );
-  document.querySelectorAll("[data-news-id]").forEach((e) =>
-    e.addEventListener("click", (t) => {
-      t.metaKey ||
-        t.ctrlKey ||
-        t.shiftKey ||
-        t.button !== 0 ||
-        (t.preventDefault(),
-        window.dispatchEvent(new CustomEvent("jb:news-open", { detail: { id: e.dataset.newsId, block: e.dataset.newsBlock } })));
-    }),
-  );
+  // 소식 글 링크 → 이 페이지에서 소식 팝업으로. '다가오는 날'(client:visible)처럼 늦게 그려지는 링크도 잡도록
+  // 문서에 한 번만 건다 (2026-11-21 — 일정을 누르면 도생광장으로 이동하던 문제)
+  document.addEventListener("click", (t) => {
+    const e = (t.target as Element | null)?.closest<HTMLElement>("[data-news-id]");
+    if (!e || t.metaKey || t.ctrlKey || t.shiftKey || t.button !== 0) return;
+    t.preventDefault();
+    window.dispatchEvent(new CustomEvent("jb:news-open", { detail: { id: e.dataset.newsId, block: e.dataset.newsBlock } }));
+  });
   document.querySelectorAll("[data-news-all]").forEach((e) =>
     e.addEventListener("click", (t) => {
       t.metaKey ||
