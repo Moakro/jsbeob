@@ -102,11 +102,20 @@ export class ImageDecodeError extends Error {}
  * 사진 열기 — createImageBitmap 이 못 읽으면 <img> 로 한 번 더 시도한다
  * (Safari 의 HEIC 처럼 <img> 로만 열리는 경우가 있다). 둘 다 안 되면 ImageDecodeError.
  */
-async function decodeImage(file: Blob): Promise<ImageBitmap | HTMLImageElement> {
+async function decodeImage(file: Blob, max = 2400): Promise<ImageBitmap | HTMLImageElement> {
   try {
     return await createImageBitmap(file, { imageOrientation: "from-image" });
   } catch {
     /* 아래에서 다시 */
+  }
+  // 고화소 사진(갤럭시 2억 화소 등)은 원본 크기로 열면 메모리 한도에 걸린다 — 줄인 크기로 바로 연다.
+  // 한 변만 주면 비율은 유지된다. 세로 사진이 길어도 이어지는 resizeImage 가 다시 맞춘다.
+  for (const side of ["resizeWidth", "resizeHeight"] as const) {
+    try {
+      return await createImageBitmap(file, { imageOrientation: "from-image", [side]: max, resizeQuality: "high" });
+    } catch {
+      /* 다음 방법 */
+    }
   }
   const url = URL.createObjectURL(file);
   try {
@@ -129,7 +138,7 @@ async function decodeImage(file: Blob): Promise<ImageBitmap | HTMLImageElement> 
 }
 
 export async function resizeImage(file: Blob, max = 2400) {
-  const src = await decodeImage(file);
+  const src = await decodeImage(file, max);
   const bmp = { width: (src as any).naturalWidth || src.width, height: (src as any).naturalHeight || src.height };
   const scale = Math.min(1, max / Math.max(bmp.width, bmp.height));
   const width = Math.max(1, Math.round(bmp.width * scale));
