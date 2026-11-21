@@ -235,6 +235,8 @@
       await showAnchor(anchor);
       return;
     }
+    // 테마 밖의 장소를 하나 더하면(검색·다른 마커) 다시 '장소 비우기'가 쓸모 있다
+    if (!modal) themeBundle = false;
     tabs = [...tabs, { key: k, card: null, error: null, backlinks: null }];
     dir = 1;
     swipeFrom = 0;
@@ -298,7 +300,10 @@
     (modal && location.pathname.startsWith("/jeongak/")) ||
     new URL(href, location.href).pathname.replace(/\/?$/, "/") === location.pathname.replace(/\/?$/, "/");
 
-  function openBundle(items: { kind: string; id: string }[], at: number, asModal: boolean) {
+  /** 지도 테마 버튼(칩)으로 연 묶음인가 — 그때는 '장소 비우기'를 숨긴다(칩을 다시 누르면 닫힌다, 2026-11-21) */
+  let themeBundle = $state(false);
+  function openBundle(items: { kind: string; id: string }[], at: number, asModal: boolean, theme = false) {
+    if (!asModal) themeBundle = theme;
     if (asModal && !modal) {
       saved = { tabs: $state.snapshot(tabs) as Tab[], active, view, open, tab };
       modal = true;
@@ -480,6 +485,7 @@
   }
 
   function clearAll() {
+    themeBundle = false;
     tabs = [];
     active = 0;
     view = "list";
@@ -624,7 +630,7 @@
     };
     const onBundle = (e: Event) => {
       const d = (e as CustomEvent).detail;
-      if (Array.isArray(d?.items)) openBundle(d.items, d.active ?? 0, !!d.modal);
+      if (Array.isArray(d?.items)) openBundle(d.items, d.active ?? 0, !!d.modal, !!d.theme);
     };
     const onClear = () => clearAll();
     const onOpen = (e: Event) => {
@@ -1041,7 +1047,7 @@
             </div>
             <button type="button" class="sd-arrow" aria-label="다음 카드" onclick={() => step(1)}>›</button>
           </div>
-          {#if mapPage && !modal}
+          {#if mapPage && !modal && !themeBundle}
             <button type="button" class="sd-clear" onclick={clearAll}>장소 비우기</button>
           {/if}
         </footer>

@@ -363,7 +363,8 @@
     const send = () =>
       window.dispatchEvent(
         new CustomEvent("jb:drawer-bundle", {
-          detail: { items: ids.map((id) => ({ kind: drawerKind, id })), active, modal },
+          // theme: 테마(칩) 묶음 — 서랍이 '장소 비우기'를 숨긴다(칩을 다시 누르면 비워진다)
+          detail: { items: ids.map((id) => ({ kind: drawerKind, id })), active, modal, theme: !modal },
         }),
       );
     if ((window as any).__jbDrawerReady) send();
