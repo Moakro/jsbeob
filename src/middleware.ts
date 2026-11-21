@@ -5,9 +5,11 @@ import { oldUrlTarget } from "./lib/old-urls";
 
 export const onRequest = defineMiddleware((ctx, next) => {
   // www.jsbeob.com → jsbeob.com (주소 하나로 — 검색 중복 방지, 2026-11-21)
-  if (ctx.url.hostname === "www.jsbeob.com") {
-    const to = new URL(ctx.url);
-    to.hostname = "jsbeob.com";
+  // ctx.url 은 astro.config 의 site 로 맞춰질 수 있어 실제 요청 주소(request.url)·Host 로 본다
+  const reqUrl = new URL(ctx.request.url);
+  const host = (ctx.request.headers.get("host") ?? reqUrl.host).toLowerCase();
+  if (host === "www.jsbeob.com" || reqUrl.hostname === "www.jsbeob.com") {
+    const to = new URL(reqUrl.pathname + reqUrl.search, "https://jsbeob.com");
     return new Response(null, { status: 301, headers: { Location: to.toString() } });
   }
   const p = ctx.url.pathname;
