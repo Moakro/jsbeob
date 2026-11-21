@@ -27,6 +27,11 @@ export default defineConfig({
   ],
 
   vite: {
+    // 빌드마다 달라지는 값 — 비회원 페이지 캐시 키에 넣어, 새로 배포하면 예전 HTML(예전 CSS·JS 파일 이름을 가리킴)을
+    // 쓰지 않게 한다. 배포 직후 스타일이 빠진 화면이 나오던 문제 (2026-11-21, src/middleware.ts)
+    define: {
+      __BUILD_ID__: JSON.stringify(Date.now().toString(36)),
+    },
     server: {
       // Tailscale magic-DNS + localhost 허용 — 홈 서버(azgianlab)에서 돌리는
       // dev 빌드를 Tailnet 내 어느 기기에서나 미리보기. production(CF Pages)엔 무영향.
