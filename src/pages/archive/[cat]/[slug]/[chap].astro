@@ -102,8 +102,10 @@ const pos = { at: at + 1, total: toc.length, pct: toc.length ? Math.round(((at +
     const label = now && now.querySelector("[data-now-verse]");
     const verses = [...document.querySelectorAll(".doc .blk-verse")];
     if (!now || !label || !verses.length) return;
+    const pin = now.parentElement;
     const show = () => {
-      const top = (parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--header-h")) || 64) + 48;
+      // 막대 아래 가장자리까지 올라온 절을 지금 읽는 절로 본다
+      const top = (pin ? pin.getBoundingClientRect().top : 0) + (now.offsetHeight || 36) + 4;
       let cur = null;
       for (const v of verses) {
         if (v.getBoundingClientRect().top - top <= 0) cur = v;
@@ -189,9 +191,14 @@ const pos = { at: at + 1, total: toc.length, pct: toc.length ? Math.round(((at +
   /* 자리를 차지하지 않게 높이 0 의 붙박이 위에 띄운다 — 나타날 때 본문이 밀리지 않는다 */
   .now-pin {
     position: sticky;
-    top: calc(var(--header-h, 64px) + 6px);
-    z-index: 5;
+    top: var(--header-h, 64px);
+    z-index: 40;
     height: 0;
+    transition: top 0.28s ease;
+  }
+  /* 위쪽 메뉴 막대가 숨으면(아래로 스크롤) 화면 맨 위에 붙는다 — 메뉴와 같은 속도로 */
+  :global(html:has(.masthead.is-hidden)) .now-pin {
+    top: 0;
   }
   .now {
     position: absolute;
@@ -208,9 +215,10 @@ const pos = { at: at + 1, total: toc.length, pct: toc.length ? Math.round(((at +
     display: flex;
     align-items: center;
     gap: 6px;
-    padding: 8px 12px;
+    padding: 8px 14px;
     border: 1px solid var(--color-rule);
-    border-radius: var(--radius-md);
+    border-top: 0;
+    border-radius: 0 0 var(--radius-md) var(--radius-md);
     background: var(--color-surface);
     box-shadow: 0 4px 12px #28190f14;
     font-size: 0.86rem;
