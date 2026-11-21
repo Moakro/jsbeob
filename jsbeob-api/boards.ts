@@ -20,8 +20,11 @@ export const BOARD_LABEL = {
   help: "문의"
 };
 
-/** 방문자에게 보이지 않는 게시판(비공개·회원 전용·숨김) — `board NOT IN (${PRIVATE_BOARDS_SQL})` 처럼 쓴다 */
-export const PRIVATE_BOARDS_SQL = `SELECT key FROM boards WHERE read_scope='own' OR read_level >= 0 OR status <> 'active'`;
+/**
+ * 바깥 집계(사이트 검색·자료 링크·역링크·최근 댓글)에서 빼는 게시판 — `board NOT IN (${PRIVATE_BOARDS_SQL})` 처럼 쓴다.
+ * 비공개·회원 전용·숨김 게시판, 그리고 글마다 비공개를 고를 수 있는 게시판(options.private_posts, 문의)도 뺀다(2026-11-21).
+ */
+export const PRIVATE_BOARDS_SQL = `SELECT key FROM boards WHERE read_scope='own' OR read_level >= 0 OR status <> 'active' OR json_extract(options, '$.private_posts') = 1`;
 
 const parseJson = (t, fallback) => {
   try {
@@ -94,6 +97,40 @@ export function canSeePostIn(b, authorId, u) {
   if (!canReadBoard(b, u)) return false;
   if (b.read_scope !== "own" || isAdmin(u)) return true;
   return !!u && u.id === authorId;
+}
+/**
+ * 글마다 비공개(2026-11-21) — 비공개 글의 제목·본문·닉네임·답변은 글쓴이와 관리자만 본다.
+ */
+export function canSeePrivatePost(authorId, u) {
+  return isAdmin(u) || (!!u && u.id === authorId);
+}
+/**
+ * 비공개 글 가리기(목록용) — 볼 수 없는 사람에게는 '비공개' 표시와 등록일시만 남긴다. shapePost 결과를 그 자리에서 고친다.
+ */
+export function maskPrivatePost(post, u) {
+  if (!post?.is_private || canSeePrivatePost(post.author_id, u)) return post;
+  post.title = "";
+  post.locked = true;
+  post.attachments = [];
+  post.cover_image = null;
+  post.view_count = 0;
+  post.comment_count = 0;
+  post.period = null;
+  delete post.excerpt;
+  delete post.last_comment;
+  delete post.body_html;
+  delete post.body_md;
+  post.author = { display_name: null, avatar_url: null, affiliation: null, level: null, branch: null };
+  post.author_id = null;
+  return post;
+}
+/**
+ * 비공개 전환 권한 — 글쓴이는 공개·비공개 모두, 관리자는 남의 글을 '비공개로'만(보호 목적).
+ */
+export function canSetPrivate(b, authorId, u, next) {
+  if (!b?.options?.private_posts || !u) return false;
+  if (u.id === authorId) return true;
+  return isAdmin(u) && next === true;
 }
 export function canCreateIn(b, u) {
   if (!b || !u || b.storage !== "post") return false;

@@ -39,7 +39,7 @@ CREATE TABLE posts (
   status        TEXT NOT NULL DEFAULT 'published', -- published|hidden|deleted
   created_at    TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
-, body_blocks TEXT, series_id TEXT REFERENCES series(id));
+, body_blocks TEXT, series_id TEXT REFERENCES series(id), is_private INTEGER NOT NULL DEFAULT 0);  -- is_private: 2026-11-21 글마다 비공개
 CREATE TABLE comments (
   id                  TEXT PRIMARY KEY,                  -- UUID
   target_type         TEXT NOT NULL,

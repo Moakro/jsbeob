@@ -81,6 +81,9 @@
     </form>
     {#if canWrite}
       <a class="btn btn-primary write" href={`${boardBase(board)}/write/`}>＋ 글쓰기</a>
+    {:else if !me && cfg && cfg.status === "active" && cfg.create_level < LEVEL.ADMIN}
+      <!-- 비회원: 회원이 쓸 수 있는 게시판(문의 등)이면 로그인으로 안내 (2026-11-21) -->
+      <a class="btn btn-ghost write" href={`/login/?next=${encodeURIComponent(`${boardBase(board)}/write/`)}`}>로그인하고 글쓰기</a>
     {/if}
   </div>
 
@@ -119,10 +122,20 @@
     <!-- 목록형 -->
     <ul class="list">
       {#each posts as p (p.id)}
+        {#if p.locked}
+          <!-- 볼 수 없는 비공개 글 — 제목·글쓴이 없이 배지와 등록일시만 (2026-11-21) -->
+          <li class="locked">
+            <div class="row">
+              <span class="title"><span class="lock">🔒 비공개</span> <span class="dim">비공개 글입니다</span></span>
+              <span class="meta"><span>{fmtDate(p.created_at)}</span></span>
+            </div>
+          </li>
+        {:else}
         <li class:pinned={p.is_pinned}>
           <a href={postHref(board, p.id)}>
             <span class="title">
               {#if p.is_pinned}<span class="pin">공지</span>{/if}
+              {#if p.is_private}<span class="lock">🔒 비공개</span>{/if}
               {p.title}
               {#if p.comment_count > 0}<span class="cc">[{p.comment_count}]</span>{/if}
             </span>
@@ -133,6 +146,7 @@
             </span>
           </a>
         </li>
+        {/if}
       {/each}
     </ul>
   {/if}
@@ -206,6 +220,28 @@
     font-weight: 700;
     font-size: 0.8rem;
     margin-right: 6px;
+  }
+  .lock {
+    display: inline-block;
+    margin-right: 4px;
+    padding: 1px 7px;
+    border-radius: 999px;
+    background: var(--color-surface-2);
+    color: var(--color-muted);
+    font-size: 0.72rem;
+    font-weight: 600;
+    vertical-align: 1px;
+  }
+  .list li.locked .row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 4px;
+    color: var(--color-muted);
+  }
+  .list li.locked .dim {
+    font-size: 0.92rem;
   }
   .cc {
     color: var(--color-primary);

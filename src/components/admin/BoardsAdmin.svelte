@@ -39,6 +39,7 @@
     notice: boolean;
     title_optional: boolean;
     official: boolean;
+    private_posts: boolean;
     sort_order: number;
     status: "active" | "hidden";
   };
@@ -97,6 +98,7 @@
       notice: !!b?.options?.notice,
       title_optional: !!b?.options?.title_optional,
       official: !!b?.options?.official,
+      private_posts: !!b?.options?.private_posts,
       sort_order: b?.sort_order ?? 100,
       status: b?.status ?? "active",
     };
@@ -152,7 +154,7 @@
       delete_own: form.delete_own,
       delete_level: form.delete_level,
       comment_level: form.comment_level,
-      options: { notice: form.notice, title_optional: form.title_optional, official: form.official },
+      options: { notice: form.notice, title_optional: form.title_optional, official: form.official, private_posts: form.private_posts },
       sort_order: form.sort_order,
       status: form.status,
     };
@@ -339,6 +341,9 @@
       <label class="chk"><input type="checkbox" bind:checked={form.title_optional} /> 제목 생략 가능</label>
       <label class="chk"
         ><input type="checkbox" bind:checked={form.official} /> 공식 콘텐츠 — 글쓴이를 JSBeob로 표시(실제 등록자는 남의 글 수정 권한자에게만)</label
+      >
+      <label class="chk"
+        ><input type="checkbox" bind:checked={form.private_posts} /> 글마다 비공개 허용 — 글쓴이가 고르면 글쓴이·운영자만 봄(목록엔 배지·등록일시만). 켜면 사이트 검색에서 빠짐</label
       >
       <label class="inline"
         >순서 <input type="number" step="1" bind:value={form.sort_order} class="num" /></label
