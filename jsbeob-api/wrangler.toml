@@ -19,6 +19,11 @@ database_id = "2a52dfc6-5fbb-444e-9dbf-b8676833008c"
 binding = "UPLOADS"
 bucket_name = "jsbeob-uploads"
 
+# 스마트 배치 — 데이터베이스(D1, APAC) 가까운 곳에서 돌게 한다. 한국 접속이 LAX 로 붙어
+# 질의마다 태평양을 건너던 지연을 줄이려고 (2026-11-21). 끄려면 이 블록을 지운다.
+[placement]
+mode = "smart"
+
 [observability]
 enabled = true
 
