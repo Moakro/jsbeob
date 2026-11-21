@@ -1590,13 +1590,14 @@ async function publicCard(req, env, ctx) {
         if (addr) rows.push(`<dt>주소</dt><dd>${e(addr)}</dd>`);
         const lat = b.lat ?? r.lat;
         const lng = b.lng ?? r.lng;
+        // 네이버 지도 길찾기(도착지만 채움) — 웹 경로는 좌표를 EPSG:3857(미터)로 받는다 (2026-11-21 사용자 지시: 카카오맵·전화 걸기 대신)
         const links = [];
         if (lat != null && lng != null) {
-          const nm = encodeURIComponent(b.name);
-          links.push(`<a href="https://map.kakao.com/link/map/${nm},${lat},${lng}" target="_blank" rel="noopener">카카오맵</a>`);
-          links.push(`<a href="https://map.kakao.com/link/to/${nm},${lat},${lng}" target="_blank" rel="noopener">길찾기</a>`);
+          const x = (lng * 20037508.34) / 180;
+          const y = ((Math.log(Math.tan(((90 + lat) * Math.PI) / 360)) / (Math.PI / 180)) * 20037508.34) / 180;
+          const goal = `${x.toFixed(4)},${y.toFixed(4)},${encodeURIComponent(b.name)},,ADDRESS_POI`;
+          links.push(`<a href="https://map.naver.com/p/directions/-/${goal}/-/car" target="_blank" rel="noopener">네이버맵 길찾기</a>`);
         }
-        if (b.phone) links.push(`<a href="tel:${e(String(b.phone).replace(/\D/g, ""))}">전화 걸기</a>`);
         html = `<dl class="branch-info">${rows.join("")}</dl>${links.length ? `<p class="branch-links">${links.join("")}</p>` : ""}${html}`;
         summary = null; // 주소는 위 표에 있다
         label = b.kind;
