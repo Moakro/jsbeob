@@ -1,6 +1,7 @@
 ---
 // as: 제목 태그(기본 h1). 같은 모양의 구역 제목이 필요하지만 h1은 따로 있을 때 "p" 등으로 바꾼다 (2026-11-12)
-const { title, hanja, parent, sub, as: Tag = "h1" } = Astro.props;
+// note: 제목 줄 오른쪽 끝에 붙는 작은 표기(예: 연혁의 1937~1997) — 글의 meta.title_note (2026-11-21)
+const { title, hanja, parent, sub, note = null, as: Tag = "h1" } = Astro.props;
 ---
 
 <header class="ptitle">
@@ -13,6 +14,7 @@ const { title, hanja, parent, sub, as: Tag = "h1" } = Astro.props;
     {title} {hanja && <span class="hanja">{hanja}</span>}
   </Tag>
   {sub && <span class="sub">{sub}</span>} <slot />
+  {note && <span class="note">{note}</span>}
 </header>
 
 <style>
@@ -51,6 +53,13 @@ const { title, hanja, parent, sub, as: Tag = "h1" } = Astro.props;
     color: var(--color-muted);
     font-weight: 400;
     font-size: 0.62em;
+  }
+  .note {
+    margin-left: auto;
+    color: var(--color-muted);
+    font-size: 0.95rem;
+    font-weight: 500;
+    white-space: nowrap;
   }
   .sub {
     color: var(--color-muted);

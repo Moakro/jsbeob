@@ -100,6 +100,8 @@
     aliases: "",
     /** 자료실 책 표지 한 줄(편술·간행) — meta.byline (2026-11-21) */
     byline: "",
+    /** 제목 줄 오른쪽 표기(예: 1937~1997) — meta.title_note (2026-11-21) */
+    title_note: "",
     built: "",
     lat: "" as number | string,
     lng: "" as number | string,
@@ -201,6 +203,8 @@
       delete meta.birth;
       delete meta.aliases;
       delete meta.byline;
+      delete meta.title_note;
+      if (f.title_note.trim()) meta.title_note = f.title_note.trim();
       if (f.section === "library" && !parentId && f.byline.trim()) meta.byline = f.byline.trim();
       if (f.kind === "person" && f.birth.trim()) meta.birth = f.birth.trim();
       if (f.kind === "person" || f.section === "library") {
@@ -246,6 +250,7 @@
     f.status = it.status ?? "draft";
     origMeta = it.meta && typeof it.meta === "object" ? { ...it.meta } : {};
     f.byline = it.meta?.byline ?? "";
+    f.title_note = it.meta?.title_note ?? "";
     f.birth = it.meta?.birth ?? "";
     f.aliases = Array.isArray(it.meta?.aliases) ? it.meta.aliases.join(", ") : "";
     f.built = it.built ?? "";
@@ -650,6 +655,14 @@
         {/if}
         {#if isArticle && f.kind === "person"}
           <label><span>생몰·생년</span><input bind:value={f.birth} maxlength="500" /></label>
+        {/if}
+        {#if isArticle}
+          <label
+            ><span>제목 옆 표기 <small>제목 줄 오른쪽 끝 (예: 1937~1997)</small></span><input
+              bind:value={f.title_note}
+              maxlength="40"
+            /></label
+          >
         {/if}
         {#if isArticle && f.section === "library" && !parentId}
           <label
