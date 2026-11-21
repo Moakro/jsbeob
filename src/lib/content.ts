@@ -92,6 +92,18 @@ export const listHomeTiles = async (request: Request) =>
 export const getHomeHero = async (request: Request) =>
   (await contentGet("/api/content/home-hero", request).catch(() => null))?.mobile ?? null;
 
+/**
+ * 공유 미리보기 기본 이미지 — 관리 화면의 모바일 히어로 사진(바꾸면 따라간다). 못 읽으면 null(호출하는 쪽이 /og-default.jpg).
+ * 페이지마다 부르므로 isolate 안에서 10분 기억한다 (2026-11-21)
+ */
+let ogHeroMemo: { at: number; url: string | null } | null = null;
+export async function getDefaultOgImage(request: Request): Promise<string | null> {
+  if (ogHeroMemo && Date.now() - ogHeroMemo.at < 6e5) return ogHeroMemo.url;
+  const hero = await getHomeHero(request).catch(() => null);
+  ogHeroMemo = { at: Date.now(), url: hero?.url ?? null };
+  return ogHeroMemo.url;
+}
+
 export const listRecentPhotos = async (request: Request, limit = 9) => {
   const r = await contentGet(`/api/posts?board=orialter&has_image=1&limit=${limit}`, request).catch(() => null);
   const out: { id: string; url: string }[] = [];
@@ -103,6 +115,28 @@ export const listRecentPhotos = async (request: Request, limit = 9) => {
 
 export const listRecentOrialter = async (request: Request, limit = 5) =>
   (await contentGet(`/api/posts?board=orialter&limit=${limit}`, request).catch(() => null))?.posts ?? [];
+
+/**
+ * 게시판 글 공유 미리보기용(OG) — 제목·요약·첫 사진. 볼 수 없는 글(비공개 등)은 null (2026-11-21)
+ */
+export async function getPostMeta(request: Request, id: string) {
+  const r = await contentGet(`/api/posts/${encodeURIComponent(id)}`, request).catch(() => null);
+  const p = r?.post;
+  if (!p) return null;
+  const text = String(p.body_md ?? "")
+    .replace(/https?:\/\/\S+/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  const firstLine = text.slice(0, 60);
+  const img = (p.attachments ?? []).find((a: any) => a.type === "image" && a.url)?.url ?? null;
+  const yt = (p.attachments ?? []).find((a: any) => a.type === "video" && a.videoId)?.videoId ?? null;
+  return {
+    title: (p.title || firstLine || "").trim(),
+    description: text.slice(0, 150) || null,
+    image: img ?? (yt ? `https://i.ytimg.com/vi/${yt}/hqdefault.jpg` : null),
+    author: p.author?.display_name ?? null,
+  };
+}
 
 export const listRecentNews = async (request: Request, limit = 4) =>
   (await contentGet(`/api/posts?board=news&limit=${limit}`, request).catch(() => null))?.posts ?? [];

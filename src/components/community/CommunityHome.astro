@@ -17,6 +17,8 @@ const {
   newsOpenId = null,
   title = "도생광장",
   description = "증산법종교 소식과 도생들이 나누는 사진과 이야기",
+  image = undefined,
+  ogType = undefined,
 } = Astro.props;
 const [news, photos] = await Promise.all([
   listRecentNews(Astro.request, 8),
@@ -30,7 +32,7 @@ const MTABS = [
 ];
 ---
 
-<Base title={title} description={description} tight>
+<Base title={title} description={description} image={image} ogType={ogType} tight>
   <h1 class="sr-only">도생광장</h1>
   <nav class="cm-mtabs" role="tablist" aria-label="도생광장">
     {MTABS.map((t, i) => (

@@ -3,7 +3,7 @@ import Base from "../../../layouts/Base.astro";
 import { BOARDS, postHref } from "../../../lib/api";
 import PostView from "../../../components/board/PostView.svelte";
 import CommunityHome from "../../../components/community/CommunityHome.astro";
-import { getBoardConfig } from "../../../lib/content";
+import { getBoardConfig, getPostMeta } from "../../../lib/content";
 export const prerender = false;
 const { board, id } = Astro.params;
 const known = BOARDS[board];
@@ -13,13 +13,28 @@ const cfg = known ? null : await getBoardConfig(Astro.request, board).catch(() =
 if (!known && !cfg) return Astro.redirect("/community/");
 const meta = { label: (cfg?.label ?? known?.label) as string };
 const asModal = board === "orialter" || board === "news";
+// 공유 미리보기 — 팝업으로 여는 게시판 글도 그 글의 제목·요약·첫 사진으로 (2026-11-21)
+const og = asModal ? await getPostMeta(Astro.request, id as string) : null;
+const boardLabel = board === "news" ? "소식" : "오리알터";
 ---
 
 {asModal ? (
   board === "news" ? (
-    <CommunityHome newsOpenId={id} title="소식 · 도생광장" />
+    <CommunityHome
+      newsOpenId={id}
+      title={og?.title ? `${og.title} · 소식` : "소식 · 도생광장"}
+      description={og?.description ?? undefined}
+      image={og?.image ?? undefined}
+      ogType="article"
+    />
   ) : (
-    <CommunityHome openId={id} title="오리알터 · 도생광장" />
+    <CommunityHome
+      openId={id}
+      title={og?.title ? `${og.title} · ${boardLabel}` : "오리알터 · 도생광장"}
+      description={og?.description ? `${og.author ? `${og.author} · ` : ""}${og.description}` : undefined}
+      image={og?.image ?? undefined}
+      ogType="article"
+    />
   )
 ) : (
   <Base title={meta.label} tight>
