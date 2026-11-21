@@ -30,6 +30,22 @@
   /** 페이지 목록 탭은 좁은 화면에서만(넓으면 옆에 목록이 있다) */
   const showList = $derived(pageList.length > 0 && narrow);
 
+  // ── 모바일 아래 막대(dock, 2026-11-21) ──
+  // 좁은 화면에서 이동(목록·이전/다음)과 읽기 보조(자료·피드)의 입구를 아래 막대 하나로 모은다.
+  // 시트는 역할별로 나뉜다: '목록' = 이동 전용(탭 없음), '자료' = 자료·피드 탭. 오른쪽 모서리 버튼은 넓은 화면에서만.
+  // 이전·다음은 DocPager 가 남긴 [data-doc-pager] 데이터에서 읽는다.
+  let pager = $state<{ prev: { href: string; label: string } | null; next: { href: string; label: string } | null } | null>(
+    null,
+  );
+  let dockHidden = $state(false);
+  /** 목록에서 지금 글의 위치 — '창교 1/4' (묶음이 없으면 '3/12') */
+  const listPos = $derived.by(() => {
+    const cur = pageList.find((p) => p.on);
+    if (!cur) return "";
+    const same = pageList.filter((p) => p.group === cur.group);
+    return `${cur.group ? `${cur.group} ` : ""}${same.indexOf(cur) + 1}/${same.length}`;
+  });
+
   // ── 페이지 피드 ──
   let feedTarget = $state<{ kind: string; id: string; title: string } | null>(null);
   let feed = $state<any[] | null>(null);
@@ -110,6 +126,19 @@
   function setTab(t: "refs" | "feed" | "list") {
     tab = t;
     if (t === "feed" && feed === null) loadFeed();
+  }
+  /** 목록 시트(이동 전용) */
+  function openList() {
+    if (!pageList.length) return;
+    tab = "list";
+    open = true;
+  }
+  /** 자료 시트(자료·피드) */
+  function openAid() {
+    scanRefs();
+    view = "list";
+    open = true;
+    setTab(refs.length ? "refs" : "feed");
   }
 
   const fmtDate = (iso: string) => {
@@ -488,7 +517,11 @@
   }
 
   onMount(() => {
-    pageTitle = document.querySelector("h1")?.textContent?.trim() || document.title.split("·")[0].trim();
+    // 제목과 한자(span)가 붙어 나오지 않게 조각마다 띄어 잇는다
+    const h1 = document.querySelector("h1");
+    pageTitle =
+      (h1 ? [...h1.childNodes].map((n) => n.textContent?.trim() ?? "").filter(Boolean).join(" ") : "") ||
+      document.title.split("·")[0].trim();
     scanRefs();
     noFab = !!document.querySelector("[data-drawer-nofab]");
     // 페이지 피드 대상(자료 문서)
@@ -557,12 +590,26 @@
     const syncNarrow = () => (narrow = mqNarrow.matches);
     syncNarrow();
     mqNarrow.addEventListener("change", syncNarrow);
-    const onList = () => {
-      if (!pageList.length) return;
-      scanRefs();
-      tab = "list";
-      open = true;
+    const onList = () => openList();
+    // 이전·다음(DocPager 데이터)
+    const pg = document.querySelector<HTMLElement>("[data-doc-pager]");
+    if (pg) {
+      const d = pg.dataset;
+      pager = {
+        prev: d.prevHref ? { href: d.prevHref, label: d.prevLabel ?? "" } : null,
+        next: d.nextHref ? { href: d.nextHref, label: d.nextLabel ?? "" } : null,
+      };
+    }
+    // 아래로 읽는 동안은 막대를 숨기고, 위로 올리거나 끝에 닿으면 다시
+    let lastY = window.scrollY;
+    const onScroll = () => {
+      const y = window.scrollY;
+      if (window.innerHeight + y >= document.documentElement.scrollHeight - 80 || y < 40 || y < lastY - 4)
+        dockHidden = false;
+      else if (y > lastY + 4) dockHidden = true;
+      lastY = y;
     };
+    window.addEventListener("scroll", onScroll, { passive: true });
     window.addEventListener("jb:drawer-list", onList);
     const mqSheet = window.matchMedia("(max-width: 760px)");
     const syncSheet = () => (sheetMedia = mqSheet.matches);
@@ -587,6 +634,7 @@
       mqSheet.removeEventListener("change", syncSheet);
       mqNarrow.removeEventListener("change", syncNarrow);
       window.removeEventListener("jb:drawer-list", onList);
+      window.removeEventListener("scroll", onScroll);
       window.removeEventListener("resize", syncVh);
       document.documentElement.style.removeProperty("--jb-sheet-h");
       document.documentElement.removeAttribute("data-sheet-drag");
@@ -623,7 +671,7 @@
   </li>
 {/snippet}
 
-{#if (refs.length || feedTarget) && !open && !modal && !noFab}
+{#if (refs.length || feedTarget) && !open && !modal && !noFab && !narrow}
   <button
     type="button"
     class="sd-fab"
@@ -645,6 +693,35 @@
       ></polyline></svg
     >
   </button>
+{/if}
+{#if narrow && !mapMode && (pageList.length || refs.length || feedTarget || pager)}
+  <div class="dock-spacer" aria-hidden="true"></div>
+  <nav class="dock" class:is-hidden={dockHidden || (open && sheet)} aria-label="페이지 이동·자료">
+    {#if pageList.length}
+      <button type="button" class="dk-btn" onclick={openList} aria-haspopup="dialog">
+        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"
+          ><path d="M5 7h14M5 12h14M5 17h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path></svg
+        >
+        {pageListLabel.endsWith("차례") ? "차례" : "목록"}
+      </button>
+    {/if}
+    <span class="dk-pos">{listPos}</span>
+    {#if refs.length || feedTarget}
+      <button type="button" class="dk-btn" onclick={openAid} aria-haspopup="dialog">
+        {refs.length ? "자료" : "피드"}{#if refs.length}<span class="cnt">{refs.length}</span>{/if}
+      </button>
+    {/if}
+    {#if pager}
+      <span class="dk-nav">
+        {#if pager.prev}
+          <a href={pager.prev.href} aria-label={`이전 글: ${pager.prev.label}`} title={pager.prev.label}>‹</a>
+        {:else}<span class="off" aria-hidden="true">‹</span>{/if}
+        {#if pager.next}
+          <a href={pager.next.href} aria-label={`다음 글: ${pager.next.label}`} title={pager.next.label}>›</a>
+        {:else}<span class="off" aria-hidden="true">›</span>{/if}
+      </span>
+    {/if}
+  </nav>
 {/if}
 {#if open && sheet && !mapMode}
   <button type="button" class="sd-scrim" aria-label="시트 닫기" onclick={() => (open = false)}></button>
@@ -686,7 +763,7 @@
           {/if}
         </div>
       {:else}
-        <strong class="sd-page">{pageTitle}</strong>
+        <strong class="sd-page">{tab === "list" ? pageListLabel : pageTitle}</strong>
       {/if}
       <button
         type="button"
@@ -709,7 +786,7 @@
         {:else}›{/if}
       </button>
     </header>
-    {#if !mapMode}
+    {#if !mapMode && tab !== "list"}
       <nav class="sd-tabs" aria-label="서랍 탭">
         {#if refs.length}
           <button
@@ -724,11 +801,6 @@
         {#if feedTarget}
           <button type="button" class:on={tab === "feed"} onclick={() => setTab("feed")}
             >피드{#if feed}<span class="cnt">{feedCount}</span>{/if}</button
-          >
-        {/if}
-        {#if showList}
-          <button type="button" class:on={tab === "list"} onclick={() => setTab("list")}
-            >목록 <span class="cnt">{pageList.length}</span></button
           >
         {/if}
       </nav>
@@ -1001,6 +1073,99 @@
     padding-right: 6px;
     cursor: pointer;
     box-shadow: var(--shadow-md);
+  }
+  /* ── 모바일 아래 막대 ── */
+  .dock-spacer {
+    height: calc(56px + env(safe-area-inset-bottom, 0px));
+  }
+  .dock {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 70;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    height: calc(56px + env(safe-area-inset-bottom, 0px));
+    padding: 0 10px env(safe-area-inset-bottom, 0px);
+    background: var(--color-surface);
+    border-top: 1px solid var(--color-rule);
+    box-shadow: 0 -4px 14px #28190f14;
+    transition: transform 0.22s ease;
+  }
+  .dock.is-hidden {
+    transform: translateY(100%);
+  }
+  .dk-btn {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 38px;
+    padding: 0 14px;
+    border: 1px solid var(--color-rule);
+    border-radius: 999px;
+    background: var(--color-bg);
+    color: var(--color-ink);
+    font: inherit;
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .dk-btn .cnt {
+    min-width: 18px;
+    padding: 0 5px;
+    border-radius: 999px;
+    background: var(--color-primary);
+    color: #fff;
+    font-size: 0.72rem;
+    line-height: 18px;
+    text-align: center;
+  }
+  .dk-pos {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--color-muted);
+    font-size: 0.85rem;
+    text-align: center;
+  }
+  .dk-nav {
+    flex: none;
+    display: inline-flex;
+    gap: 4px;
+  }
+  .dk-nav a,
+  .dk-nav .off {
+    display: grid;
+    place-items: center;
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    font-size: 1.4rem;
+    line-height: 1;
+  }
+  .dk-nav a {
+    color: var(--color-ink);
+    background: var(--color-bg);
+    border: 1px solid var(--color-rule);
+  }
+  .dk-nav .off {
+    color: var(--color-rule);
+  }
+  @media (min-width: 861px) {
+    .dock,
+    .dock-spacer {
+      display: none;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .dock {
+      transition: none;
+    }
   }
   .sd {
     position: fixed;
