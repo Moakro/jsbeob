@@ -1634,6 +1634,14 @@
   @media (max-width: 760px) {
     .om-body {
       --om-pad: 16px;
+      /* 영상이 모달 밖으로 나가는 폭 — 모달 양옆 여백만큼이면 화면 끝까지 (0이면 모달 폭) (2026-11-23) */
+      --om-video-out: var(--mf-side, 24px);
+    }
+    .om-body :global(.blk-video) {
+      margin-inline: calc(-1 * (var(--om-pad) + var(--om-video-out)));
+    }
+    .om-body :global(.blk-video) :global(figcaption) {
+      padding-inline: calc(var(--om-pad) + var(--om-video-out));
     }
     .om-comments {
       padding-inline: 16px;

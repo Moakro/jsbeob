@@ -97,6 +97,11 @@
     overflow-y: auto;
     background: var(--color-overlay);
     overscroll-behavior: contain;
+    /* 페이지(html)처럼 스크롤바가 폭을 차지하지 않게 — PC에서 모달 오른쪽만 15px 좁아지던 것 (2026-11-23) */
+    scrollbar-width: none;
+  }
+  .mf-back::-webkit-scrollbar {
+    display: none;
   }
   .mf {
     position: relative;
@@ -168,7 +173,9 @@
   }
   @media (max-width: 760px) {
     .mf-back {
-      padding: 28px 24px 12px;
+      /* 모달 양옆 여백 — 안의 내용이 화면 끝까지 나갈 때(오리알터 영상) 이 값을 쓴다 */
+      --mf-side: 24px;
+      padding: 28px var(--mf-side) 12px;
       align-items: flex-start;
     }
     .mf {
