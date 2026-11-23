@@ -186,7 +186,8 @@ export const api = {
     if (params.page) sp.set("page", String(params.page));
     return req<ListPostsResult>(`/api/posts?${sp.toString()}`);
   },
-  getPost: (id: string) => req<{ post: PostDetail }>(`/api/posts/${id}`),
+  /** count=false: 조회수를 올리지 않는다(수정 창·저장 뒤 다시 읽기) */
+  getPost: (id: string, count = true) => req<{ post: PostDetail }>(`/api/posts/${id}${count ? "" : "?count=0"}`),
   /** 글 보기 — 볼 수 없는 비공개 글이면 locked 로 등록일시만 돌려준다 (2026-11-21) */
   getPostOrLocked: async (id: string): Promise<{ post: PostDetail } | { locked: { id: string; created_at: string } }> => {
     const res = await fetch(`/api/posts/${id}`, { credentials: "same-origin" });

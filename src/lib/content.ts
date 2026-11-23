@@ -120,7 +120,7 @@ export const listRecentOrialter = async (request: Request, limit = 5) =>
  * 게시판 글 공유 미리보기용(OG) — 제목·요약·첫 사진. 볼 수 없는 글(비공개 등)은 null (2026-11-21)
  */
 export async function getPostMeta(request: Request, id: string) {
-  const r = await contentGet(`/api/posts/${encodeURIComponent(id)}`, request).catch(() => null);
+  const r = await contentGet(`/api/posts/${encodeURIComponent(id)}?count=0`, request).catch(() => null);
   const p = r?.post;
   if (!p) return null;
   const text = String(p.body_md ?? "")

@@ -393,7 +393,7 @@
     menuFor = null;
     edit = { id, text: "", keep: [], files: [], extra: [], loading: true, saving: false };
     try {
-      const { post } = await api.getPost(id);
+      const { post } = await api.getPost(id, false);
       const blocks: any[] = (post as any).blocks ?? [];
       const texts = blocks
         .filter((b) => b.type === "text")
@@ -459,7 +459,7 @@
       if (items.length) blocks.push({ id: blockId(), type: "image", items });
       blocks.push(...ed.extra);
       await api.updatePost(ed.id, { title: "", blocks });
-      const { post } = await api.getPost(ed.id);
+      const { post } = await api.getPost(ed.id, false);
       posts = posts.map((p) =>
         p.id === ed.id
           ? {

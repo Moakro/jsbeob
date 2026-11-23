@@ -431,3 +431,12 @@ CREATE TABLE IF NOT EXISTS verse_links (
 );
 CREATE INDEX IF NOT EXISTS idx_verse_links_from ON verse_links (from_id, status);
 CREATE INDEX IF NOT EXISTS idx_verse_links_to ON verse_links (to_type, to_id, status);
+
+-- 조회수 하루 한 번 판정 (2026-11-23, migrations/2026-11-23-post-views.sql)
+CREATE TABLE IF NOT EXISTS post_views (
+  post_id TEXT NOT NULL,
+  viewer TEXT NOT NULL,
+  day TEXT NOT NULL,
+  PRIMARY KEY (post_id, viewer, day)
+) WITHOUT ROWID;
+CREATE INDEX IF NOT EXISTS idx_post_views_day ON post_views(day);

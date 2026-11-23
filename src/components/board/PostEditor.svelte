@@ -81,7 +81,7 @@
       }
       if (editing && postId) {
         try {
-          const p = (await api.getPost(postId)).post as any;
+          const p = (await api.getPost(postId, false)).post as any;
           title = p.title;
           authorId = p.author_id ?? null;
           blocks = fromApi(p.blocks);

@@ -2495,9 +2495,10 @@ async function getPost(req, env, id) {
       403
     );
   }
-  await env.DB.prepare("UPDATE posts SET view_count = view_count + 1 WHERE id=?").bind(id).run();
+  const viewHeaders = {};
+  const counted = await countPostView(req, env, id, r.author_uid, viewer, viewHeaders);
   const shaped = maskOfficialAuthor(shapePost(r, true), rb, viewer);
-  shaped.view_count += 1;
+  if (counted) shaped.view_count += 1;
   shaped.series_id = r.series_id ?? null;
   const stored = parseStoredBlocks(r.body_blocks);
   if (stored) {
@@ -2511,7 +2512,39 @@ async function getPost(req, env, id) {
     shaped.blocks = blocksForEditor(legacy, rctx);
     shaped.has_blocks = false;
   }
-  return json({ post: shaped });
+  return json({ post: shaped }, 200, viewHeaders);
+}
+/**
+ * 조회수 세기 (2026-11-23)
+ * ① 같은 사람은 하루(한국 날짜) 한 번 — 회원은 계정, 비회원은 브라우저 쿠키(jb_vid)로 구분(post_views 표)
+ * ② 글쓴이 본인, 수정 창·저장 뒤 다시 읽기(?count=0)는 세지 않는다
+ * ③ 공유 미리보기 생성(서버 렌더·SNS 스크래퍼)·검색 로봇은 세지 않는다 — User-Agent 가 없거나 로봇이면 제외
+ */
+const VIEWER_COOKIE = "jb_vid";
+const BOT_UA = /bot\b|bot\/|crawl|spider|slurp|scrap|facebookexternalhit|daumoa|yeti|bingpreview|whatsapp|headless|lighthouse|python|curl|wget|httpclient|okhttp|axios|node-fetch|undici|go-http|java\//i;
+async function countPostView(req, env, postId, authorId, viewer, headers) {
+  if (new URL(req.url).searchParams.get("count") === "0") return false;
+  if (viewer && viewer.id === authorId) return false;
+  const ua = req.headers.get("User-Agent") ?? "";
+  if (!ua || BOT_UA.test(ua)) return false;
+  let key;
+  if (viewer) key = `u:${viewer.id}`;
+  else {
+    let vid = getCookie(req, VIEWER_COOKIE);
+    if (!vid || !/^[0-9a-f-]{36}$/.test(vid)) {
+      vid = uuid();
+      headers["Set-Cookie"] = setCookieHeader(VIEWER_COOKIE, vid, 365 * 86400);
+    }
+    key = `b:${vid}`;
+  }
+  const kst = (ms) => new Date(ms + 9 * 3600e3).toISOString().slice(0, 10);
+  const day = kst(Date.now());
+  const ins = await env.DB.prepare("INSERT OR IGNORE INTO post_views (post_id, viewer, day) VALUES (?, ?, ?)").bind(postId, key, day).run();
+  if (!ins.meta?.changes) return false;
+  await env.DB.prepare("UPDATE posts SET view_count = view_count + 1 WHERE id=?").bind(postId).run();
+  // 지난 날짜 기록은 가끔 지운다(하루 한 번 판정에는 오늘 것만 필요)
+  if (Math.random() < 0.02) await env.DB.prepare("DELETE FROM post_views WHERE day < ?").bind(kst(Date.now() - 2 * 86400e3)).run();
+  return true;
 }
 function autoTitleFromBlocks(pb) {
   const first = pb.plain.split("\n").map((l) => l.trim()).find(Boolean) ?? "";
