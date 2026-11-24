@@ -307,22 +307,26 @@ const MTABS = [
     color: var(--color-muted);
     font-size: 0.9rem;
   }
+  /* 사진은 상자 안쪽 여백 없이 가장자리까지 꽉 차게, 사진 사이 간격도 없이 */
+  .cm-photos {
+    overflow: hidden;
+  }
   .grid {
     list-style: none;
-    margin: 0;
-    padding: 12px 0 10px;
+    margin: 0 -14px -6px;
+    padding: 0;
     display: grid;
     grid-template-columns: repeat(3, 1fr);
-    gap: 4px;
+    gap: 0;
   }
   .grid a {
     display: block;
     aspect-ratio: 1;
     overflow: hidden;
-    border-radius: var(--radius-sm);
     background: var(--color-surface-2);
   }
   .grid img {
+    display: block;
     width: 100%;
     height: 100%;
     object-fit: cover;
