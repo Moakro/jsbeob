@@ -20,6 +20,7 @@ pnpm dev        # API(:8788, 로컬 D1·R2) + 사이트(:4321) 함께. Ctrl+C �
 ```
 
 하나만 띄우려면 `pnpm dev:api` / `pnpm dev:site`. 8788 에 API 가 이미 떠 있으면 `pnpm dev` 는 그것을 그대로 쓴다.
+포트는 기본 4321/8788 이고, worktree 에서는 `.dev-ports`(준비 스크립트가 만듦) 또는 `SITE_PORT`/`API_PORT` 환경변수를 따른다 — `CLAUDE.md` 참고.
 API 없이 사이트만 뜨면 홈은 비고, 전각·소개·자료실·지도는 `Worker "jsbeob-api-preview" not found` 500 이 난다.
 
 ## 관리자 화면(/admin/) 로그인
