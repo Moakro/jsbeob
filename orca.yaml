@@ -1,0 +1,15 @@
+# Orca: 새 worktree 를 만들 때 실행할 준비 작업
+#  - 패키지 설치(pnpm)
+#  - git 에 없는 로컬 파일을 본 저장소에서 복사(.env, jsbeob-api/.dev.vars, 로컬 D1·R2 상태) — 없을 때만
+#  - 이 worktree 전용 dev 포트 쌍을 골라 .dev-ports 에 적음 (메인은 4321/8788 그대로)
+# 자세한 내용: scripts/worktree-setup.sh, CLAUDE.md
+scripts:
+  setup: |
+    set -e
+    # pnpm 은 nvm 아래에 있어 PATH 에 없을 수 있다
+    if ! command -v pnpm >/dev/null 2>&1; then
+      export NVM_DIR="$HOME/.nvm"
+      [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" >/dev/null
+    fi
+    pnpm install --frozen-lockfile
+    bash scripts/worktree-setup.sh

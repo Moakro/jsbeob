@@ -40,3 +40,6 @@ content/.bak/
 .dev.vars*
 !.dev.vars.example
 !.env.example
+
+# 이 worktree 전용 dev 포트 (scripts/worktree-setup.sh)
+.dev-ports

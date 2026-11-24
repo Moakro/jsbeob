@@ -3,6 +3,10 @@ import { defineConfig } from 'astro/config';
 import svelte from '@astrojs/svelte';
 import cloudflare from '@astrojs/cloudflare';
 import sitemap from '@astrojs/sitemap';
+import { loadDevPorts } from './scripts/dev-ports.mjs';
+
+// 로컬 dev 포트 — SITE_PORT/API_PORT 환경변수 > .dev-ports(worktree 마다) > 기본 4321/8788
+const devPorts = loadDevPorts();
 
 // https://astro.build/config
 export default defineConfig({
@@ -26,6 +30,8 @@ export default defineConfig({
     }),
   ],
 
+  server: { port: devPorts.site },
+
   vite: {
     // 빌드마다 달라지는 값 — 비회원 페이지 캐시 키에 넣어, 새로 배포하면 예전 HTML(예전 CSS·JS 파일 이름을 가리킴)을
     // 쓰지 않게 한다. 배포 직후 스타일이 빠진 화면이 나오던 문제 (2026-11-21, src/middleware.ts)
@@ -36,11 +42,11 @@ export default defineConfig({
       // Tailscale magic-DNS + localhost 허용 — 홈 서버(azgianlab)에서 돌리는
       // dev 빌드를 Tailnet 내 어느 기기에서나 미리보기. production(CF Pages)엔 무영향.
       allowedHosts: ['azgianlab', 'localhost', '127.0.0.1', '.ts.net'],
-      // dev에서 /api/* → 로컬 jsbeob-api worker(wrangler dev :8788)로 프록시.
+      // dev에서 /api/* → 로컬 jsbeob-api worker(wrangler dev, 기본 :8788)로 프록시.
       // production(CF Pages)에서는 worker가 jsbeob.com/api/* 라우트로 직접 처리.
       proxy: {
         '/api': {
-          target: 'http://localhost:8788',
+          target: `http://localhost:${devPorts.api}`,
           changeOrigin: true,
         },
       },

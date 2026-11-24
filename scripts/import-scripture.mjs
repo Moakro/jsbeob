@@ -2,7 +2,7 @@
 // jsbooks 형식 경전 마크다운 → 자료실 DB 책(책 글 1 + 장 글 N, 장 본문은 '절' 블록) (2026-11-14)
 //
 // 쓰는 법 (로컬 API 기준, 관리자 쿠키 필요 — pnpm dev:login 이 찍어 주는 jb_session 값):
-//   JB_SESSION=… node scripts/import-scripture.mjs <폴더> --book <책slug> [--kind book] [--api http://127.0.0.1:8788]
+//   JB_SESSION=… node scripts/import-scripture.mjs <폴더> --book <책slug> [--kind book] [--api http://127.0.0.1:<API 포트, 기본 8788>]
 //                [--status published] [--dry]
 //
 // 입력 폴더: 00_서문.md, 01_제1장.md … 99_부록.md (파일 이름 순서 = 장 순서)
@@ -14,6 +14,7 @@
 // 같은 slug 가 이미 있으면 PUT(수정)으로 덮어쓴다 — 수정 이력은 API 가 남긴다.
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
+import { loadDevPorts } from "./dev-ports.mjs";
 
 const args = process.argv.slice(2);
 const opt = (name, def) => {
@@ -23,7 +24,8 @@ const opt = (name, def) => {
 const dir = args[0];
 const BOOK = opt("book");
 const KIND = opt("kind", "book");
-const API = opt("api", "http://127.0.0.1:8788");
+const PORTS = loadDevPorts();
+const API = opt("api", `http://127.0.0.1:${PORTS.api}`);
 const STATUS = opt("status", "published");
 const DRY = args.includes("--dry");
 const COOKIE = process.env.JB_SESSION ? `jb_session=${process.env.JB_SESSION}` : "";
@@ -112,7 +114,7 @@ function toBlocks(body, fallback) {
 async function api(method, p, body) {
   const res = await fetch(`${API}${p}`, {
     method,
-    headers: { "Content-Type": "application/json", Cookie: COOKIE, Origin: "http://localhost:4321" },
+    headers: { "Content-Type": "application/json", Cookie: COOKIE, Origin: `http://localhost:${PORTS.site}` },
     body: body ? JSON.stringify(body) : undefined,
   });
   const data = await res.json().catch(() => ({}));

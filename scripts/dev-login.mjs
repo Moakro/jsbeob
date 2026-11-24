@@ -12,6 +12,7 @@ import { execFileSync } from "node:child_process";
 import { createHmac } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { loadDevPorts } from "./dev-ports.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const apiDir = path.join(root, "jsbeob-api");
@@ -49,5 +50,5 @@ const sig = b64url(createHmac("sha256", secret).update(`${head}.${body}`).digest
 const token = `${head}.${body}.${sig}`;
 
 console.log(`로컬 운영자 '${name}' (id=${USER_ID}, level 100=관리자) 준비 완료.`);
-console.log("http://localhost:4321 을 연 브라우저의 개발자 도구 콘솔에 아래 한 줄을 붙여 넣고 새로고침하세요 (30일 유효):\n");
+console.log(`http://localhost:${loadDevPorts(root).site} 을 연 브라우저의 개발자 도구 콘솔에 아래 한 줄을 붙여 넣고 새로고침하세요 (30일 유효):\n`);
 console.log(`document.cookie = "jb_session=${token}; path=/; max-age=2592000";`);
