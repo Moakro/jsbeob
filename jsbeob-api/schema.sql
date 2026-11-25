@@ -117,7 +117,7 @@ CREATE TABLE events (
   memo        TEXT,
   created_at  TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
-, source_post_id TEXT);
+, source_post_id TEXT, source_block_id TEXT);  -- source_block_id: migrations/2026-11-16-events-block.sql
 CREATE TABLE news (
   id           TEXT PRIMARY KEY,
   slug         TEXT NOT NULL UNIQUE,
@@ -431,6 +431,32 @@ CREATE TABLE IF NOT EXISTS verse_links (
 );
 CREATE INDEX IF NOT EXISTS idx_verse_links_from ON verse_links (from_id, status);
 CREATE INDEX IF NOT EXISTS idx_verse_links_to ON verse_links (to_type, to_id, status);
+
+-- 게시판(콘텐츠 묶음) 설정 (2026-11-16, migrations/2026-11-16-boards.sql — 처음 게시판 4개 시드와
+-- 이후 값 변경(2026-11-21-private-posts.sql, 2026-11-21-help-plain-editor.sql)은 그 파일들에)
+CREATE TABLE IF NOT EXISTS boards (
+  key           TEXT PRIMARY KEY,                -- 주소 이름(/community/<key>/) — 만든 뒤 바꾸지 않는다
+  label         TEXT NOT NULL,
+  description   TEXT NOT NULL DEFAULT '',
+  storage       TEXT NOT NULL DEFAULT 'post' CHECK (storage IN ('post', 'article', 'place')),  -- 저장 형식
+  view          TEXT NOT NULL DEFAULT 'list' CHECK (view IN ('list', 'feed', 'doc', 'book')),   -- 보기 형식
+  menu          TEXT NOT NULL DEFAULT 'community' CHECK (menu IN ('community', 'archive', 'about', 'jeongak')),
+  read_level    INTEGER NOT NULL DEFAULT -1,     -- -1 = 비회원도
+  read_scope    TEXT NOT NULL DEFAULT 'all' CHECK (read_scope IN ('all', 'own')),  -- own = 본인 글만(관리자는 전부)
+  create_level  INTEGER NOT NULL DEFAULT 20,
+  edit_own      INTEGER NOT NULL DEFAULT 1,      -- 1 = 본인 글 수정 가능
+  edit_level    INTEGER NOT NULL DEFAULT 100,    -- 남의 글 수정 등급
+  delete_own    INTEGER NOT NULL DEFAULT 1,
+  delete_level  INTEGER NOT NULL DEFAULT 100,
+  comment_level INTEGER,                         -- NULL = 댓글 안 씀
+  blocks        TEXT NOT NULL DEFAULT '{}',      -- JSON {블록 종류: 최소 등급} — 없는 종류는 사용 안 함
+  options       TEXT NOT NULL DEFAULT '{}',      -- JSON {notice: 공지 고정, title_optional: 제목 생략}
+  sort_order    INTEGER NOT NULL DEFAULT 0,
+  status        TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'hidden')),
+  builtin       INTEGER NOT NULL DEFAULT 0,      -- 1 = 처음부터 있던 게시판(삭제·형식 변경 불가)
+  created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
 
 -- 조회수 하루 한 번 판정 (2026-11-23, migrations/2026-11-23-post-views.sql)
 CREATE TABLE IF NOT EXISTS post_views (
