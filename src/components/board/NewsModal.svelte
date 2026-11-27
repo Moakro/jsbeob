@@ -212,16 +212,19 @@
     font-weight: 700;
     letter-spacing: 0.01em;
   }
-  /* 제목 줄 — 공유 버튼은 오른쪽 끝 (2026-11-27) */
+  /* 제목 줄 — 공유 버튼은 오른쪽 끝. 한 줄이면 제목과 수직 중앙, 두 줄로 넘어가도
+     버튼은 제목 첫 줄 높이의 가운데에 맞춘다 (2026-11-27) */
   .head {
+    --head-line: calc(1.4rem * 1.35);
     display: flex;
     align-items: flex-start;
-    gap: 12px;
+    gap: 8px;
     margin: 0 0 8px;
   }
   .head > :global(.share) {
     margin-left: auto;
-    margin-top: 2px;
+    margin-right: -8px;
+    margin-top: calc((var(--head-line) - var(--share-size, 38px)) / 2);
   }
   h1 {
     flex: 1;
