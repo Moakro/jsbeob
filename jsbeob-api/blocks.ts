@@ -459,6 +459,18 @@ export const stripWiki = (t) => (t ?? "").replace(/\[\[([^\]]+)\]\]/g, (_, inner
 function paras(t) {
   return t.replace(/\r\n/g, "\n").split(/\n\s*\n/).map((p) => p.replace(/^\n+|\n+$/g, "")).filter((p) => p.trim()).map((p) => `<p>${esc(p).replace(/\n/g, "<br>")}</p>`).join("");
 }
+const WEEKDAY_KO = ["일", "월", "화", "수", "목", "금", "토"];
+/** 일정 날짜 표시 — 2026.12.05(토), 기간은 2026.12.05(토) ~ 12.07(월), 해가 바뀌면 끝 날짜에도 연도 (2026-11-27) */
+export function scheduleDateText(b) {
+  const day = (d, withYear) => {
+    const [y, m, dd] = d.split("-");
+    const w = WEEKDAY_KO[new Date(Date.UTC(+y, +m - 1, +dd)).getUTCDay()];
+    return `${withYear ? `${y}.` : ""}${m}.${dd}(${w})`;
+  };
+  const start = day(b.start, true);
+  if (!b.end) return start;
+  return `${start} ~ ${day(b.end, b.end.slice(0, 4) !== b.start.slice(0, 4))}`;
+}
 export function renderBlocks(blocks, ctx) {
   return blocks.map((b) => {
     const idAttr = ` id="b-${esc(b.id)}"`;
@@ -474,9 +486,8 @@ export function renderBlocks(blocks, ctx) {
       return `<section class="blk blk-verse"${idAttr}>${label}${ps}</section>`;
     }
     if (b.type === "schedule") {
-      const fmt = (d) => d.replace(/-/g, ".");
-      const end = b.end ? b.end.slice(0, 4) === b.start.slice(0, 4) ? b.end.slice(5).replace("-", ".") : fmt(b.end) : "";
-      return `<aside class="blk blk-schedule"${idAttr}><span class="sch-badge">일정</span>${b.label ? `<strong class="sch-title">${esc(b.label)}</strong>` : ""}<time class="sch-date" datetime="${esc(b.start)}">${esc(fmt(b.start))}${end ? ` ~ ${esc(end)}` : ""}</time>${b.memo ? `<div class="sch-memo">${esc(b.memo).replace(/\n/g, "<br>")}</div>` : ""}</aside>`;
+      const label = b.label ? ` <strong class="sch-title">${esc(b.label)}</strong>` : "";
+      return `<aside class="blk blk-schedule"${idAttr}><span class="sch-badge">일정</span> <time class="sch-date" datetime="${esc(b.start)}">${esc(scheduleDateText(b))}</time>${label}${b.memo ? `<div class="sch-memo">${esc(b.memo).replace(/\n/g, "<br>")}</div>` : ""}</aside>`;
     }
     if (b.type === "quote") {
       let src = b.source ? esc(b.source) : "";
@@ -568,7 +579,7 @@ export function plainFromBlocks(blocks, ctx) {
     if (b.type === "quote") return [b.text, b.source ? `— ${b.source}` : ""].filter(Boolean).join("\n");
     if (b.type === "image") return [b.caption, ...imageItems(b).map((i) => i.caption)].filter(Boolean).join("\n");
     if (b.type === "video" || b.type === "imageref") return b.caption ?? "";
-    if (b.type === "schedule") return [[`일정 ${b.start}${b.end ? ` ~ ${b.end}` : ""}`, b.label].filter(Boolean).join(" · "), b.memo].filter(Boolean).join("\n");
+    if (b.type === "schedule") return [[`일정 ${scheduleDateText(b)}`, b.label].filter(Boolean).join(" "), b.memo].filter(Boolean).join("\n");
     if (b.type === "link") return b.ref ? ctx?.refs.get(`${b.ref.kind}:${b.ref.id}`)?.title ?? "" : b.label ?? "";
     if (b.type === "map") return [b.point ? ctx?.points.get(b.point)?.name : "", b.caption].filter(Boolean).join(" · ");
     return "";

@@ -338,13 +338,17 @@ mark.q-hit {
   font-size: 0.8rem;
   font-weight: 700;
 }
-.blk-schedule .sch-title {
-  font-weight: 700;
-}
+/* 날짜를 앞에, 이름은 뒤에 (2026-11-27). 날짜는 한 줄 유지, 이름이 길면 다음 줄로 */
 .blk-schedule .sch-date {
   color: var(--color-secondary);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.blk-schedule .sch-title {
+  min-width: 0;
+  font-weight: 700;
+  overflow-wrap: anywhere;
 }
 .blk-schedule {
   scroll-margin-top: calc(var(--header-h, 64px) + 16px);
