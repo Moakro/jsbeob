@@ -98,19 +98,19 @@ export interface ListPostsResult {
 /** 회원 등급 라벨 — 정의는 src/data/levels.ts */
 export { LEVEL, LEVEL_LABEL, LEVELS } from "../data/levels";
 import { LEVEL } from "../data/levels";
+import { kstDateText, periodText } from "../data/date-text";
 
 /** 오리알터 피드 필터 변경 이벤트(window CustomEvent) */
 export const ORIALTER_FILTER_EVENT = "jb:orialter-filter";
 /** 소식 모달 열기 이벤트(window CustomEvent) */
 export const NEWS_OPEN_EVENT = "jb:news-open";
 
-/** 일정 기간 → "2026.10.01 ~ 10.03" */
+/** 일정 기간 → "2026.10.01(목) ~ 10.03(토)" — 규칙은 src/data/date-text.ts (일정 블록과 공용) */
 export function fmtPeriodFull(p: Period | null | undefined) {
-  if (!p) return "";
-  const ymd = (d: string) => d.slice(0, 10).replace(/-/g, ".");
-  if (!p.end) return ymd(p.start);
-  return `${ymd(p.start)} ~ ${p.start.slice(0, 4) === p.end.slice(0, 4) ? ymd(p.end).slice(5) : ymd(p.end)}`;
+  return p ? periodText(p) : "";
 }
+/** 글 작성 시각 → 한국 날짜 "2026.11.27(금)" */
+export const fmtPostDate = kstDateText;
 
 /** SNS 식 상대 시각(KST 날짜 기준): 방금 · n분 전 · n시간 전 · 어제 · n일 전 · 10.3 · 2025.10.3 */
 export function snsTime(iso: string, now = new Date()) {

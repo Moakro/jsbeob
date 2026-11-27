@@ -6,6 +6,7 @@ import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadDevPorts } from "./dev-ports.mjs";
+import { assembleDraft, buildSystemPrompt } from "../jsbeob-api/intake-draft.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const API = `http://localhost:${loadDevPorts(root).api}`;
@@ -35,6 +36,21 @@ async function call(p, { c, method = "GET", body, headers = {} } = {}) {
   const ct = res.headers.get("Content-Type") ?? "";
   const data = ct.includes("json") ? await res.json() : await res.arrayBuffer();
   return { res, data };
+}
+
+// ── AI 초안 일정 메모 형식(서버 없이) — "시간: …" / "장소: …" / 한 줄 안내, 없는 줄은 뺀다 (2026-11-27 오너)
+{
+  const ev = (o) => ({ label: "수공", calendar: "solar", year: 2026, month: 12, day: 4, ...o });
+  const memoOf = (o) => assembleDraft({ kind: "event_notice", events: [ev(o)] }, { uploadedAt: "2026-11-27 01:00:00" }).draft_blocks[0].memo;
+  check("메모: 시간·장소·안내 세 줄", memoOf({ start_time: "15:00", end_time: "17:00", place: "겨레얼살리기연수원", note: "준비물: 수건" }) === "시간: 15:00~17:00\n장소: 겨레얼살리기연수원\n준비물: 수건");
+  check("메모: 시작 시각만", memoOf({ start_time: "9:30", place: "본부" }) === "시간: 09:30\n장소: 본부");
+  check("메모: 시간 없으면 시간 줄 없음", memoOf({ place: "본부", note: "1회차" }) === "장소: 본부\n1회차");
+  check("메모: 장소 없으면 장소 줄 없음", memoOf({ start_time: "14:00", note: "1회차" }) === "시간: 14:00\n1회차");
+  check("메모: 아무것도 없으면 memo 없음", memoOf({}) === undefined);
+  check("메모: AI 가 붙인 '장소:' 말머리는 겹치지 않게", memoOf({ place: "장소: 본부" }) === "장소: 본부");
+  check("메모: 기간 행사 시간", memoOf({ end_year: 2026, end_month: 12, end_day: 6, start_time: "14:00", end_time: "12:00" }) === "시간: 12/4 14:00 ~ 12/6 12:00");
+  check("메모: 음력은 안내 줄 앞에", memoOf({ calendar: "lunar", month: 9, day: 19, start_time: "10:00", note: "치성" }) === "시간: 10:00\n음력 9월 19일 · 치성");
+  check("지시문에 메모 형식 안내", buildSystemPrompt({ uploadedAt: "2026-11-27 01:00:00" }).includes('"시간: 15:00~17:00"'));
 }
 
 // 작은 시험 파일

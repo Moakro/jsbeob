@@ -135,7 +135,8 @@ export function buildSystemPrompt(ctx) {
 - 원문에 요일이 적혀 있으면 weekday_text 에 그 글자(예: "화")를 그대로.
 - 시간은 start_time/end_time 에 "HH:MM"(24시간). 기간 행사(2박 3일)는 end_year/end_month/end_day 이고, 그때 start_time 은 첫날 시작 시각·end_time 은 마지막 날 끝나는 시각이다.
 - label 은 **항상 채운다**(달력 항목 이름이 된다). 일정이 하나면 행사 이름, 여럿이면 서로 구분되게 짧게(예: "결과물 마감", "시상식", "1회차"). 30자 이내.
-- place 는 그 일정의 장소, note 는 **교인에게 보일** 이 일정만의 짧은 한 줄 안내(회차·준비물 등, 40자 이내)다. 날짜·시간·장소는 note 에 되풀이하지 않는다. 판단 근거·추정 이유는 note 가 아니라 warnings 에 쓴다(위 예외 제외).
+- place 는 그 일정의 장소 이름만(예: "겨레얼살리기연수원", "장소:" 같은 말머리 없이), note 는 **교인에게 보일** 이 일정만의 짧은 한 줄 안내(회차·준비물 등, 40자 이내)다. 날짜·시간·장소는 note 에 되풀이하지 않는다. 원문에 시간이 없으면 start_time·end_time 을 null 로(지어내지 않는다).
+- 일정 박스의 메모는 서버가 "시간: 15:00~17:00" / "장소: …" / note 순서로 한 줄씩 만든다. 그래서 note 에 "시간:"·"장소:" 줄을 넣지 않는다. 판단 근거·추정 이유는 note 가 아니라 warnings 에 쓴다(위 예외 제외).
 - 날짜·시간·장소·note 는 글 위의 **일정 박스**에 보인다. 글 본문에는 다시 쓰지 않는다.
 - 날짜를 못 읽었거나 "추후 공지"면 year·month·day 를 null 로(지어내지 않는다).
 
@@ -260,10 +261,10 @@ export function assembleDraft(x, ctx) {
 
     // 기간 행사(끝나는 날 있음)의 시간은 "첫날 시작 ~ 마지막 날 끝" — "14:00~12:00" 처럼 읽히지 않게
     const time = end ? spanTime(start, end, e.start_time, e.end_time) : timeRange(e.start_time, e.end_time);
-    // 메모는 시간·장소·한 줄 안내만 짧게 — 날짜는 박스에 이미 있다
-    const note = oneLine(e.note);
-    const place = oneLine(e.place);
-    const memo = clip([time, place && !note.includes(place) ? place : "", lunarText, note].filter(Boolean).join(" · "), 300);
+    // 메모는 줄마다 하나씩 — "시간: 15:00~17:00" / "장소: …" / 음력·한 줄 안내. 없는 줄은 뺀다. 날짜는 박스에 이미 있다 (2026-11-27 오너)
+    const note = oneLine(e.note).replace(/^(안내|설명|비고|메모)\s*[:：]\s*/, "");
+    const place = oneLine(e.place).replace(/^(장소|곳)\s*[:：]\s*/, "");
+    const memo = clip([time && `시간: ${time}`, place && `장소: ${place}`, [lunarText, note].filter(Boolean).join(" · ")].filter(Boolean).join("\n"), 300);
     blocks.push({ type: "schedule", start: start || "", ...(end && end !== start ? { end } : {}), ...(label ? { label } : {}), ...(memo ? { memo } : {}) });
 
     // 날짜를 못 정한 일정만 원문 날짜 표기를 본문에 남긴다(박스에 날짜가 없으므로)
