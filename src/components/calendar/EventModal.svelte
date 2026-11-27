@@ -1,5 +1,6 @@
 <script lang="ts">
   // 일정 추가·수정 모달(<dialog>) — 기념일은 연례·음력, 그 밖은 공개 여부.
+  // mode="memorial"(법종교 기념일 목록)이면 카테고리 선택 없이 '기념일'로 고정.
   // jsbooks 의 EventModal 에서 출발. 복원(2026-11-01): 배포본(_astro/MemorialList.*.js 에 함께 묶인 컴포넌트) 기준.
   import { tick } from "svelte";
   import type { CalendarEvent, EventCategory } from "../../lib/calendar-events";
@@ -15,9 +16,14 @@
     onClose: () => void;
     /** 저장 또는 삭제 성공 후 호출. */
     onSaved: () => void;
+    /** "memorial" = 기념일 전용(카테고리 선택 없이 '기념일'로 고정). 기본은 일반 일정. */
+    mode?: "general" | "memorial";
   }
 
-  let { open = $bindable(), event = null, defaultDate, onClose, onSaved }: Props = $props();
+  let { open = $bindable(), event = null, defaultDate, onClose, onSaved, mode = "general" }: Props = $props();
+
+  const memorialOnly = $derived(mode === "memorial");
+  const noun = $derived(memorialOnly ? "기념일" : "일정");
 
   const CATEGORIES: EventCategory[] = ["기념일", "일정", "기타"];
 
@@ -70,7 +76,7 @@
       hasEndDate = !!event.end_date && event.end_date !== event.start_date;
       endDate = event.end_date ?? "";
       const c = (event.category ?? "기념일") as EventCategory;
-      category = CATEGORIES.includes(c) ? c : "기념일";
+      category = memorialOnly ? "기념일" : CATEGORIES.includes(c) ? c : "기념일";
       isAnnual = event.is_annual === 1;
       isLunar = event.is_lunar === 1;
       isPublic = event.is_public === 1;
@@ -123,7 +129,8 @@
         title: t,
         start_date: start,
         end_date: hasEndDate && endDate ? endDate : null,
-        category,
+        // 기념일 전용 모드는 항상 '기념일'로 저장
+        category: memorialOnly ? "기념일" : category,
         is_annual: category === "기념일" && isAnnual ? 1 : 0,
         is_lunar: category === "기념일" && isLunar ? 1 : 0,
         is_public: category === "기념일" || isPublic ? 1 : 0,
@@ -154,8 +161,8 @@
     if (
       !event ||
       !(await confirmDialog({
-        title: "일정 삭제",
-        message: `'${event.title}' 일정을 삭제할까요?`,
+        title: `${noun} 삭제`,
+        message: `'${event.title}' ${noun}을 삭제할까요?`,
         confirmText: "삭제",
         tone: "danger",
       }))
@@ -194,7 +201,7 @@
   }}
 >
   <div class="em-head">
-    <h2 id="em-title">{isEditMode ? "일정 수정" : "일정 추가"}</h2>
+    <h2 id="em-title">{noun} {isEditMode ? "수정" : "추가"}</h2>
     <button type="button" class="em-x" aria-label="닫기" onclick={close}>
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"></path></svg>
     </button>
@@ -213,19 +220,21 @@
         type="text"
         bind:value={title}
         bind:this={titleInputEl}
-        placeholder="일정 제목"
+        placeholder="{noun} 제목"
         maxlength="200"
         required
       />
     </div>
-    <div class="em-field">
-      <label for="em-cat">카테고리</label>
-      <select id="em-cat" bind:value={category}>
-        {#each CATEGORIES as c}
-          <option value={c}>{c}</option>
-        {/each}
-      </select>
-    </div>
+    {#if !memorialOnly}
+      <div class="em-field">
+        <label for="em-cat">카테고리</label>
+        <select id="em-cat" bind:value={category}>
+          {#each CATEGORIES as c}
+            <option value={c}>{c}</option>
+          {/each}
+        </select>
+      </div>
+    {/if}
     {#if category === "기념일"}
       <div class="em-checkgroup">
         <label
