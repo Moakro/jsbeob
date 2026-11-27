@@ -3,7 +3,7 @@
   // 소식 목록(쪽 번호) — 공지(고정)·일정 표시. 고르면 onpick(id).
   // 복원(2026-11-01): 배포본 SSR(NewsRows 청크)·클라이언트(_astro/NewsList.*.js) 기준.
   import { onMount } from "svelte";
-  import { api, fmtPeriodFull, type MeUser, type PostSummary } from "../../lib/api";
+  import { api, fmtPeriodFull, fmtPostDate, type MeUser, type PostSummary } from "../../lib/api";
 
   let {
     current = null,
@@ -18,11 +18,6 @@
   let loading = $state(true);
   let error = $state<string | null>(null);
   let me = $state<MeUser | null>(null);
-
-  const ymd = (iso: string) => {
-    const d = new Date(iso);
-    return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, "0")}.${String(d.getDate()).padStart(2, "0")}`;
-  };
 
   async function load(p: number) {
     loading = true;
@@ -79,7 +74,7 @@
             {#if n.period}
               <small class="period">{fmtPeriodFull(n.period)}</small>
             {:else}
-              <small>{ymd(n.created_at)}</small>
+              <small>{fmtPostDate(n.created_at)}</small>
             {/if}
           </button>
         </li>
@@ -127,6 +122,7 @@
     list-style: none;
     margin: 0;
     padding: 0;
+    container-type: inline-size;
   }
   ul.dim {
     opacity: 0.55;
@@ -228,5 +224,19 @@
   .pg button:disabled:not(.on) {
     color: var(--color-faint);
     cursor: default;
+  }
+  /* 좁은 폭(모바일 소식 탭·좁은 팝업): 요일 붙은 날짜가 제목을 밀어내지 않게 날짜를 아랫줄로 (2026-11-27) */
+  @container (max-width: 520px) {
+    li button {
+      flex-wrap: wrap;
+      row-gap: 2px;
+    }
+    .t {
+      flex: 1 1 0;
+    }
+    small {
+      flex-basis: 100%;
+      padding-left: 2px;
+    }
   }
 </style>

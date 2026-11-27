@@ -1,7 +1,6 @@
 ---
-import { fmtPeriodFull, postHref } from "../../lib/api";
+import { fmtPeriodFull, fmtPostDate, postHref } from "../../lib/api";
 const { news } = Astro.props;
-const ymd = (s) => String(s).slice(0, 10).replace(/-/g, ".");
 ---
 
 <ul class="news">
@@ -18,7 +17,7 @@ const ymd = (s) => String(s).slice(0, 10).replace(/-/g, ".");
       {n.period ? (
         <small class="period">{fmtPeriodFull(n.period)}</small>
       ) : (
-        <small>{ymd(n.created_at)}</small>
+        <small>{fmtPostDate(n.created_at)}</small>
       )}{" "}
     </li>
   ))}

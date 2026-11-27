@@ -2,6 +2,7 @@
 // 복원(2026-11-01): 배포본 서버 청크(content_*.mjs) 기준.
 import { env } from "cloudflare:workers";
 import { DEFAULT_LIBRARY_CATEGORIES } from "./library";
+import { periodText, ymdWeekday } from "../data/date-text";
 
 type Opts = { preview?: boolean; viewer?: boolean };
 
@@ -116,18 +117,11 @@ export const listRecentPhotos = async (request: Request, limit = 9) => {
 export const listRecentOrialter = async (request: Request, limit = 5) =>
   (await contentGet(`/api/posts?board=orialter&limit=${limit}`, request).catch(() => null))?.posts ?? [];
 
-/** 공유 미리보기용 기간 — full: 2026.12.04(금) ~ 12.06(일), 아니면 12.04(금)~12.06(일) */
-function ogPeriod(p: { start: string; end?: string | null }, full: boolean) {
-  const W = "일월화수목금토";
-  const one = (d: string, year: boolean) => {
-    const [y, m, dd] = d.slice(0, 10).split("-");
-    const wd = W[new Date(Date.UTC(+y, +m - 1, +dd)).getUTCDay()];
-    return `${year ? `${y}.` : ""}${m}.${dd}(${wd})`;
-  };
-  const a = one(p.start, full);
+/** 공유 미리보기용 짧은 기간 — 12.04(금)~12.06(일). 전체 표기는 periodText (src/data/date-text.ts) */
+function ogPeriod(p: { start: string; end?: string | null }) {
+  const a = ymdWeekday(p.start, false);
   if (!p.end || p.end.slice(0, 10) === p.start.slice(0, 10)) return a;
-  const b = one(p.end, full && p.end.slice(0, 4) !== p.start.slice(0, 4));
-  return full ? `${a} ~ ${b}` : `${a}~${b}`;
+  return `${a}~${ymdWeekday(p.end, false)}`;
 }
 
 /**
@@ -142,12 +136,12 @@ export async function getPostMeta(request: Request, id: string) {
   const schedRe = /일정 (\d{4}-\d{2}-\d{2})(?: ~ (\d{4}-\d{2}-\d{2}))?(?: · )?/g;
   const many = (raw.match(schedRe) ?? []).length > 1;
   const text = raw
-    .replace(schedRe, (_m, a: string, b?: string) => (many ? `${ogPeriod({ start: a, end: b ?? null }, false)} ` : ""))
+    .replace(schedRe, (_m, a: string, b?: string) => (many ? `${ogPeriod({ start: a, end: b ?? null })} ` : ""))
     .replace(/\s+/g, " ")
     .trim();
   const firstLine = text.slice(0, 60);
   // 일정 글은 설명 맨 앞에 전체 기간(요일 포함)
-  const when = p.period?.start ? ogPeriod(p.period, true) : "";
+  const when = p.period?.start ? periodText(p.period) : "";
   const desc = [when, text].filter(Boolean).join(" · ");
   const img = (p.attachments ?? []).find((a: any) => a.type === "image" && a.url)?.url ?? null;
   const yt = (p.attachments ?? []).find((a: any) => a.type === "video" && a.videoId)?.videoId ?? null;

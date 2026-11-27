@@ -3,7 +3,7 @@
   // 소식 모달 — 'jb:news-open' 이벤트로 열고, 글 + 소식 목록을 함께 보인다. syncUrl 이면 주소를 글 주소로 바꾼다.
   // 복원(2026-11-01): 배포본 SSR(NewsRows 청크)·클라이언트(_astro/NewsModal.*.js) 기준.
   import { onMount, tick } from "svelte";
-  import { api, fmtPeriodFull, NEWS_OPEN_EVENT, postHref, type BoardConfig, type MeUser, type PostDetail } from "../../lib/api";
+  import { api, fmtPeriodFull, fmtPostDate, NEWS_OPEN_EVENT, postHref, type BoardConfig, type MeUser, type PostDetail } from "../../lib/api";
   import { confirmDialog } from "../../lib/confirm";
   import ModalFrame from "../ModalFrame.svelte";
   import ShareButton from "../ShareButton.svelte";
@@ -57,11 +57,6 @@
       deleting = false;
     }
   }
-
-  const when = (iso: string) => {
-    const d = new Date(iso);
-    return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, "0")}.${String(d.getDate()).padStart(2, "0")}`;
-  };
 
   /** 누른 일정 카드로 이동·강조 */
   async function focusBlock(block: string | null | undefined) {
@@ -159,7 +154,7 @@
               />{/if}
           </div>
           <p class="by">
-            <span>{when(post.created_at)}</span>
+            <span>{fmtPostDate(post.created_at)}</span>
             <span>조회 {post.view_count}</span>
             <!-- 공식 글 실제 등록자 — 권한자에게만 온다 (2026-11-16) -->
             {#if post.registered_by}<span class="reg" title="권한자에게만 보입니다">등록 {post.registered_by}</span>{/if}

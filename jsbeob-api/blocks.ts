@@ -2,6 +2,7 @@
 // 복원: 2026-11-01 배포본(jsbeob-api-preview) 번들에서 복원. 원본 TS 타입 정보는 번들에서 사라져
 // 대부분 생략되었다(tsconfig strict:false). 동작은 배포본과 같다.
 import { BOARD_LABEL, PRIVATE_BOARDS_SQL } from "./boards";
+import { periodText } from "../src/data/date-text";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -459,18 +460,9 @@ export const stripWiki = (t) => (t ?? "").replace(/\[\[([^\]]+)\]\]/g, (_, inner
 function paras(t) {
   return t.replace(/\r\n/g, "\n").split(/\n\s*\n/).map((p) => p.replace(/^\n+|\n+$/g, "")).filter((p) => p.trim()).map((p) => `<p>${esc(p).replace(/\n/g, "<br>")}</p>`).join("");
 }
-const WEEKDAY_KO = ["일", "월", "화", "수", "목", "금", "토"];
-/** 일정 날짜 표시 — 2026.12.05(토), 기간은 2026.12.05(토) ~ 12.07(월), 해가 바뀌면 끝 날짜에도 연도 (2026-11-27) */
-export function scheduleDateText(b) {
-  const day = (d, withYear) => {
-    const [y, m, dd] = d.split("-");
-    const w = WEEKDAY_KO[new Date(Date.UTC(+y, +m - 1, +dd)).getUTCDay()];
-    return `${withYear ? `${y}.` : ""}${m}.${dd}(${w})`;
-  };
-  const start = day(b.start, true);
-  if (!b.end) return start;
-  return `${start} ~ ${day(b.end, b.end.slice(0, 4) !== b.start.slice(0, 4))}`;
-}
+/** 일정 날짜 표시 — 2026.12.05(토), 기간은 2026.12.05(토) ~ 12.07(월), 해가 바뀌면 끝 날짜에도 연도 (2026-11-27)
+ *  규칙은 src/data/date-text.ts (사이트 최근글 목록과 공용) */
+export const scheduleDateText = (b) => periodText(b);
 export function renderBlocks(blocks, ctx) {
   return blocks.map((b) => {
     const idAttr = ` id="b-${esc(b.id)}"`;
