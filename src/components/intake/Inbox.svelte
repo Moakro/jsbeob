@@ -129,6 +129,7 @@
               </span>
               <span class={`st st-${it.status}`} class:busy={isProcessing(it)}>
                 {statusLabel(it)}{#if it.status === "published" && it.post}<small>{it.post.title}</small>
+                {:else if it.status === "published" && it.event_ids?.length}<small>달력만 · 일정 {it.event_ids.length}건</small>
                 {:else if it.status === "ready" && checkCount(it)}<small class="chk">확인 필요 {checkCount(it)}</small>{/if}
               </span>
             </a>

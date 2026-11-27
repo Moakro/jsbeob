@@ -7,6 +7,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadDevPorts } from "./dev-ports.mjs";
 import { assembleDraft, buildSystemPrompt } from "../jsbeob-api/intake-draft.mjs";
+import { titleSimilarity } from "../jsbeob-api/intake-similar.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const API = `http://localhost:${loadDevPorts(root).api}`;
@@ -32,7 +33,9 @@ function check(name, ok, extra = "") {
   console.log(`${ok ? "✓" : "✗"} ${name}${ok || !extra ? "" : `  — ${extra}`}`);
 }
 async function call(p, { c, method = "GET", body, headers = {} } = {}) {
-  const res = await fetch(API + p, { method, body, headers: { ...(c ? { Cookie: c } : {}), Origin: SITE, ...headers } });
+  const go = () => fetch(API + p, { method, body, headers: { ...(c ? { Cookie: c } : {}), Origin: SITE, ...headers } });
+  // wrangler d1 명령(수 초)을 사이에 여러 번 부르면 쉬던 연결이 서버 쪽에서 닫혀 있을 수 있다 — 본문이 없는 요청만 한 번 다시
+  const res = await go().catch((e) => (body === undefined ? go() : Promise.reject(e)));
   const ct = res.headers.get("Content-Type") ?? "";
   const data = ct.includes("json") ? await res.json() : await res.arrayBuffer();
   return { res, data };
@@ -108,7 +111,15 @@ const dup = await call("/api/intake", {
   method: "POST",
   body: form([["공문.png", PNG, "image/png"], ["안내.pdf", pdfX, "application/pdf"]]),
 });
-check("같은 파일 묶음 다시 올림 → duplicate, 새 건 없음", dup.data.duplicate === true && dup.data.intake?.id === it?.id);
+// 2단계 중복 경고: 막지 않고 새 건을 만들되 "이미 올린 것입니다" 안내 + 한 건 보기에 same_file
+check(
+  "같은 파일 묶음 다시 올림 → 새 건 + duplicate 안내",
+  dup.res.status === 201 && dup.data.duplicate === true && dup.data.intake?.id !== it?.id && dup.data.duplicate_of?.id === it?.id && /이미 올린 것입니다/.test(dup.data.notice ?? ""),
+  JSON.stringify(dup.data).slice(0, 300),
+);
+if (dup.data.intake) made.intakes.push(dup.data.intake.id);
+const dupOne = await call(`/api/intake/${dup.data.intake?.id}`, { c: c60 });
+check("한 건 보기 same_file 에 앞 건", dupOne.data.intake?.same_file?.some((x) => x.id === it?.id));
 const memo = await call("/api/intake", { c: c60, method: "POST", body: form([], { note: `글자 메모만 ${stamp}` }) });
 check("파일 없이 메모만 → 201", memo.res.status === 201);
 if (memo.data.intake) made.intakes.push(memo.data.intake.id);
@@ -163,6 +174,10 @@ check("편집진 소식 글쓰기 + intake_id → 200", post.res.status === 200 
 if (post.data.id) made.posts.push(post.data.id);
 const after = await call(`/api/intake/${it?.id}`, { c: c60 });
 check("올림 상태 → published, 글 연결", after.data.intake?.status === "published" && after.data.intake?.post_id === post.data.id);
+check(
+  "같은 파일 건의 same_file 에 '만든 글' 표시",
+  (await call(`/api/intake/${dup.data.intake?.id}`, { c: c60 })).data.intake?.same_file?.find((x) => x.id === it?.id)?.post?.id === post.data.id,
+);
 const pin = JSON.parse(d1(`SELECT is_pinned FROM posts WHERE id='${post.data.id}'`))[0].results[0]?.is_pinned;
 check("편집진의 공지 고정은 무시됨", pin === 0);
 const ev = JSON.parse(d1(`SELECT COUNT(*) AS n FROM events WHERE source_post_id='${post.data.id}'`))[0].results[0].n;
@@ -202,6 +217,100 @@ check(
     .status === 403,
 );
 
+// ── 제목 글자 겹침 비교(서버 없이)
+check("비슷함: 숫자·띄어쓰기·흔한 말 무시", titleSimilarity("제5회 동지 치성 안내", "동지치성") === 1);
+check("비슷함: 다른 행사는 낮음", titleSimilarity("화천절 치성", "청소년 수련회") < 0.5);
+check("비슷함: 일부 겹침", titleSimilarity("겨레얼 학술대회", "겨레얼살리기 학술 대회") >= 0.5);
+check("비슷함: 너무 짧으면 0", titleSimilarity("안내", "일정 안내") === 0);
+
+// ── 달력만 등록 + 비슷한 일정 경고 (1단계 남은 것·2단계)
+const calForm = form([[`달력.pdf`, new Uint8Array([...pdfX, 0x25, 0x43]), "application/pdf"]], { note: "달력만 시험" });
+const cal = await call("/api/intake", { c: c60, method: "POST", body: calForm });
+const calId = cal.data.intake?.id;
+if (calId) made.intakes.push(calId);
+// AI 초안 대신 시험 초안을 직접 넣는다(감시 서비스 없이) — 일정 두 개
+d1(
+  `UPDATE intakes SET status='ready', kind='event_notice', title='시험 학술대회 ${stamp}', draft_blocks='${JSON.stringify([
+    { type: "schedule", start: "2026-12-10", label: `겨레얼 학술대회 ${stamp}`, memo: "시간: 14:00\n장소: 본부" },
+    { type: "schedule", start: "2026-12-11", end: "2026-12-12", label: `겨레얼 수련 ${stamp}` },
+  ])}' WHERE id='${calId}'`,
+);
+// 비슷한 일정 — 하루 뒤(±1일 안), 이름 비슷 / 사흘 뒤(범위 밖) / 같은 날 다른 이름
+const mk = async (title, start_date) => {
+  const r = await call("/api/events", { c: c60, method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title, start_date, category: "일정", is_public: 1 }) });
+  if (r.data.event) made.events.push(r.data.event.id);
+  return r.data.event?.id;
+};
+const near = await mk(`제2회 겨레얼학술대회 ${stamp}`, "2026-12-09");
+const far = await mk(`겨레얼 학술대회 ${stamp}`, "2026-12-14");
+const other = await mk("청소년 모임 시험", "2026-12-10");
+const sim = (await call(`/api/intake/${calId}`, { c: c60 })).data.intake?.similar_events ?? [];
+const simIds = sim.flatMap((g) => g.matches.map((m) => m.id));
+check("비슷한 일정: ±1일 안·이름 비슷 → 경고", simIds.includes(near), JSON.stringify(sim).slice(0, 300));
+check("비슷한 일정: 날짜가 멀면 제외", !simIds.includes(far));
+check("비슷한 일정: 이름이 다르면 제외", !simIds.includes(other));
+check("일반(20) 달력만 등록 → 403", (await call(`/api/intake/${calId}/calendar`, { c: c20, method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })).res.status === 403);
+const calBad = await call(`/api/intake/${calId}/calendar`, {
+  c: c60,
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ events: [{ label: "x", start: "2026-13-01" }] }),
+});
+check("날짜가 틀리면 400", calBad.res.status === 400);
+const calOk = await call(`/api/intake/${calId}/calendar`, {
+  c: c60,
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    events: [
+      { label: `겨레얼 학술대회 ${stamp}`, start: "2026-12-10", memo: "시간: 14:00\n장소: 본부" },
+      { label: `겨레얼 수련 ${stamp}`, start: "2026-12-11", end: "2026-12-12" },
+    ],
+  }),
+});
+const ci = calOk.data.intake;
+check("달력만 등록 → published, event_ids 2, 글 없음", calOk.res.status === 200 && ci?.status === "published" && ci?.event_ids?.length === 2 && !ci?.post_id, JSON.stringify(calOk.data).slice(0, 300));
+check("handled_by 기록", ci?.handled_by?.id === "local-dev-l60");
+const calEvs = JSON.parse(d1(`SELECT category, is_public, is_annual, memo, source_post_id, end_date FROM events WHERE id IN (${(ci?.event_ids ?? []).map((x) => `'${x}'`).join(",") || "''"}) ORDER BY start_date`))[0].results;
+check(
+  "만든 일정: 카테고리 '일정'·공개·메모·기간",
+  calEvs.length === 2 && calEvs.every((e) => e.category === "일정" && e.is_public === 1 && e.is_annual === 0 && !e.source_post_id) && calEvs[0].memo === "시간: 14:00\n장소: 본부" && calEvs[1].end_date === "2026-12-12",
+);
+check("한 건 보기 events 에 만든 일정", ci?.events?.length === 2 && ci.events[0].title.startsWith("겨레얼 학술대회"));
+const pubList = (await call("/api/events?from=2026-12-01&to=2026-12-31")).data.events ?? [];
+check("비로그인 달력에 보임(공개)", ci?.event_ids?.every((x) => pubList.some((e) => e.id === x)));
+check("만든 일정은 비슷한 일정 경고에서 빠짐", !(ci?.similar_events ?? []).some((g) => g.matches.some((m) => ci.event_ids.includes(m.id))));
+const calTwice = await call(`/api/intake/${calId}/calendar`, {
+  c: c60,
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ events: [{ label: "x", start: "2026-12-10" }] }),
+});
+check("두 번 등록 → 409", calTwice.res.status === 409);
+const postAfterCal = await call("/api/posts", {
+  c: c60,
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ board: "news", title: "x", intake_id: calId, blocks: [{ type: "text", text: "x" }] }),
+});
+check("달력만 등록한 올림으로 글쓰기 → 400", postAfterCal.res.status === 400);
+check("일반(20) 되돌리기 → 403", (await call(`/api/intake/${calId}/calendar`, { c: c20, method: "DELETE" })).res.status === 403);
+const undo = await call(`/api/intake/${calId}/calendar`, { c: c60, method: "DELETE" });
+check("되돌리기 → 초안 준비, event_ids 비움", undo.res.status === 200 && undo.data.intake?.status === "ready" && undo.data.intake?.event_ids?.length === 0);
+const left = JSON.parse(d1(`SELECT COUNT(*) AS n FROM events WHERE id IN (${(ci?.event_ids ?? []).map((x) => `'${x}'`).join(",") || "''"})`))[0].results[0].n;
+check("되돌리기 → 만든 일정 지워짐", left === 0);
+check("소식 글로 게시한 올림 되돌리기 → 409", (await call(`/api/intake/${it?.id}/calendar`, { c: c60, method: "DELETE" })).res.status === 409);
+const calPriv = await call(`/api/intake/${calId}/calendar`, {
+  c: c60,
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ public: false, events: [{ label: `비공개 일정 ${stamp}`, start: "2026-12-10" }] }),
+});
+const privId = calPriv.data.intake?.event_ids?.[0];
+if (privId) made.events.push(privId);
+const pubList2 = (await call("/api/events?from=2026-12-01&to=2026-12-31")).data.events ?? [];
+check("편집진만 보기 → 비로그인 달력에 안 보임", !!privId && !pubList2.some((e) => e.id === privId));
+
 // ── 버리기
 const m2 = memo.data.intake?.id;
 const pdfOnly = await call("/api/intake", { c: c60, method: "POST", body: form([[`버릴것.pdf`, new Uint8Array([...pdfX, 0x0a, 0x25]), "application/pdf"]]) });
@@ -222,7 +331,7 @@ check("1년 지난 올림: purged_at 기록 + 메모 지움", !!purged?.purged_a
 
 // ── 정리(시험 데이터)
 for (const id of made.posts) d1(`DELETE FROM events WHERE source_post_id='${id}'; DELETE FROM posts WHERE id='${id}'`);
-for (const id of made.events) d1(`DELETE FROM events WHERE id='${id}'`);
+if (made.events.length) d1(`DELETE FROM events WHERE id IN (${made.events.map((x) => `'${x}'`).join(",")})`);
 for (const id of made.intakes) await call(`/api/intake/${id}`, { c: c60, method: "DELETE" });
 d1(`DELETE FROM intakes WHERE id IN (${made.intakes.map((x) => `'${x}'`).join(",") || "''"})`);
 

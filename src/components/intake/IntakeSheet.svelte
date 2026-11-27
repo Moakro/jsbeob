@@ -136,7 +136,7 @@
       progress = 1;
       window.dispatchEvent(new CustomEvent(INTAKE_CHANGED));
       const href = `${INBOX_PATH}${r.intake.id}/`;
-      ondone(r.duplicate ? "이미 올린 것입니다. 올림함에 있는 건을 보여 드립니다." : "올림함에 넣었습니다.", href);
+      ondone(r.duplicate ? (r.notice ?? "이미 올린 것입니다. 새 건으로도 넣었습니다.") : r.replayed ? "이미 올린 건을 보여 드립니다." : "올림함에 넣었습니다.", href);
       clear();
       onclose();
     } catch (err) {
