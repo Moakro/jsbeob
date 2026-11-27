@@ -18,6 +18,7 @@
   import { shareLink } from "../../lib/share";
   import { BRANCHES } from "../../data/branches";
   import ModalFrame from "../ModalFrame.svelte";
+  import ShareIcon from "../ShareIcon.svelte";
 
   let { limit = 10, openId = null }: { limit?: number; openId?: string | null } = $props();
 
@@ -734,16 +735,7 @@
             >{/if}
         </button>
         <button type="button" onclick={() => share(p)}>
-          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"
-            ><path
-              d="M14 5h5v5M19 5l-8 8M18 14v5H5V6h5"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.8"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            ></path></svg
-          >
+          <ShareIcon />
           공유하기</button
         >
       </div>
@@ -871,16 +863,7 @@
                 >{/if}
             </button>
             <button type="button" onclick={() => share(post)}>
-              <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"
-                ><path
-                  d="M14 5h5v5M19 5l-8 8M18 14v5H5V6h5"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="1.8"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                ></path></svg
-              >
+              <ShareIcon />
               공유하기</button
             >
           </div>
