@@ -6,6 +6,13 @@
 //   GET    /api/intake/:id           한 건(원본 목록·메모)
 //   GET    /api/intake/:id/file/:n   원본 보기 — 편집진만, Cache-Control: private, no-store
 //   DELETE /api/intake/:id           버리기(원본도 R2 에서 삭제, 기록은 'discarded' 로 남김)
+//   POST   /api/intake/:id/extract   AI 다시 읽기(실패·초안 준비됨 → 'uploaded' 로 되돌려 감시 서비스가 다시 가져가게) — 1단계
+//
+// 1단계(AI 초안, 2026-11-27): 사이트 서버는 AI 를 부르지 않는다. 미니PC 감시 서비스(tools/intake-watcher)가
+// 감시 서비스 전용 열쇠(INTAKE_WORKER_TOKEN, Authorization: Bearer)로 아래를 부른다 — 회원 쿠키로는 못 쓴다.
+//   POST   /api/intake-worker/claim           처리할 올림 하나 잡기(uploaded → extracting, attempts+1) → {intake|null}
+//   GET    /api/intake-worker/:id/file/:n     원본 받기(R2 비공개 intake/)
+//   POST   /api/intake-worker/:id/result      결과 쓰기 → ready / failed (잡을 때 받은 attempt 가 맞을 때만)
 //
 // 원본 키는 intake/<연>/<월>/<id>/<순번>.<확장자> — /api/files 는 media/·comments/ 모양만 내주므로 이 접두어는 절대 공개로 나가지 않는다.
 // 모든 요청은 index.ts 의 requestUser 하나로 회원을 알아낸다(쿠키 + 출처 검사, 앱이 생기면 Bearer 토큰도 같은 자리).
@@ -75,6 +82,8 @@ export async function handleIntake(req, env, path, deps) {
   if (path === "/api/intake/count" && m === "GET") return json({ open: await openCount(env) });
   const fm = path.match(/^\/api\/intake\/([0-9a-f-]{36})\/file\/(\d{1,2})$/);
   if (fm && (m === "GET" || m === "HEAD")) return serveIntakeFile(req, env, fm[1], Number(fm[2]));
+  const xm = path.match(/^\/api\/intake\/([0-9a-f-]{36})\/extract$/);
+  if (xm && m === "POST") return requestExtract(req, env, xm[1]);
   const im = path.match(/^\/api\/intake\/([0-9a-f-]{36})$/);
   if (im) {
     if (m === "GET") return getIntake(env, im[1]);
@@ -252,11 +261,16 @@ export function shapeIntake(r) {
       size: f.size,
       file_url: purged ? null : `/api/intake/${r.id}/file/${i + 1}`,
     })),
-    // 1단계에서 채워지는 칸
+    // 1단계(AI)에서 채워지는 칸
     kind: r.kind ?? null,
     title: r.title ?? null,
     draft_blocks: parseArr(r.draft_blocks),
     warnings: parseArr(r.warnings),
+    excluded: parseObj(r.extracted)?.excluded ?? [],
+    doc_type: parseObj(r.extracted)?.doc_type ?? null,
+    model: r.model ?? null,
+    attempts: r.attempts ?? 0,
+    ai_readable: aiReadable(r),
     error: r.error ?? null,
     // 결과
     post_id: r.post_id ?? null,
@@ -344,9 +358,214 @@ export async function purgeExpiredIntakes(env, limit = 200) {
   return n;
 }
 
+
+// ── AI 초안 1단계: 감시 서비스 전용 (2026-11-27) ─────────────────────────
+// 사이트 서버는 AI 를 부르지 않는다. 미니PC 감시 서비스가 30초마다 claim 으로 새 올림만 묻고(AI 비용 없음),
+// 있을 때만 AI(지금은 오너 구독 `claude -p`)를 깨워 초안을 만든 뒤 result 로 되돌린다.
+// AI 를 부르는 쪽을 API 키 방식으로 바꿔도 이 세 엔드포인트와 결과 모양은 그대로다(docs/design/ai-intake.md 4.3).
+
+/** AI 가 읽을 수 있는 원본 형식(HEIC·HWP·DOCX 는 아직 — 'uploaded' 로 남고 직접 작성) */
+const AI_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "application/pdf"]);
+/** extracting 으로 이만큼 멈춰 있으면 다시 잡을 수 있다(감시 서비스가 도중에 꺼졌을 때) */
+const STALE_MINUTES = 10;
+/** 자동으로 다시 잡는 최대 횟수 — 넘으면 failed. '다시 시도'를 누르면 0 부터 */
+const MAX_ATTEMPTS = 3;
+const DRAFT_KINDS = new Set(["event_notice", "photos", "document", "unknown"]);
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** 이 올림을 AI 가 읽을 수 있나 — 읽을 수 있는 파일이 하나라도 있거나, 파일 없이 메모·주소만 있을 때 */
+function aiReadable(r) {
+  if (r.purged_at) return false;
+  const files = parseArr(r.files);
+  if (files.length) return files.some((f) => AI_TYPES.has(f?.content_type));
+  return !!(r.note || r.url);
+}
+
+export async function handleIntakeWorker(req, env, path) {
+  if (!path.startsWith("/api/intake-worker/")) return null;
+  // 열쇠가 설정되지 않았으면 이 길은 없는 것으로
+  const want = env.INTAKE_WORKER_TOKEN ?? "";
+  if (want.length < 32) return err("not found", "not_found", 404);
+  const got = (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "").trim();
+  if (!(await sameSecret(got, want))) return err("열쇠가 맞지 않습니다", "bad_worker_token", 401);
+  const m = req.method;
+  if (path === "/api/intake-worker/claim" && m === "POST") return claimIntake(env);
+  const fm = path.match(/^\/api\/intake-worker\/([0-9a-f-]{36})\/file\/(\d{1,2})$/);
+  if (fm && m === "GET") return workerFile(env, fm[1], Number(fm[2]));
+  const rm = path.match(/^\/api\/intake-worker\/([0-9a-f-]{36})\/result$/);
+  if (rm && m === "POST") return writeResult(req, env, rm[1]);
+  return err("not found", "not_found", 404);
+}
+
+async function sameSecret(a, b) {
+  // 길이·내용을 시간 차이로 알 수 없게 해시끼리 비교
+  const [x, y] = await Promise.all([a, b].map((v) => crypto.subtle.digest("SHA-256", new TextEncoder().encode(v))));
+  const p = new Uint8Array(x), q = new Uint8Array(y);
+  let d = 0;
+  for (let i = 0; i < p.length; i++) d |= p[i] ^ q[i];
+  return d === 0 && a.length > 0;
+}
+
+/** 처리할 올림 하나 잡기 — 오래된 것부터. 같은 행을 두 감시 서비스가 잡지 않도록 조건부 UPDATE 로 잡는다 */
+async function claimIntake(env) {
+  const rs = await env.DB.prepare(
+    `SELECT id, status, files, note, url, attempts, purged_at FROM intakes
+     WHERE purged_at IS NULL AND (status='uploaded' OR (status='extracting' AND updated_at < datetime('now', '-${STALE_MINUTES} minutes')))
+     ORDER BY created_at LIMIT 30`
+  ).all();
+  for (const r of rs.results ?? []) {
+    if (!aiReadable(r)) continue; // HWP 등만 있는 건은 'uploaded' 로 남긴다(직접 작성)
+    if (r.status === "extracting" && (r.attempts ?? 0) >= MAX_ATTEMPTS) {
+      await env.DB.prepare(
+        "UPDATE intakes SET status='failed', error=?, updated_at=datetime('now') WHERE id=? AND status='extracting' AND attempts=?"
+      ).bind(`AI 읽기가 ${MAX_ATTEMPTS}번 끝나지 않았습니다`, r.id, r.attempts).run();
+      await onIntakeStatus(env, r.id, "failed");
+      continue;
+    }
+    const got = await env.DB.prepare(
+      `UPDATE intakes SET status='extracting', attempts=attempts+1, error=NULL, updated_at=datetime('now')
+       WHERE id=? AND attempts=? AND (status='uploaded' OR (status='extracting' AND updated_at < datetime('now', '-${STALE_MINUTES} minutes')))
+       RETURNING *`
+    ).bind(r.id, r.attempts ?? 0).first();
+    if (!got) continue; // 그 사이 다른 쪽이 잡음
+    await onIntakeStatus(env, r.id, "extracting");
+    const files = parseArr(got.files);
+    return json({
+      intake: {
+        id: got.id,
+        attempt: got.attempts,
+        hint: got.hint ?? null,
+        note: got.note ?? null,
+        url: got.url ?? null,
+        created_at: got.created_at,
+        // AI 가 읽을 수 있는 파일만(n 은 원본 순번)
+        files: files
+          .map((f, i) => ({ n: i + 1, name: f.name, content_type: f.content_type, size: f.size }))
+          .filter((f) => AI_TYPES.has(f.content_type)),
+        skipped_files: files.filter((f) => !AI_TYPES.has(f.content_type)).map((f) => f.name),
+      },
+    });
+  }
+  return json({ intake: null });
+}
+
+async function workerFile(env, id, n) {
+  const row = await env.DB.prepare("SELECT files, status, purged_at FROM intakes WHERE id=?").bind(id).first();
+  if (!row || row.purged_at || row.status !== "extracting") return err("없는 파일입니다", "not_found", 404);
+  const f = parseArr(row.files)[n - 1];
+  if (!f || typeof f.key !== "string" || !f.key.startsWith("intake/")) return err("없는 파일입니다", "not_found", 404);
+  const obj = await env.UPLOADS.get(f.key);
+  if (!obj) return err("없는 파일입니다", "not_found", 404);
+  return new Response(obj.body, {
+    headers: { "Content-Type": f.content_type || "application/octet-stream", "Content-Length": String(obj.size), "Cache-Control": "private, no-store" },
+  });
+}
+
+/**
+ * 결과 쓰기. 본문:
+ *   성공 {attempt, ok:true, kind, title, extracted, draft_blocks, warnings, model, input_tokens?, output_tokens?} → ready
+ *   실패 {attempt, ok:false, error, model?} → failed
+ * attempt 가 잡을 때 받은 값과 다르면(그 사이 다시 잡힘·다시 시도) 409 — 늦게 끝난 결과가 새 결과를 덮지 않게.
+ */
+async function writeResult(req, env, id) {
+  let b;
+  try {
+    b = await req.json();
+  } catch {
+    return err("JSON 으로 보내 주세요", "bad_json", 400);
+  }
+  const attempt = Number(b?.attempt);
+  if (!Number.isInteger(attempt) || attempt < 1) return err("attempt 가 필요합니다", "bad_attempt", 400);
+  const model = typeof b.model === "string" ? b.model.slice(0, 100) : null;
+  let stmt;
+  if (b.ok === false) {
+    const msg = String(b.error ?? "AI 읽기 실패").slice(0, 500);
+    stmt = env.DB.prepare(
+      "UPDATE intakes SET status='failed', error=?, model=COALESCE(?, model), updated_at=datetime('now') WHERE id=? AND status='extracting' AND attempts=?"
+    ).bind(msg, model, id, attempt);
+  } else if (b.ok === true) {
+    const bad = (m) => err(m, "bad_result", 400);
+    if (!DRAFT_KINDS.has(b.kind)) return bad("kind 가 맞지 않습니다");
+    const title = b.title == null ? null : String(b.title).replace(/\s*\n\s*/g, " ").trim().slice(0, 200) || null;
+    const blocks = cleanDraftBlocks(b.draft_blocks);
+    if (typeof blocks === "string") return bad(blocks);
+    const warnings = (Array.isArray(b.warnings) ? b.warnings : [])
+      .slice(0, 40)
+      .map((w) => (typeof w === "string" ? { level: "check", text: w } : { level: w?.level === "info" ? "info" : "check", text: String(w?.text ?? "") }))
+      .map((w) => ({ ...w, text: w.text.slice(0, 300) }))
+      .filter((w) => w.text.trim());
+    const extracted = b.extracted && typeof b.extracted === "object" ? JSON.stringify(b.extracted) : null;
+    if (extracted && extracted.length > 100_000) return bad("extracted 가 너무 큽니다");
+    const tok = (v) => (Number.isInteger(v) && v >= 0 ? v : null);
+    stmt = env.DB.prepare(
+      `UPDATE intakes SET status='ready', kind=?, title=?, extracted=?, draft_blocks=?, warnings=?, model=?, input_tokens=?, output_tokens=?, error=NULL, updated_at=datetime('now')
+       WHERE id=? AND status='extracting' AND attempts=?`
+    ).bind(b.kind, title, extracted, JSON.stringify(blocks), JSON.stringify(warnings), model, tok(b.input_tokens), tok(b.output_tokens), id, attempt);
+  } else {
+    return err("ok 가 필요합니다", "bad_result", 400);
+  }
+  const r = await stmt.run();
+  if (!r.meta?.changes) return err("이미 다른 결과가 있거나 다시 잡힌 올림입니다", "stale_attempt", 409);
+  const status = b.ok ? "ready" : "failed";
+  await onIntakeStatus(env, id, status);
+  return json({ ok: true, status });
+}
+
+/** 초안 블록 검사 — 일정(schedule)·글(text)만. 날짜를 못 정한 일정은 start:"" 로 허용(편집기가 게시 전에 막음) */
+function cleanDraftBlocks(raw) {
+  if (!Array.isArray(raw)) return "draft_blocks 는 목록이어야 합니다";
+  if (raw.length > 50) return "draft_blocks 가 너무 많습니다";
+  const out = [];
+  for (const b of raw) {
+    if (b?.type === "schedule") {
+      const start = String(b.start ?? "");
+      const end = String(b.end ?? "");
+      if (start && !DATE_RE.test(start)) return "일정 시작일 형식이 맞지 않습니다";
+      if (end && (!DATE_RE.test(end) || !start || end < start)) return "일정 끝나는 날이 맞지 않습니다";
+      const label = String(b.label ?? "").replace(/\s*\n\s*/g, " ").trim().slice(0, 200);
+      const memo = String(b.memo ?? "").trim().slice(0, 1000);
+      out.push({ type: "schedule", start, ...(end && end !== start ? { end } : {}), ...(label ? { label } : {}), ...(memo ? { memo } : {}) });
+    } else if (b?.type === "text") {
+      const text = String(b.text ?? "").slice(0, 20000);
+      if (text.trim()) out.push({ type: "text", text });
+    } else {
+      return `초안에 쓸 수 없는 블록입니다: ${String(b?.type).slice(0, 20)}`;
+    }
+  }
+  return out;
+}
+
+/** 편집진의 '다시 읽기·다시 시도' — 'uploaded' 로 되돌리면 감시 서비스가 다음 확인 때 가져간다 */
+async function requestExtract(req, env, id) {
+  const row = await env.DB.prepare("SELECT * FROM intakes WHERE id=?").bind(id).first();
+  if (!row) return err("없는 올림입니다", "not_found", 404);
+  if (!["failed", "ready", "uploaded"].includes(row.status)) return err("지금은 다시 읽을 수 없는 상태입니다", "bad_status", 409);
+  if (!aiReadable(row)) return err("AI 가 읽을 수 있는 파일(사진 JPG·PNG·WebP, PDF)이 없습니다", "not_readable", 422);
+  let hint = row.hint ?? null;
+  const body = await req.json().catch(() => ({}));
+  if (body && "hint" in body) {
+    if (body.hint !== null && body.hint !== "" && !HINTS.has(body.hint)) return err("알 수 없는 종류입니다", "bad_hint", 400);
+    hint = body.hint || null;
+  }
+  await env.DB.prepare(
+    `UPDATE intakes SET status='uploaded', hint=?, attempts=0, error=NULL, draft_blocks=NULL, warnings=NULL, extracted=NULL, updated_at=datetime('now')
+     WHERE id=? AND status IN ('failed','ready','uploaded')`
+  ).bind(hint, id).run();
+  await onIntakeStatus(env, id, "uploaded");
+  return getIntake(env, id);
+}
+
 // ── 도우미 ─────────────────────────────────────────────────────────────
 function str(v) {
   return typeof v === "string" ? v : "";
+}
+function parseObj(t) {
+  try {
+    const v = JSON.parse(t ?? "null");
+    return v && typeof v === "object" && !Array.isArray(v) ? v : null;
+  } catch {
+    return null;
+  }
 }
 function parseArr(t) {
   try {

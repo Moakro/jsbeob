@@ -18,3 +18,7 @@ UPLOADS_PUBLIC_BASE=""
 # 유튜브 채널 영상 목록(미디어 페이지)
 YOUTUBE_API_KEY=""
 YOUTUBE_CHANNEL_ID=""
+
+# 올림함 AI 초안 — 미니PC 감시 서비스(tools/intake-watcher) 전용 열쇠, 32자 이상 (없으면 AI 초안 꺼짐)
+# 만들기: openssl rand -hex 32   — 같은 값을 감시 서비스의 열쇠 파일(INTAKE_TOKEN_FILE)에 넣는다
+INTAKE_WORKER_TOKEN=""

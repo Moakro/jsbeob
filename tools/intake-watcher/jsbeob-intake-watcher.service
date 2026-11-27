@@ -1,0 +1,24 @@
+# 올림함 AI 초안 감시 서비스 (systemd 사용자 서비스 예시) — 설치는 tools/intake-watcher/README.md
+#   cp tools/intake-watcher/jsbeob-intake-watcher.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload && systemctl --user enable --now jsbeob-intake-watcher
+#   journalctl --user -u jsbeob-intake-watcher -f
+[Unit]
+Description=jsbeob 올림함 AI 초안 감시 서비스 (claude -p)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=%h/.config/jsbeob-intake-watcher/env
+# 저장소는 main 원래 폴더 — 머지 뒤 git pull 하면 다음 재시작부터 새 코드
+WorkingDirectory=%h/Dev/svelte/jsbeob
+ExecStart=/usr/bin/env node tools/intake-watcher/watcher.mjs
+Restart=on-failure
+RestartSec=30
+# claude 가 시간 초과로 멈춰도 그룹째 끝낼 수 있게
+KillMode=control-group
+TimeoutStopSec=20
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=default.target

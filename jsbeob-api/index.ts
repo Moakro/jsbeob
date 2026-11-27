@@ -39,7 +39,7 @@ import { handleContent, mediaUrl, refIndexStmts, renderRowBlocks, siteHosts } fr
 import { handleMedia } from "./media";
 import { branchCodeSet, handleBranches } from "./branch";
 import { handleLegacy } from "./legacy";
-import { checkIntakeForPost, handleIntake, intakePublishStmt, purgeExpiredIntakes } from "./intake";
+import { checkIntakeForPost, handleIntake, handleIntakeWorker, intakePublishStmt, purgeExpiredIntakes } from "./intake";
 
 const COOKIE_NAME = "jb_session";
 const SESSION_TTL = 60 * 60 * 24 * 30;
@@ -79,6 +79,9 @@ export default {
     const url = new URL(req.url);
     const path = url.pathname;
     try {
+      // 올림함 AI 초안 — 미니PC 감시 서비스 전용 열쇠로만 (2026-11-27, intake.ts)
+      const workerRes = await handleIntakeWorker(req, env, path);
+      if (workerRes) return workerRes;
       // 편집진 올림함 (2026-11-27, intake.ts)
       const intakeRes = await handleIntake(req, env, path, { requestUser: (r) => requestUser(r, env) });
       if (intakeRes) return intakeRes;
