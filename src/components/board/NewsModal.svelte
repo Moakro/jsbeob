@@ -6,6 +6,7 @@
   import { api, fmtPeriodFull, NEWS_OPEN_EVENT, postHref, type BoardConfig, type MeUser, type PostDetail } from "../../lib/api";
   import { confirmDialog } from "../../lib/confirm";
   import ModalFrame from "../ModalFrame.svelte";
+  import ShareButton from "../ShareButton.svelte";
   import NewsList from "./NewsList.svelte";
 
   let { openId = null, syncUrl = false }: { openId?: string | null; syncUrl?: boolean } = $props();
@@ -33,6 +34,8 @@
       !!post &&
       (lv >= LEVEL.ADMIN || (!!cfg && ((cfg.edit_own && me.id === post.author_id) || lv >= cfg.edit_level))),
   );
+  // 공유 — 누구나 볼 수 있는 글만(비공개 글·회원 전용 게시판이면 숨김). 설정을 읽기 전엔 숨긴다 (2026-11-27)
+  const canShare = $derived(!!post && !post.is_private && !!cfg && cfg.read_level < 0 && cfg.read_scope !== "own");
   let deleting = $state(false);
   async function remove() {
     if (!post || deleting) return;
@@ -142,12 +145,19 @@
       {:else}
         <article class="nv">
           {#if post.period}<p class="period">{fmtPeriodFull(post.period)}</p>{/if}
-          <h1>
-            {#if post.is_pinned}<span class="tag notice">공지</span>{/if}
-            {#if post.period}<span class="tag sched">일정</span>{/if}
-            {#if !post.is_pinned && !post.period}<span class="tag">소식</span>{/if}
-            <span class="tt">{post.title}</span>
-          </h1>
+          <div class="head">
+            <h1>
+              {#if post.is_pinned}<span class="tag notice">공지</span>{/if}
+              {#if post.period}<span class="tag sched">일정</span>{/if}
+              {#if !post.is_pinned && !post.period}<span class="tag">소식</span>{/if}
+              <span class="tt">{post.title}</span>
+            </h1>
+            {#if canShare}<ShareButton
+                url={postHref("news", post.id)}
+                title={post.title}
+                text={post.period ? `${fmtPeriodFull(post.period)} · ${post.title}` : post.title}
+              />{/if}
+          </div>
           <p class="by">
             <span>{when(post.created_at)}</span>
             <span>조회 {post.view_count}</span>
@@ -202,12 +212,25 @@
     font-weight: 700;
     letter-spacing: 0.01em;
   }
+  /* 제목 줄 — 공유 버튼은 오른쪽 끝 (2026-11-27) */
+  .head {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    margin: 0 0 8px;
+  }
+  .head > :global(.share) {
+    margin-left: auto;
+    margin-top: 2px;
+  }
   h1 {
+    flex: 1;
+    min-width: 0;
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     gap: 8px;
-    margin: 0 0 8px;
+    margin: 0;
     font-size: 1.4rem;
     line-height: 1.35;
   }
