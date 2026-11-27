@@ -332,7 +332,8 @@ CREATE INDEX idx_intakes_hash ON intakes(file_hash);
   - 답은 `--json-schema`(4.4 의 틀)로 받고 감시 서비스가 한 번 더 검사한다. 시험에서 임시 폴더 밖 파일 읽기 요청은 거절됨을 확인했다.
   - 지시문은 `--system-prompt` 로 넣는다(올린 날짜·요일 포함). 공문·메모는 **자료로만** 취급하라는 규칙이 맨 앞.
   - `ANTHROPIC_API_KEY` 는 넘기지 않는다 — 오너 구독 로그인으로만 돈다.
-- **이미지·PDF 는 Claude 가 Read 도구로 직접 읽는다**(별도 OCR 없음). 읽는 형식: JPG·PNG·WebP·PDF·메모 글자. HEIC·HWP·DOCX 만 있는 건은 잡지 않는다(`uploaded` 로 남고 직접 작성).
+- **이미지·PDF 는 Claude 가 Read 도구로 직접 읽는다**(별도 OCR 없음). 읽는 형식: JPG·PNG·WebP·PDF·메모 글자. HEIC·DOCX 만 있는 건은 잡지 않는다(`uploaded` 로 남고 직접 작성).
+- **한글 HWP·HWPX(2026-11-27 추가)**: 미니PC 감시 서비스가 `@ohah/hwpjs` 로 HTML(표 유지)+그림으로 바꿔 넘긴다(`tools/intake-watcher/convert-hwp.mjs`). 배포용·암호 문서는 그 파일만 '못 읽음' + 이유. 감시 서비스가 claim 때 `accept` 로 알릴 때만 넘긴다.
 - **블록 조립·날짜 계산은 코드**가 한다: `jsbeob-api/intake-draft.mjs`(답의 틀·지시문·검사·조립 한 곳). 천기 연호(1870+N)·음력(`korean-lunar-calendar`)·요일 대조·상대 날짜 검산이 여기 있다.
 - **갈아 끼우기**: "AI 부르기"만 `extractors/` 모듈 하나(`extract(ctx, opts) → {extracted, model, tokens}`)가 맡는다. 다른 편집진 것까지 처리하게 되면 API 키로 Messages API 를 부르는 모듈(`anthropic-api`)을 더하고 `INTAKE_EXTRACTOR` 만 바꾼다. 미니PC 없이 돌리려면 같은 `intake-draft.mjs` 를 Worker 의 Cron·대기열에서 부르게 옮기면 된다 — 엔드포인트·DB 칸·화면은 그대로.
 - 모델은 설정값(`INTAKE_MODEL`, 기본 `claude-opus-5-5`). AI 에게는 Read 말고 아무 도구도 없다 — 저장·게시·조회는 할 수 없다.
@@ -454,8 +455,8 @@ AI는 블록을 직접 만들지 않고 **"올린 것에서 읽은 사실"** 을
 | HEIC | ○ | 1단계 | 브라우저에서 JPG 로 변환(실패하면 원본 보관 + 안내). 서버 변환(Cloudflare Images 의 HEIC 지원)은 **미확인** |
 | PDF | ○ | 1단계 | 그대로 올림 → Claude 가 직접 읽음(글자 + 쪽 모양) |
 | 글자 메모·주소 | ○ | 1단계 | 글자 그대로 전달. 주소는 열어 보지 않음(주소 글자만 남김) |
-| HWPX | ○ | 2단계 | zip + XML 이라 Worker 안에서 글자·표를 꺼낼 수 있음 → 글자로 Claude 에 전달 |
-| HWP(옛 형식) | ○ | 2단계 | 후보: ① JS 라이브러리(`@ohah/hwpjs` 등)를 Worker 에서 돌려 글자 추출 — **Worker 에서 도는지 미확인, 시험 필요** ② 안 되면 미니PC 변환 서비스 ③ 그동안은 "한글에서 PDF 로 저장해 올려 주세요" 안내 |
+| HWPX | ○ | **됨(2026-11-27, 미니PC 변환)** | zip + XML 이라 Worker 안에서 글자·표를 꺼낼 수 있음 → 글자로 Claude 에 전달 |
+| HWP(옛 형식) | ○ | **됨(2026-11-27, 미니PC 변환 — 후보 ②)** | 후보: ① JS 라이브러리(`@ohah/hwpjs` 등)를 Worker 에서 돌려 글자 추출 — **Worker 에서 도는지 미확인, 시험 필요** ② 안 되면 미니PC 변환 서비스 ③ 그동안은 "한글에서 PDF 로 저장해 올려 주세요" 안내 |
 | DOCX | ○ | 2단계 | zip + XML → Worker 에서 글자 추출 |
 
 HWP·DOCX 에서 글자만 꺼내면 직인·표 모양 같은 정보는 사라지지만, 일정·장소를 뽑는 데는 충분하다.

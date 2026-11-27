@@ -25,6 +25,7 @@
     "@astrojs/rss": "^4.0.18",
     "@astrojs/sitemap": "^3.7.2",
     "@astrojs/svelte": "^8.0.5",
+    "@ohah/hwpjs": "0.1.2",
     "astro": "^6.1.9",
     "korean-lunar-calendar": "^0.3.6",
     "marked": "^18.0.2",

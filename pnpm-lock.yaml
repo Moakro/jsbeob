@@ -20,6 +20,9 @@ importers:
       '@astrojs/svelte':
         specifier: ^8.0.5
         version: 8.1.2(@types/node@24.12.4)(astro@6.4.2(@types/node@24.12.4)(rollup@4.60.4))(svelte@5.55.10)(typescript@5.9.3)
+      '@ohah/hwpjs':
+        specifier: 0.1.2
+        version: 0.1.2(svelte@5.55.10)
       astro:
         specifier: ^6.1.9
         version: 6.4.2(@types/node@24.12.4)(rollup@4.60.4)
@@ -662,6 +665,22 @@ packages:
 
   '@nodable/entities@2.1.1':
     resolution: {integrity: sha512-Pig3HxDIoMgjdEH8OCf/dkcTmLFjJRjWuq8jSnklu284/TKOPibSRERmOykiwmyXTtv61mP+44f3GMx0tLAyjg==}
+
+  '@ohah/hwpjs@0.1.2':
+    resolution: {integrity: sha512-3ys2LTT5DsRJV+6s1UdtCcRIm53WA4U4yHA6HuIjpafqP0DmdNRRxNtlu9LYI5hFAw6tXX/uN6S63NOdqrDEWQ==}
+    engines: {node: '>=24.20.0'}
+    hasBin: true
+    peerDependencies:
+      react: ^19.3.1
+      react-native: '>=0.88.1 <0.89'
+      svelte: ^5.57.3
+    peerDependenciesMeta:
+      react:
+        optional: true
+      react-native:
+        optional: true
+      svelte:
+        optional: true
 
   '@oslojs/encoding@1.1.0':
     resolution: {integrity: sha512-70wQhgYmndg4GCPxPPxPGevRKqTIJ2Nh4OkiMWmDAVYsTQ+Ta7Sq+rPevXyXGdzr30/qZBnyOalCszoMxlyldQ==}
@@ -2445,6 +2464,10 @@ snapshots:
       '@jridgewell/sourcemap-codec': 1.5.5
 
   '@nodable/entities@2.1.1': {}
+
+  '@ohah/hwpjs@0.1.2(svelte@5.55.10)':
+    optionalDependencies:
+      svelte: 5.55.10
 
   '@oslojs/encoding@1.1.0': {}
 

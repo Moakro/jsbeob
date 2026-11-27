@@ -364,8 +364,14 @@ export async function purgeExpiredIntakes(env, limit = 200) {
 // 있을 때만 AI(지금은 오너 구독 `claude -p`)를 깨워 초안을 만든 뒤 result 로 되돌린다.
 // AI 를 부르는 쪽을 API 키 방식으로 바꿔도 이 세 엔드포인트와 결과 모양은 그대로다(docs/design/ai-intake.md 4.3).
 
-/** AI 가 읽을 수 있는 원본 형식(HEIC·HWP·DOCX 는 아직 — 'uploaded' 로 남고 직접 작성) */
+/** AI 가 바로 읽는 원본 형식(HEIC·DOCX 는 아직 — 'uploaded' 로 남고 직접 작성) */
 const AI_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "application/pdf"]);
+/**
+ * 감시 서비스가 변환해서 읽는 형식(2026-11-27: 한글 HWP·HWPX). claim 때 감시 서비스가 accept 로 알려야만 넘긴다 —
+ * 옛 감시 서비스(변환 기능 없음)가 받아서 빈 초안을 만드는 일이 없게. 화면의 ai_readable 은 이것까지 포함한다.
+ */
+const CONVERT_TYPES = new Set(["application/x-hwp", "application/hwp+zip"]);
+const ALL_AI_TYPES = new Set([...AI_TYPES, ...CONVERT_TYPES]);
 /** extracting 으로 이만큼 멈춰 있으면 다시 잡을 수 있다(감시 서비스가 도중에 꺼졌을 때) */
 const STALE_MINUTES = 10;
 /** 자동으로 다시 잡는 최대 횟수 — 넘으면 failed. '다시 시도'를 누르면 0 부터 */
@@ -374,10 +380,10 @@ const DRAFT_KINDS = new Set(["event_notice", "photos", "document", "unknown"]);
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 /** 이 올림을 AI 가 읽을 수 있나 — 읽을 수 있는 파일이 하나라도 있거나, 파일 없이 메모·주소만 있을 때 */
-function aiReadable(r) {
+function aiReadable(r, types = ALL_AI_TYPES) {
   if (r.purged_at) return false;
   const files = parseArr(r.files);
-  if (files.length) return files.some((f) => AI_TYPES.has(f?.content_type));
+  if (files.length) return files.some((f) => types.has(f?.content_type));
   return !!(r.note || r.url);
 }
 
@@ -389,7 +395,7 @@ export async function handleIntakeWorker(req, env, path) {
   const got = (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "").trim();
   if (!(await sameSecret(got, want))) return err("열쇠가 맞지 않습니다", "bad_worker_token", 401);
   const m = req.method;
-  if (path === "/api/intake-worker/claim" && m === "POST") return claimIntake(env);
+  if (path === "/api/intake-worker/claim" && m === "POST") return claimIntake(req, env);
   const fm = path.match(/^\/api\/intake-worker\/([0-9a-f-]{36})\/file\/(\d{1,2})$/);
   if (fm && m === "GET") return workerFile(env, fm[1], Number(fm[2]));
   const rm = path.match(/^\/api\/intake-worker\/([0-9a-f-]{36})\/result$/);
@@ -407,14 +413,18 @@ async function sameSecret(a, b) {
 }
 
 /** 처리할 올림 하나 잡기 — 오래된 것부터. 같은 행을 두 감시 서비스가 잡지 않도록 조건부 UPDATE 로 잡는다 */
-async function claimIntake(env) {
+async function claimIntake(req, env) {
+  // 감시 서비스가 변환해서 읽을 수 있다고 알린 형식(accept)만 더한다
+  const body = await req.json().catch(() => ({}));
+  const accept = Array.isArray(body?.accept) ? body.accept.filter((t) => CONVERT_TYPES.has(t)) : [];
+  const types = new Set([...AI_TYPES, ...accept]);
   const rs = await env.DB.prepare(
     `SELECT id, status, files, note, url, attempts, purged_at FROM intakes
      WHERE purged_at IS NULL AND (status='uploaded' OR (status='extracting' AND updated_at < datetime('now', '-${STALE_MINUTES} minutes')))
      ORDER BY created_at LIMIT 30`
   ).all();
   for (const r of rs.results ?? []) {
-    if (!aiReadable(r)) continue; // HWP 등만 있는 건은 'uploaded' 로 남긴다(직접 작성)
+    if (!aiReadable(r, types)) continue; // 못 읽는 형식만 있는 건은 'uploaded' 로 남긴다(직접 작성)
     if (r.status === "extracting" && (r.attempts ?? 0) >= MAX_ATTEMPTS) {
       await env.DB.prepare(
         "UPDATE intakes SET status='failed', error=?, updated_at=datetime('now') WHERE id=? AND status='extracting' AND attempts=?"
@@ -441,8 +451,8 @@ async function claimIntake(env) {
         // AI 가 읽을 수 있는 파일만(n 은 원본 순번)
         files: files
           .map((f, i) => ({ n: i + 1, name: f.name, content_type: f.content_type, size: f.size }))
-          .filter((f) => AI_TYPES.has(f.content_type)),
-        skipped_files: files.filter((f) => !AI_TYPES.has(f.content_type)).map((f) => f.name),
+          .filter((f) => types.has(f.content_type)),
+        skipped_files: files.filter((f) => !types.has(f.content_type)).map((f) => f.name),
       },
     });
   }
@@ -540,7 +550,7 @@ async function requestExtract(req, env, id) {
   const row = await env.DB.prepare("SELECT * FROM intakes WHERE id=?").bind(id).first();
   if (!row) return err("없는 올림입니다", "not_found", 404);
   if (!["failed", "ready", "uploaded"].includes(row.status)) return err("지금은 다시 읽을 수 없는 상태입니다", "bad_status", 409);
-  if (!aiReadable(row)) return err("AI 가 읽을 수 있는 파일(사진 JPG·PNG·WebP, PDF)이 없습니다", "not_readable", 422);
+  if (!aiReadable(row)) return err("AI 가 읽을 수 있는 파일(사진 JPG·PNG·WebP, PDF, 한글 HWP·HWPX)이 없습니다", "not_readable", 422);
   let hint = row.hint ?? null;
   const body = await req.json().catch(() => ({}));
   if (body && "hint" in body) {
