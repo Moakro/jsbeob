@@ -5,6 +5,7 @@ import AiChatDrawer from "../components/AiChatDrawer.svelte";
 import AuthLink from "../components/AuthLink.svelte";
 import HeroSearch from "../components/HeroSearch.svelte";
 import ImageViewer from "../components/ImageViewer.svelte";
+import IntakeFab from "../components/intake/IntakeFab.svelte";
 import LoginModal from "../components/LoginModal.svelte";
 import MapBundle from "../components/MapBundle.svelte";
 import OverlayScrollbar from "../components/OverlayScrollbar.svelte";
@@ -253,6 +254,8 @@ const active = resolveSection(Astro.url.pathname);
     <MapBundle client:idle /> <!-- 법종교 미디어 영상 카드(a[data-video-id]) → 미리보기 모달 -->{" "}
     <VideoPreview client:idle /> <!-- 페이지 세로 스크롤 막대(자리 차지 없이 겹쳐 띄움, 스크롤할 때만) -->{" "}
     <OverlayScrollbar client:idle /> <LoginModal client:load />{" "}
+    <!-- 편집진 ＋ 올리기·올림함 버튼 — 등급 60 이상에게만 브라우저에서 그린다(비회원 캐시와 무관, 2026-11-27) -->{" "}
+    <IntakeFab client:idle />{" "}
     <!-- AI 대화 드로어 — 헤더·홈 히어로의 [data-ai-open] 버튼으로 연다(모든 페이지). SHOW_AI_CHAT 이 false 면 불러오지 않는다 -->{" "}
     {SHOW_AI_CHAT && <AiChatDrawer client:load />}
   </body>

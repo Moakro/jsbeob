@@ -14,7 +14,22 @@
     board,
     postId = null,
     category: initialCategory = null,
-  }: { board: string; postId?: string | null; category?: string | null } = $props();
+    intakeId = null,
+    startBlocks = null,
+    startTitle = "",
+    backHref = null,
+  }: {
+    board: string;
+    postId?: string | null;
+    category?: string | null;
+    /** 올림함에서 옮겨 쓰는 글(2026-11-27) — 저장할 때 intake_id 로 보내 그 올림을 '게시됨'으로 바꾼다 */
+    intakeId?: string | null;
+    /** 새 글의 처음 내용(API 블록 모양) — 올림의 메모·초안 */
+    startBlocks?: any[] | null;
+    startTitle?: string;
+    /** 취소 버튼이 갈 곳(기본: 게시판 목록) */
+    backHref?: string | null;
+  } = $props();
 
   const meta = BOARDS[board];
   const editing = !!postId;
@@ -23,7 +38,8 @@
   let seriesId = $state("");
   let cfg = $state<BoardConfig | null>(null);
   let authorId = $state<string | null>(null);
-  const hasNotice = $derived(!!cfg?.options?.notice);
+  // 공지 고정은 관리자만 (2026-11-27 — 편집진이 소식에 글을 써도 공지 고정은 관리자 권한)
+  const hasNotice = $derived(!!cfg?.options?.notice && (me?.level ?? 0) >= LEVEL.ADMIN);
   let notice = $state(false);
   /** 글마다 비공개(options.private_posts, 새 글에만 — 등록 뒤에는 글 보기 상단에서 바꾼다). 기본 공개 */
   const hasPrivate = $derived(!!cfg?.options?.private_posts && !editing);
@@ -95,6 +111,8 @@
           error = e instanceof Error ? e.message : "불러오기 실패";
         }
       }
+      if (!editing && startBlocks?.length) blocks = fromApi(startBlocks);
+      if (!editing && startTitle) title = startTitle;
       if (isLibrary && canWrite) {
         try {
           categories = (await library.categories()).categories.filter((c: any) => c.type === "post");
@@ -161,7 +179,12 @@
         await api.updatePost(postId, input);
         window.location.href = postHref(board, postId, isLibrary ? category : null);
       } else {
-        const r = await api.createPost({ board, ...input, ...(hasPrivate ? { is_private: isPrivate } : {}) });
+        const r = await api.createPost({
+          board,
+          ...input,
+          ...(hasPrivate ? { is_private: isPrivate } : {}),
+          ...(intakeId ? { intake_id: intakeId } : {}),
+        });
         window.location.href = postHref(board, r.id, isLibrary ? category : null);
       }
     } catch (err) {
@@ -177,7 +200,7 @@
       : `${isLibrary ? (categories.find((c) => c.key === category)?.label ?? cfg?.label ?? meta?.label ?? "") : (cfg?.label ?? meta?.label ?? "")} 글쓰기`,
   );
   const cancelHref = $derived(
-    editing ? postHref(board, postId!, isLibrary ? category : null) : `${boardBase(board, category)}/`,
+    backHref ?? (editing ? postHref(board, postId!, isLibrary ? category : null) : `${boardBase(board, category)}/`),
   );
 </script>
 

@@ -466,3 +466,41 @@ CREATE TABLE IF NOT EXISTS post_views (
   PRIMARY KEY (post_id, viewer, day)
 ) WITHOUT ROWID;
 CREATE INDEX IF NOT EXISTS idx_post_views_day ON post_views(day);
+
+-- 편집진 올림함 (2026-11-27, migrations/2026-11-27-intakes.sql — 설명은 그 파일)
+CREATE TABLE IF NOT EXISTS intakes (
+  id            TEXT PRIMARY KEY,                    -- uuid
+  user_id       TEXT NOT NULL REFERENCES users(id),  -- 올린 사람
+  status        TEXT NOT NULL DEFAULT 'uploaded',    -- uploaded | extracting | ready | failed | published | discarded
+  source        TEXT NOT NULL DEFAULT 'web',         -- web | app | share (어디서 올렸나)
+  hint          TEXT,                                -- 올릴 때 고른 종류(event_notice | photos | document, 없으면 자동)
+  note          TEXT,                                -- 메모·붙여 넣은 글
+  url           TEXT,                                -- 함께 적은 인터넷 주소(열어 보지 않음)
+  files         TEXT NOT NULL DEFAULT '[]',          -- JSON [{key, name, content_type, size, sha256}]
+  file_hash     TEXT,                                -- 파일 전체의 해시(같은 것 다시 올림 감지)
+  idem_key      TEXT,                                -- Idempotency-Key 머리말(재전송 안전)
+  -- 아래는 1단계(AI)부터 채움
+  kind          TEXT,                                -- event_notice | photos | document | unknown
+  title         TEXT,
+  model         TEXT,
+  extracted     TEXT,
+  draft_blocks  TEXT,
+  warnings      TEXT,
+  error         TEXT,
+  attempts      INTEGER NOT NULL DEFAULT 0,
+  input_tokens  INTEGER,
+  output_tokens INTEGER,
+  -- 결과
+  post_id       TEXT,                                -- 만든 글
+  event_ids     TEXT,                                -- '달력만'으로 만든 일정 id JSON (1단계)
+  handled_by    TEXT,                                -- 게시·버림 처리한 사람
+  created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at    TEXT NOT NULL DEFAULT (datetime('now')),
+  purge_after   TEXT,                                -- 원본 삭제 예정(올린 날 + 1년)
+  purged_at     TEXT                                 -- 원본을 지운 때(버림·1년 만료)
+);
+CREATE INDEX IF NOT EXISTS idx_intakes_status ON intakes(status, created_at);
+CREATE INDEX IF NOT EXISTS idx_intakes_hash ON intakes(file_hash);
+CREATE INDEX IF NOT EXISTS idx_intakes_user ON intakes(user_id, created_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_intakes_idem ON intakes(user_id, idem_key) WHERE idem_key IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_intakes_purge ON intakes(purge_after) WHERE purged_at IS NULL;

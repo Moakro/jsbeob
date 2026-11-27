@@ -29,7 +29,13 @@ enabled = true
 
 # 운영값은 Cloudflare 대시보드(Workers → jsbeob-api-preview → 설정)에 있다. 여기에 값을 넣지 않는다.
 #   일반 변수: SITE_ORIGIN, UPLOADS_PUBLIC_BASE, YOUTUBE_CHANNEL_ID, GOOGLE_CLIENT_ID
+#     (선택) ALLOWED_ORIGINS — 올림함 쿠키 요청에서 SITE_ORIGIN 말고도 받을 출처, 쉼표 구분. 운영에서는 비워 둔다
 #   시크릿(`wrangler secret put`): AUTH_SECRET, YOUTUBE_API_KEY,
 #     GOOGLE_CLIENT_SECRET, KAKAO_CLIENT_SECRET, KAKAO_REST_API_KEY
 #     (2026-11 현재 뒤의 세 개는 일반 변수로 등록돼 있음 → 시크릿 전환 권장)
 # 로컬 개발 값은 .dev.vars (.dev.vars.example 참고, git 제외).
+
+# 편집진 올림함(intake/) 원본 1년 뒤 자동 삭제 — 하루 1번, 한국 03:00 (2026-11-27, intake.ts purgeExpiredIntakes)
+# 로컬 확인: wrangler dev --test-scheduled 로 띄우고 curl "http://localhost:<API 포트>/__scheduled?cron=0+18+*+*+*"
+[triggers]
+crons = ["0 18 * * *"]

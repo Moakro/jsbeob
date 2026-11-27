@@ -20,6 +20,8 @@ pnpm dev        # API + 사이트 함께. Ctrl+C 한 번에 둘 다 멈춤
 pnpm dev:api    # API 만
 pnpm dev:site   # 사이트만
 pnpm dev:login  # 로컬 운영자 로그인 쿠키 한 줄 출력 (해당 사이트 포트 주소를 알려 줌)
+pnpm dev:login 편집진 --level 60   # 등급별 시험 계정(local-dev-l60 등). 일반 회원은 --level 20
+DEV_HOST=100.67.11.49 pnpm dev     # 사이트를 Tailscale 주소로도 연다(다른 기기에서 보기, 올림함 출처 검사도 맞춰 줌)
 ```
 - 포트 결정 (`scripts/dev-ports.mjs`): 환경변수 `SITE_PORT`/`API_PORT` > 최상위 `.dev-ports`(git 제외) > 기본 **4321 / 8788**.
 - **main(원래 폴더)은 `.dev-ports` 가 없어 4321 / 8788 그대로.** worktree 는 준비 스크립트가 4322/8789, 4323/8790 … 처럼 비어 있는 쌍을 골라 `.dev-ports` 에 적는다.
@@ -31,7 +33,8 @@ pnpm dev:login  # 로컬 운영자 로그인 쿠키 한 줄 출력 (해당 사�
 
 ## 빌드·테스트·lint
 ```bash
-pnpm build      # astro build — 지금 유일한 자동 검사(테스트·lint 스크립트는 없음)
+pnpm build      # astro build — 화면 쪽 자동 검사(lint 스크립트는 없음)
+pnpm test:intake  # 올림함 API 시험 — pnpm dev 를 띄운 상태에서. 로컬 D1 에 시험 계정을 만들고 시험 데이터는 지운다
 ```
 
 ## 로컬 D1

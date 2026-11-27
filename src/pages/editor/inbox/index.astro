@@ -1,0 +1,11 @@
+---
+// 편집진 올림함 목록 (2026-11-27 올림함 0단계). 메뉴에는 없고 ＋ 버튼으로 들어온다. 권한은 화면이 아니라 API 가 검사한다.
+import Base from "../../../layouts/Base.astro";
+import Inbox from "../../../components/intake/Inbox.svelte";
+export const prerender = false;
+Astro.response.headers.set("X-Robots-Tag", "noindex");
+---
+
+<Base title="올림함" tight>
+  <Inbox client:load />
+</Base>

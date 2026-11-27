@@ -6,7 +6,9 @@
 //  3) 브라우저 콘솔에 붙여 넣을 한 줄을 출력한다.
 //
 // 운영 AUTH_SECRET 은 이 파일이 모르므로 여기서 만든 토큰은 운영 사이트에서 통하지 않는다.
-// 사용: pnpm dev:login [표시이름]
+// 사용: pnpm dev:login [표시이름] [--level 60]
+//   --level: 등급(0·20·40·60·80·100, 기본 100=관리자). 100 이 아니면 등급별 시험 계정(local-dev-l60 등)을 따로 만든다
+//   예) pnpm dev:login 편집진 --level 60   /   pnpm dev:login 일반회원 --level 20
 import { readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { createHmac } from "node:crypto";
@@ -16,8 +18,16 @@ import { loadDevPorts } from "./dev-ports.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const apiDir = path.join(root, "jsbeob-api");
-const name = process.argv[2] || "로컬 운영자";
-const USER_ID = "local-dev-admin";
+const args = process.argv.slice(2);
+const li = args.indexOf("--level");
+const level = li >= 0 ? Number(args.splice(li, 2)[1]) : 100;
+if (![0, 20, 40, 60, 80, 100].includes(level)) {
+  console.error("--level 은 0·20·40·60·80·100 중 하나여야 합니다.");
+  process.exit(2);
+}
+const LABEL = { 0: "대기", 20: "일반", 40: "교인", 60: "편집진", 80: "운영진", 100: "관리자" };
+const name = args[0] || (level === 100 ? "로컬 운영자" : `로컬 ${LABEL[level]}`);
+const USER_ID = level === 100 ? "local-dev-admin" : `local-dev-l${level}`;
 
 let vars;
 try {
@@ -34,8 +44,8 @@ if (!secret || secret.includes("여기에")) {
 
 // 로컬 D1 에만 쓴다(--local). 운영 DB(--remote)는 건드리지 않는다.
 const sql =
-  `INSERT INTO users (id, provider, display_name, level, is_seed) VALUES ('${USER_ID}', 'local', '${name.replace(/'/g, "''")}', 100, 0) ` +
-  `ON CONFLICT(id) DO UPDATE SET level=100, display_name=excluded.display_name, updated_at=datetime('now');`;
+  `INSERT INTO users (id, provider, display_name, level, is_seed) VALUES ('${USER_ID}', 'local', '${name.replace(/'/g, "''")}', ${level}, 0) ` +
+  `ON CONFLICT(id) DO UPDATE SET level=${level}, display_name=excluded.display_name, updated_at=datetime('now');`;
 execFileSync(
   path.join(root, "node_modules/.bin/wrangler"),
   ["d1", "execute", "jsbeob-db", "--local", "-c", "wrangler.toml", "--command", sql],
@@ -49,6 +59,6 @@ const body = b64url(JSON.stringify({ sub: USER_ID, iat: now, exp: now + 60 * 60 
 const sig = b64url(createHmac("sha256", secret).update(`${head}.${body}`).digest());
 const token = `${head}.${body}.${sig}`;
 
-console.log(`로컬 운영자 '${name}' (id=${USER_ID}, level 100=관리자) 준비 완료.`);
+console.log(`로컬 계정 '${name}' (id=${USER_ID}, level ${level}=${LABEL[level]}) 준비 완료.`);
 console.log(`http://localhost:${loadDevPorts(root).site} 을 연 브라우저의 개발자 도구 콘솔에 아래 한 줄을 붙여 넣고 새로고침하세요 (30일 유효):\n`);
 console.log(`document.cookie = "jb_session=${token}; path=/; max-age=2592000";`);

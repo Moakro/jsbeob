@@ -1,6 +1,7 @@
 # 편집진 '+ 올리기' → AI가 일정·소식 글·자료로 구조화 (설계)
 
 - 상태: **설계 확정** (2026-11-27, 오너가 결정 15개를 확정, 천기 원년 = 서기 1871년) — 코드·DB·운영 변경 없음.
+- 구현: **0단계 구현됨**(2026-11-27, `jsbeob-api/intake.ts`·`src/components/intake/`·`/editor/inbox/`) — 운영 반영은 오너 승인 뒤. 1단계(AI)는 0단계 운영 확인 뒤.
 - 대상: 사이트 `jsbeob`(Astro+Svelte), API `jsbeob-api`(Cloudflare Worker, D1 `jsbeob-db`, R2 `jsbeob-uploads`)
 
 ## 한눈에
