@@ -129,7 +129,8 @@
           names.push(p.file.name);
         }
       }
-      if (!idemKey) idemKey = `web-${crypto.randomUUID()}`;
+      // randomUUID 는 https(또는 localhost)에서만 있다 — http 로 연 시험 주소에서도 되게 getRandomValues 로 만든다
+      if (!idemKey) idemKey = `web-${Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join("")}`;
       stage = "올리는 중";
       const r = await uploadIntake({ files: blobs, names, note: note.trim(), url: u, hint }, idemKey, (x) => (progress = x));
       progress = 1;
