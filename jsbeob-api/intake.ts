@@ -364,13 +364,19 @@ export async function purgeExpiredIntakes(env, limit = 200) {
 // 있을 때만 AI(지금은 오너 구독 `claude -p`)를 깨워 초안을 만든 뒤 result 로 되돌린다.
 // AI 를 부르는 쪽을 API 키 방식으로 바꿔도 이 세 엔드포인트와 결과 모양은 그대로다(docs/design/ai-intake.md 4.3).
 
-/** AI 가 바로 읽는 원본 형식(HEIC·DOCX 는 아직 — 'uploaded' 로 남고 직접 작성) */
+/** AI 가 바로 읽는 원본 형식(HEIC 는 아직 — 'uploaded' 로 남고 직접 작성) */
 const AI_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "application/pdf"]);
 /**
- * 감시 서비스가 변환해서 읽는 형식(2026-11-27: 한글 HWP·HWPX). claim 때 감시 서비스가 accept 로 알려야만 넘긴다 —
+ * 감시 서비스가 변환해서 읽는 형식(2026-11-27: 한글 HWP·HWPX, 워드 DOCX. 옛 워드 .doc 은 감시 서비스가 받아서 이유와 함께 '못 읽음').
+ * claim 때 감시 서비스가 accept 로 알려야만 넘긴다 —
  * 옛 감시 서비스(변환 기능 없음)가 받아서 빈 초안을 만드는 일이 없게. 화면의 ai_readable 은 이것까지 포함한다.
  */
-const CONVERT_TYPES = new Set(["application/x-hwp", "application/hwp+zip"]);
+const CONVERT_TYPES = new Set([
+  "application/x-hwp",
+  "application/hwp+zip",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/msword",
+]);
 const ALL_AI_TYPES = new Set([...AI_TYPES, ...CONVERT_TYPES]);
 /** extracting 으로 이만큼 멈춰 있으면 다시 잡을 수 있다(감시 서비스가 도중에 꺼졌을 때) */
 const STALE_MINUTES = 10;
@@ -550,7 +556,7 @@ async function requestExtract(req, env, id) {
   const row = await env.DB.prepare("SELECT * FROM intakes WHERE id=?").bind(id).first();
   if (!row) return err("없는 올림입니다", "not_found", 404);
   if (!["failed", "ready", "uploaded"].includes(row.status)) return err("지금은 다시 읽을 수 없는 상태입니다", "bad_status", 409);
-  if (!aiReadable(row)) return err("AI 가 읽을 수 있는 파일(사진 JPG·PNG·WebP, PDF, 한글 HWP·HWPX)이 없습니다", "not_readable", 422);
+  if (!aiReadable(row)) return err("AI 가 읽을 수 있는 파일(사진 JPG·PNG·WebP, PDF, 한글 HWP·HWPX, 워드 DOCX)이 없습니다", "not_readable", 422);
   let hint = row.hint ?? null;
   const body = await req.json().catch(() => ({}));
   if (body && "hint" in body) {

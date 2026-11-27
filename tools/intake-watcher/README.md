@@ -1,6 +1,6 @@
 # 올림함 AI 초안 감시 서비스 (intake-watcher)
 
-편집진이 ＋ 로 올린 공문(사진·PDF·한글 HWP·HWPX)·카톡 캡처·메모를 **미니PC에서** 읽어 일정·소식 초안을 만들어 올림함에 되돌린다.
+편집진이 ＋ 로 올린 공문(사진·PDF·한글 HWP·HWPX·워드 DOCX)·카톡 캡처·메모를 **미니PC에서** 읽어 일정·소식 초안을 만들어 올림함에 되돌린다.
 설계: `docs/design/ai-intake.md` 4.3 (2026-11-27 오너 결정 — 사이트 서버는 AI 를 부르지 않는다).
 
 ```
@@ -20,8 +20,8 @@
 - 실패(claude 오류·시간 초과·답이 틀에 안 맞음·글씨를 못 읽음) → `failed` + 사유. 올림함의 **다시 시도**로 다시 대기열에.
 - 감시 서비스가 처리 중에 꺼지면 그 건은 `extracting` 으로 남았다가 10분 뒤 다시 잡힌다(최대 3번, 그다음은 `failed`).
 - 늦게 끝난 결과가 새 결과를 덮지 않게, 결과는 잡을 때 받은 `attempt` 가 맞을 때만 쓰인다(아니면 409).
-- AI 가 못 읽는 형식(HEIC·DOCX)만 있는 건은 잡지 않는다 → `uploaded` 로 남고 직접 작성.
-- 한글 HWP·HWPX 는 claim 때 `{"accept": ["application/x-hwp", "application/hwp+zip"]}` 로 "변환해서 읽을 수 있다"고 알릴 때만 넘어온다(옛 감시 서비스는 계속 PDF·사진만 받는다).
+- AI 가 못 읽는 형식(HEIC)만 있는 건은 잡지 않는다 → `uploaded` 로 남고 직접 작성.
+- 한글 HWP·HWPX·워드 DOCX·DOC 는 claim 때 `accept`(예: `["application/x-hwp", "application/hwp+zip", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/msword"]`)로 "변환해서 읽을 수 있다"고 알릴 때만 넘어온다(옛 감시 서비스는 알린 형식만 받는다).
 - 로그에는 공문 내용을 적지 않는다(건 id·블록 수·경고 수·토큰·시간만). claude 세션 기록도 남기지 않는다(`--no-session-persistence`).
 
 ## 한글 문서(HWP·HWPX) 변환 — convert-hwp.mjs
@@ -42,6 +42,21 @@
 | 배포용 .hwp + 사진 | 배포용만 '못 읽음' 경고, 사진으로 초안 |
 | 암호 .hwpx 만 | `failed` — "암호가 걸린 문서라 읽을 수 없습니다" |
 | 글상자 문서 | 빠진 개체·위치 모를 글 경고 |
+
+## 워드 문서(DOCX) 변환 — convert-docx.mjs
+
+- 라이브러리 없이 직접 푼다(2026-11-27): DOCX = zip 안의 `word/document.xml`(본문) + `word/_rels/document.xml.rels`(그림 관계) + `word/media/*`. zip 은 `node:zlib` 의 inflateRaw, XML 은 파일 안의 작은 해석기.
+- 문단 `<p>`(탭·줄바꿈 유지, 변경 추적으로 지운 글·필드 코드는 뺌), 표 `<table>`(`w:gridSpan` → colspan, `w:vMerge` → rowspan, 표 속 표), 그림 자리는 `[그림 k: 같이 넘긴 파일 <n>-img/image-k.png …]`(PNG·JPG·GIF·WebP 만, 문서당 10개, 하나 8MB — EMF·WMF 등은 '넘기지 못함'), **글상자 안의 글**은 `[글상자] … [글상자 끝]` 으로 그 문단 뒤에, 수식은 글자만, 차트·SmartArt·OLE 는 `[빠진 개체 …]`. 머리말·꼬리말·각주는 넘기지 않는다.
+- `<n>-docx.html` 을 Claude 에게 넘긴다(원본 .docx 는 지움). 지시문에 "워드 문서에서 변환됨"이 붙는다.
+- 받은 파일은 믿을 수 없는 입력: 같은 파일을 `--child` 로 따로 띄운 프로세스(`node --max-old-space-size=512`), 60초, 임시 폴더 안 고정 이름만 읽고 씀(부모가 자식이 알려 준 경로 모양을 다시 검사), 원본 30MB·zip 항목 5000개·풀린 본문 30MB(선언 크기를 믿지 않고 inflate 출력 자체를 묶음 — zip 폭탄)·XML 요소 200만·깊이 200·결과 HTML 400KB.
+- 못 읽음 처리(그 파일만 빼고 계속, 남은 게 없으면 `failed` + 이유): **옛 워드 `.doc`**("워드에서 .docx 나 PDF 로 저장해 올려 주세요"), **암호 걸린 DOCX**(실제로는 OLE 파일), 확장자만 .docx 인 HWPX, zip 이 아님·손상, 글자 없음, 시간·메모리 초과.
+
+| 시험 (2026-11-27, 로컬 API + 실제 `claude -p`) | 결과 |
+|---|---|
+| DOCX 공문(직접 만든 견본), 표(세로 합친 장소 칸·가로 합친 비고) 안 천기 156년 음력 9월 18·19일 + 약도 그림 + 글상자 | 일정 2개 2026-10-28·10-29, 메모 `시간: 19:00~21:00` / `장소: 오리알터 본전`, 그림 속 셔틀버스·글상자 속 우천 안내까지 본문에, 담당자 휴대전화는 뺌 |
+| DOCX + `.doc` | `.doc` 만 '못 읽음' 경고(이유), DOCX 로 초안 |
+| `.doc` 만 | `failed` — "옛 워드 형식(.doc)이라 읽을 수 없습니다 …" |
+| zip 폭탄(200MB 로 풀림, 선언 크기 속임 포함)·깨진 zip·암호(OLE)·HWPX 이름만 바꿈·빈 문서 | 각각 이유와 함께 '못 읽음', 30ms 안팎 |
 
 ## 손으로 시험 (로컬)
 
