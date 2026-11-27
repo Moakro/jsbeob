@@ -124,6 +124,50 @@ function ogPeriod(p: { start: string; end?: string | null }) {
   return `${a}~${ymdWeekday(p.end, false)}`;
 }
 
+type SchedBlock = { type: "schedule"; start: string; end?: string | null; label?: string | null; memo?: string | null };
+
+/** 일정 이름·메모의 줄바꿈을 ' · ' 로 — 공유 미리보기는 한 줄이라. 본문 문단 사이도 ' · ', 문단 안 줄바꿈은 공백 */
+const oneLine = (t?: string | null) =>
+  String(t ?? "")
+    .split(/\n+/)
+    .map((x) => x.replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+    .join(" · ");
+
+/**
+ * 공유 미리보기 설명 — 일정 글은 '2026.12.05(토) · 일정 이름 · 시간: … · 장소: … — 본문 요약' (2026-11-27)
+ *  - 날짜는 한 번만: 일정 블록 줄(API plainFromBlocks 의 '일정 <날짜> 이름\n메모')은 본문 요약에서 뺀다
+ *  - 일정이 여러 개면 가장 이른 일정만 앞에, 나머지는 본문 자리에 '12.06(일) 이름' 으로 짧게
+ *  - 일정 없는 글은 본문 요약만 (블록이 없는 옛 글에 기간만 있으면 '기간 · 본문')
+ */
+export function ogDescription(p: { body_md?: string | null; blocks?: any[] | null; period?: { start: string; end?: string | null } | null }) {
+  let raw = String(p.body_md ?? "");
+  const scheds = (Array.isArray(p.blocks) ? p.blocks : []).filter(
+    (b): b is SchedBlock => b?.type === "schedule" && typeof b.start === "string",
+  );
+  const first = [...scheds].sort((a, b) => a.start.localeCompare(b.start))[0];
+  for (const b of scheds) {
+    // API 가 만든 줄 그대로 찾아 바꾼다. 표기가 달라 못 찾으면 '일정 …' 문단을 지운다
+    const line = [[`일정 ${periodText(b)}`, b.label].filter(Boolean).join(" "), b.memo].filter(Boolean).join("\n");
+    const rep = b === first ? "\n\n" : `\n\n${[ogPeriod(b), oneLine(b.label)].filter(Boolean).join(" ")}\n\n`;
+    if (raw.includes(line)) raw = raw.replace(line, () => rep);
+    else raw = raw.replace(/(^|\n\n)일정 \d{4}[^\n]*(\n[^\n]+)*/, (_m, pre) => pre + rep);
+  }
+  const text = raw
+    .replace(/https?:\/\/\S+/g, "")
+    .split(/\n\s*\n/)
+    .map((x) => x.replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+    .join(" · ");
+  const head = first
+    ? [periodText(first), oneLine(first.label), oneLine(first.memo)].filter(Boolean).join(" · ")
+    : p.period?.start
+      ? periodText(p.period)
+      : "";
+  const desc = head && text ? `${head}${first ? " — " : " · "}${text}` : head || text;
+  return desc ? (desc.length > 150 ? `${desc.slice(0, 149)}…` : desc) : null;
+}
+
 /**
  * 게시판 글 공유 미리보기용(OG) — 제목·요약·첫 사진. 볼 수 없는 글(비공개 등)은 null (2026-11-21)
  */
@@ -131,23 +175,12 @@ export async function getPostMeta(request: Request, id: string) {
   const r = await contentGet(`/api/posts/${encodeURIComponent(id)}?count=0`, request).catch(() => null);
   const p = r?.post;
   if (!p) return null;
-  const raw = String(p.body_md ?? "").replace(/https?:\/\/\S+/g, "");
-  // 일정 블록은 본문(body_md)에 '일정 2026-12-04 ~ 2026-12-06 · 이름' 으로 들어 있다 → 짧은 날짜로 (2026-11-27)
-  const schedRe = /일정 (\d{4}-\d{2}-\d{2})(?: ~ (\d{4}-\d{2}-\d{2}))?(?: · )?/g;
-  const many = (raw.match(schedRe) ?? []).length > 1;
-  const text = raw
-    .replace(schedRe, (_m, a: string, b?: string) => (many ? `${ogPeriod({ start: a, end: b ?? null })} ` : ""))
-    .replace(/\s+/g, " ")
-    .trim();
-  const firstLine = text.slice(0, 60);
-  // 일정 글은 설명 맨 앞에 전체 기간(요일 포함)
-  const when = p.period?.start ? periodText(p.period) : "";
-  const desc = [when, text].filter(Boolean).join(" · ");
+  const firstLine = String(p.body_md ?? "").replace(/https?:\/\/\S+/g, "").replace(/\s+/g, " ").trim().slice(0, 60);
   const img = (p.attachments ?? []).find((a: any) => a.type === "image" && a.url)?.url ?? null;
   const yt = (p.attachments ?? []).find((a: any) => a.type === "video" && a.videoId)?.videoId ?? null;
   return {
     title: (p.title || firstLine || "").trim(),
-    description: desc ? (desc.length > 150 ? `${desc.slice(0, 149)}…` : desc) : null,
+    description: ogDescription(p),
     image: img ?? (yt ? `https://i.ytimg.com/vi/${yt}/hqdefault.jpg` : null),
     author: p.author?.display_name ?? null,
   };
