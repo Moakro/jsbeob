@@ -114,7 +114,7 @@
     <h2>법종교 기념일</h2>
     {#if canEdit}
       <button type="button" class="ml-add" onclick={add}>
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg> 일정 추가
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg> 기념일 추가
       </button>
     {/if}
   </div>
@@ -167,7 +167,7 @@
   {/if}
 </div>
 {#if canEdit}
-  <EventModal bind:open={modalOpen} event={editing} onClose={() => (editing = null)} onSaved={saved} />
+  <EventModal mode="memorial" bind:open={modalOpen} event={editing} onClose={() => (editing = null)} onSaved={saved} />
 {/if}
 
 <style>
