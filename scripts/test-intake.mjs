@@ -139,7 +139,7 @@ const post = await call("/api/posts", {
     intake_id: it?.id,
     blocks: [
       { type: "schedule", start: "2026-12-01", label: "시험 일정" },
-      { type: "text", text: "일시: 2026년 12월 1일" },
+      { type: "text", text: "대상: 전 교인" },
     ],
   }),
 });

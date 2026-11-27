@@ -126,14 +126,17 @@ export function buildSystemPrompt(ctx) {
 - 글씨가 너무 흐리거나 잘려서 읽을 수 없으면 readable=false (나머지는 비워 둠).
 
 ## 날짜 (events)
-- 행사 하나(또는 회차 하나)마다 events 한 항목. 접수 마감·회신 기한 같은 **기한은 일정으로 만들지 않고** excluded(internal_deadline) 또는 facts 에 둔다.
+- 행사 하나(또는 회차 하나)마다 events 한 항목. 우리 단체에 대한 회신 기한·서류 제출 기한 같은 **내부 기한은 일정으로 만들지 않고** excluded(internal_deadline)에 둔다.
+- 교인 누구나 지켜야 하는 공개 마감(공모전 작품 접수 마감·신청 마감 등)은 일정으로 만든다(label 예: "작품 접수 마감").
 - date_text 에 원문에 적힌 날짜·시간 표기를 그대로 적는다.
 - **음력**("음력 9월 19일", "음 9.19")이면 calendar="lunar" 로 하고 month·day 에 **음력 숫자를 그대로** 적는다(양력으로 바꾸지 않는다). 윤달이면 lunar_leap=true.
 - **천기(天紀) 연호**("천기 156년")가 있으면 era={"name":"천기","year":156} 로 적고 **서기로 바꾸지 않는다**. 서기가 함께 적혀 있으면(예: 천기156년(2026년)) year 에 그 서기를 적고, 없으면 year=null.
 - 연도가 없으면 시행일자·문서 제목의 연도·요일·올린 날짜로 추정해 year 를 적고 year_inferred=true.
 - 원문에 요일이 적혀 있으면 weekday_text 에 그 글자(예: "화")를 그대로.
 - 시간은 start_time/end_time 에 "HH:MM"(24시간). 기간 행사(2박 3일)는 end_year/end_month/end_day 이고, 그때 start_time 은 첫날 시작 시각·end_time 은 마지막 날 끝나는 시각이다.
-- place 는 그 일정의 장소, note 는 **교인에게 보일** 이 일정만의 안내(회차·준비물 등)다. 판단 근거·추정 이유는 note 가 아니라 warnings 에 쓴다(위 예외 제외).
+- label 은 **항상 채운다**(달력 항목 이름이 된다). 일정이 하나면 행사 이름, 여럿이면 서로 구분되게 짧게(예: "결과물 마감", "시상식", "1회차"). 30자 이내.
+- place 는 그 일정의 장소, note 는 **교인에게 보일** 이 일정만의 짧은 한 줄 안내(회차·준비물 등, 40자 이내)다. 날짜·시간·장소는 note 에 되풀이하지 않는다. 판단 근거·추정 이유는 note 가 아니라 warnings 에 쓴다(위 예외 제외).
+- 날짜·시간·장소·note 는 글 위의 **일정 박스**에 보인다. 글 본문에는 다시 쓰지 않는다.
 - 날짜를 못 읽었거나 "추후 공지"면 year·month·day 를 null 로(지어내지 않는다).
 
 ## 카톡·문자 대화 캡처 (doc_type="대화캡처")
@@ -144,7 +147,8 @@ export function buildSystemPrompt(ctx) {
 - 사람 이름·별명·전화번호·사적인 말은 facts 에 넣지 않고 excluded 에.
 
 ## 글에 실을 것 (facts, closing)
-- facts 는 소식 글에 "항목: 내용" 줄로 들어간다. 장소·주제·대상·준비물·참가비·주최·주관·문의(단체 대표 전화) 같은 것을 원문 순서대로. 일시는 서버가 만들므로 facts 에 넣지 않는다.
+- facts 는 소식 글 본문에 "항목: 내용" 줄로 들어간다. **일정 박스에 없는 것만** — 주제·대상·순서(진행 순서)·제출 방법·준비물·참가비·주최·주관·문의(단체 대표 전화) 같은 것을 원문 순서대로.
+- 일시·날짜·기간·시간·장소는 일정 박스(events 의 날짜·start_time·place)에 들어가므로 facts 에 넣지 않는다. 일정마다 장소가 다르거나 하나뿐이어도 events 의 place 에 둔다.
 - 대화 캡처라도 대화를 옮겨 적지 말고 안내문 항목으로 새로 쓴다.
 - closing 은 맺음말 한 줄(예: "많은 참여 부탁드립니다"), 없으면 null.
 - title 은 소식 글 제목 제안(행사 이름 중심, 60자 이내).
@@ -222,9 +226,10 @@ export function assembleDraft(x, ctx) {
   }
 
   for (const [i, e] of events.entries()) {
-    const label = clip(oneLine(e.label), 200);
-    const name = label || title || `일정 ${i + 1}`;
-    let { start, end, eraText, lunarText } = resolveDates(e, name, w);
+    // 일정 이름은 항상 채운다 — 달력 항목 이름이 된다 (2026-11-27 오너 결정)
+    const name = clip(oneLine(e.label), 200) || (events.length === 1 ? title : null) || `일정 ${i + 1}`;
+    const label = name;
+    let { start, end, lunarText } = resolveDates(e, name, w);
 
     // 상대 날짜("다음 주 화요일") — 항상 확인 필요, 서버가 다시 계산해 보고 다르면 서버 값을 쓴다
     if (e.relative_text) {
@@ -255,23 +260,28 @@ export function assembleDraft(x, ctx) {
 
     // 기간 행사(끝나는 날 있음)의 시간은 "첫날 시작 ~ 마지막 날 끝" — "14:00~12:00" 처럼 읽히지 않게
     const time = end ? spanTime(start, end, e.start_time, e.end_time) : timeRange(e.start_time, e.end_time);
-    const memo = clip([time, oneLine(e.place), lunarText, e.note?.trim()].filter(Boolean).join(" · "), 1000);
+    // 메모는 시간·장소·한 줄 안내만 짧게 — 날짜는 박스에 이미 있다
+    const note = oneLine(e.note);
+    const place = oneLine(e.place);
+    const memo = clip([time, place && !note.includes(place) ? place : "", lunarText, note].filter(Boolean).join(" · "), 300);
     blocks.push({ type: "schedule", start: start || "", ...(end && end !== start ? { end } : {}), ...(label ? { label } : {}), ...(memo ? { memo } : {}) });
 
-    const when = start ? dateText(start, end, eraText, lunarText, e.start_time, e.end_time) : e.date_text ? oneLine(e.date_text) : "날짜 미정";
-    whenLines.push({ label, text: start && end ? when : [when, time].filter(Boolean).join(" ") });
+    // 날짜를 못 정한 일정만 원문 날짜 표기를 본문에 남긴다(박스에 날짜가 없으므로)
+    if (!start) whenLines.push({ label, text: [e.date_text ? oneLine(e.date_text) : "날짜 미정", time].filter(Boolean).join(" ") });
   }
 
-  // 글 블록: 일시 → facts → (일정 하나뿐이고 장소 항목이 없으면) 장소 → 맺음말
-  const facts = (x?.facts ?? []).filter((f) => f && oneLine(f.label) && String(f.value ?? "").trim());
+  // 글 블록: 일정 박스에 없는 것만 — facts → 맺음말 (2026-11-27 오너: 박스와 본문 중복 줄이기)
+  // 일시·장소는 박스(날짜·메모)에 있으므로 본문에 다시 쓰지 않는다. 날짜를 못 정한 일정만 원문 표기를 남긴다.
+  const datedAll = events.length > 0 && whenLines.length === 0;
+  const placedAll = events.length > 0 && events.every((e) => oneLine(e.place));
+  const dup = (l) => (datedAll && /^(일시|일정|날짜|기간|시간|때)\s*$/.test(l)) || (placedAll && /^(장소|곳)\s*$/.test(l));
+  const facts = (x?.facts ?? []).filter((f) => f && oneLine(f.label) && String(f.value ?? "").trim() && !dup(oneLine(f.label)));
   const has = (re) => facts.some((f) => re.test(f.label));
   const lines = [];
-  if (whenLines.length === 1 && !has(/^(일시|일정|날짜|기간)/)) lines.push(`일시: ${whenLines[0].text}`);
-  else if (whenLines.length > 1 && !has(/^(일시|일정|날짜|기간)/)) {
-    lines.push("일시:");
-    for (const l of whenLines) lines.push(`- ${l.label ? `${l.label}: ` : ""}${l.text}`);
+  if (whenLines.length && !has(/^(일시|일정|날짜|기간)/)) {
+    if (whenLines.length === 1 && events.length === 1) lines.push(`일시: ${whenLines[0].text}`);
+    else for (const l of whenLines) lines.push(`${l.label} 일시: ${l.text}`);
   }
-  if (events.length === 1 && events[0].place && !has(/^(장소|곳)/)) lines.push(`장소: ${oneLine(events[0].place)}`);
   for (const f of facts) lines.push(`${oneLine(f.label)}: ${String(f.value).trim()}`);
   if (x?.closing?.trim()) lines.push(x.closing.trim());
   const text = clip(lines.join("\n"), 20000);
@@ -391,20 +401,6 @@ function addDays(ymd, n) {
 function fmtYmd(ymd, withWd = true) {
   const [y, m, d] = ymd.split("-").map(Number);
   return `${y}년 ${m}월 ${d}일${withWd ? `(${WD[weekday(ymd)]})` : ""}`;
-}
-function dateText(start, end, eraText, lunarText, st, et) {
-  const [y] = start.split("-").map(Number);
-  const md = (s) => { const [, m, d] = s.split("-").map(Number); return `${m}월 ${d}일(${WD[weekday(s)]})`; };
-  const yearPart = eraText || `${y}년`;
-  let s = `${yearPart} ${md(start)}`;
-  if (end) {
-    const a = hm(st), b = hm(et);
-    if (a) s += ` ${a}`;
-    s += ` ~ ${end.slice(0, 4) !== start.slice(0, 4) ? `${Number(end.slice(0, 4))}년 ` : ""}${md(end)}`;
-    if (b) s += ` ${b}`;
-  }
-  if (lunarText) s += ` (${lunarText})`;
-  return s;
 }
 function hm(t) {
   return typeof t === "string" && /^\d{1,2}:\d{2}$/.test(t.trim()) ? t.trim().padStart(5, "0") : null;
