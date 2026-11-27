@@ -1,19 +1,24 @@
 <script lang="ts">
   // 올림 한 건 (/editor/inbox/<id>/) — 왼쪽 원본(편집진만), 오른쪽 편집기로 '글로 옮기기' (2026-11-27 올림함 0단계)
-  // 0단계는 메모·주소를 글 블록으로 미리 채운 편집기. 1단계에서 AI 초안(draft_blocks)이 이 자리에 들어온다.
+  // 1단계(AI 초안): 감시 서비스가 만든 초안(draft_blocks·제목)이 채워진 채 편집기가 열린다. 처리 중이면 몇 초마다 다시 묻고,
+  // 초안이 도착하면 '초안으로 채우기'로 편집기를 다시 연다(이미 쓴 내용을 몰래 덮지 않게). 확인 필요·뺀 내용은 편집기 위 안내 상자에.
   import { onMount } from "svelte";
   import { api, postHref, type BoardConfig } from "../../lib/api";
   import { confirmDialog } from "../../lib/confirm";
   import {
+    EXCLUDED_LABEL,
     HINT_LABEL,
     INBOX_PATH,
     INTAKE_CHANGED,
     INTAKE_LEVEL,
-    STATUS_LABEL,
+    KIND_LABEL,
+    checkCount,
     fmtSize,
     fmtWhen,
     intakeApi,
     intakeStartBlocks,
+    isProcessing,
+    statusLabel,
     type Intake,
   } from "../../lib/intake";
   import PostEditor from "../board/PostEditor.svelte";
@@ -28,6 +33,10 @@
   let writing = $state(true);
   let sel = $state(0);
   let busy = $state(false);
+  /** 편집기에 넣은 올림 상태(초안이 나중에 오면 다시 넣을 수 있게) */
+  let shown = $state<Intake | null>(null);
+  let editorKey = $state(0);
+  let retrying = $state(false);
 
   onMount(() => {
     (async () => {
@@ -36,6 +45,7 @@
       if (!allowed) return;
       try {
         it = (await intakeApi.get(id)).intake;
+        shown = it;
       } catch (e) {
         error = e instanceof Error ? e.message : "불러오기 실패";
         return;
@@ -49,6 +59,44 @@
       } catch {}
     })();
   });
+
+  // AI 처리 중이면 5초마다 다시 묻는다(화면이 보일 때만)
+  $effect(() => {
+    if (!it || !isProcessing(it)) return;
+    const t = setInterval(async () => {
+      if (document.visibilityState !== "visible") return;
+      try {
+        const next = (await intakeApi.get(id)).intake;
+        if (next.status !== it?.status || next.updated_at !== it?.updated_at) {
+          it = next;
+          window.dispatchEvent(new CustomEvent(INTAKE_CHANGED));
+        }
+      } catch {}
+    }, 5000);
+    return () => clearInterval(t);
+  });
+  /** 편집기를 연 뒤에 초안이 도착함 */
+  const draftArrived = $derived(!!it && !!shown && it.status === "ready" && it.updated_at !== shown.updated_at && it.draft_blocks.length > 0);
+  function useDraft() {
+    if (!it) return;
+    shown = it;
+    editorKey++;
+  }
+  async function retry() {
+    if (!it || retrying) return;
+    retrying = true;
+    error = null;
+    try {
+      it = (await intakeApi.extract(it.id)).intake;
+      window.dispatchEvent(new CustomEvent(INTAKE_CHANGED));
+    } catch (e) {
+      error = e instanceof Error ? e.message : "다시 시도 실패";
+    } finally {
+      retrying = false;
+    }
+  }
+  const checks = $derived((it?.warnings ?? []).filter((w) => w.level !== "info"));
+  const infos = $derived((it?.warnings ?? []).filter((w) => w.level === "info"));
 
   const file = $derived(it?.files[sel] ?? null);
   const kind = (ct: string) =>
@@ -89,8 +137,9 @@
     <div class="cols" class:single={!open || !writing}>
       <section class="src" aria-label="올린 원본">
         <header>
-          <span class={`st st-${it.status}`}>{STATUS_LABEL[it.status]}</span>
-          {#if it.hint}<span class="hint">{HINT_LABEL[it.hint] ?? it.hint}</span>{/if}
+          <span class={`st st-${it.status}`} class:busy={isProcessing(it)}>{statusLabel(it)}</span>
+          {#if it.kind}<span class="hint">{KIND_LABEL[it.kind] ?? it.kind}{it.doc_type ? ` · ${it.doc_type}` : ""}</span>
+          {:else if it.hint}<span class="hint">{HINT_LABEL[it.hint] ?? it.hint}</span>{/if}
           <span class="who">{it.user.name ?? "알 수 없음"} · {fmtWhen(it.created_at)}</span>
         </header>
 
@@ -145,7 +194,14 @@
           <p class="done">{it.handled_by?.name ?? ""} 님이 버렸습니다.</p>
         {/if}
 
+        {#if open && !it.ai_readable && !it.draft_blocks.length}
+          <p class="aibox muted">AI 가 아직 못 읽는 형식입니다(HEIC·한글·워드). 직접 작성해 주세요 — 사진은 JPG 로, 한글 문서는 PDF 로 저장해 올리면 AI 초안이 만들어집니다.</p>
+        {/if}
+
         <footer>
+          {#if open && it.ai_readable && (it.status === "ready" || it.status === "failed")}
+            <button type="button" class="btn btn-ghost" disabled={retrying} onclick={retry}>{it.status === "failed" ? "다시 시도" : "AI 다시 읽기"}</button>
+          {/if}
           {#if open && !writing}
             <button type="button" class="btn btn-primary" onclick={() => (writing = true)}>글로 옮기기</button>
           {/if}
@@ -158,6 +214,54 @@
 
       {#if open && writing}
         <section class="draft" aria-label="글로 옮기기">
+          {#if isProcessing(it)}
+            <div class="aibox wait" role="status">
+              <span class="dot"></span>
+              {it.status === "extracting" ? "AI 가 원본을 읽고 초안을 만드는 중입니다" : "AI 처리를 기다리는 중입니다"} — 보통 1~2분. 끝나면 여기에 알려 드립니다.
+            </div>
+          {:else if it.status === "failed"}
+            <div class="aibox fail" role="alert">
+              <strong>AI 초안을 만들지 못했습니다</strong>
+              <p>{it.error ?? "알 수 없는 오류"}</p>
+              <div class="row">
+                {#if it.ai_readable}<button type="button" class="btn btn-primary" disabled={retrying} onclick={retry}>{retrying ? "요청 중…" : "다시 시도"}</button>{/if}
+                <small>아래 편집기에서 직접 작성할 수도 있습니다.</small>
+              </div>
+            </div>
+          {/if}
+          {#if draftArrived}
+            <div class="aibox ready" role="status">
+              AI 초안이 준비됐습니다.
+              <button type="button" class="btn btn-primary" onclick={useDraft}>초안으로 채우기</button>
+              <small>편집기에 쓴 내용은 초안으로 바뀝니다.</small>
+            </div>
+          {/if}
+          {#if shown?.status === "ready" && !draftArrived && (checks.length || infos.length || it.excluded.length)}
+            <div class="aibox notes">
+              {#if checks.length}
+                <h3>확인 필요 {checks.length}</h3>
+                <ul class="checks">
+                  {#each checks as w}<li>{w.text}</li>{/each}
+                </ul>
+              {/if}
+              {#if infos.length}
+                <ul class="infos">
+                  {#each infos as w}<li>{w.text}</li>{/each}
+                </ul>
+              {/if}
+              {#if it.excluded.length}
+                <details>
+                  <summary>글에서 뺀 내용 {it.excluded.length} <small>(편집진만 봄 — 필요하면 본문에 직접 넣으세요)</small></summary>
+                  <ul class="excl">
+                    {#each it.excluded as x}
+                      <li><span class="tag">{EXCLUDED_LABEL[x.kind] ?? x.kind}</span> {x.text}{#if x.reason}<small> — {x.reason}</small>{/if}</li>
+                    {/each}
+                  </ul>
+                </details>
+              {/if}
+              <p class="by">AI 초안({it.model ?? "AI"})입니다. 원본과 대조해 고친 뒤 게시해 주세요.</p>
+            </div>
+          {/if}
           {#if boards.length > 1}
             <label class="bsel">
               <span>게시판</span>
@@ -166,8 +270,14 @@
               </select>
             </label>
           {/if}
-          {#key board}
-            <PostEditor {board} intakeId={it.id} startBlocks={intakeStartBlocks(it)} startTitle={it.title ?? ""} backHref={`${INBOX_PATH}${it.id}/`} />
+          {#key `${board}:${editorKey}`}
+            <PostEditor
+              {board}
+              intakeId={it.id}
+              startBlocks={intakeStartBlocks(shown ?? it)}
+              startTitle={(shown ?? it).title ?? ""}
+              backHref={`${INBOX_PATH}${it.id}/`}
+            />
           {/key}
         </section>
       {/if}
@@ -233,6 +343,123 @@
   .st-uploaded {
     background: var(--color-secondary-bg);
     color: var(--color-secondary);
+  }
+  .st.busy {
+    background: var(--color-surface-2);
+    color: var(--color-gold);
+  }
+  .st-ready {
+    background: var(--color-secondary);
+    color: #fff;
+  }
+  .st-failed {
+    background: var(--color-primary-bg);
+    color: var(--color-primary);
+  }
+  .aibox {
+    margin: 0 0 14px;
+    padding: 12px 14px;
+    border-radius: 10px;
+    border: 1px solid var(--color-rule);
+    background: var(--color-surface);
+    font-size: 0.92rem;
+  }
+  .aibox.muted {
+    color: var(--color-muted);
+    margin: 0;
+  }
+  .aibox.wait {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--color-fg);
+  }
+  .dot {
+    flex: none;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--color-gold);
+    animation: blink 1.2s ease-in-out infinite;
+  }
+  @keyframes blink {
+    50% {
+      opacity: 0.25;
+    }
+  }
+  .aibox.fail {
+    border-color: var(--color-primary-soft);
+    background: var(--color-primary-bg);
+  }
+  .aibox.fail strong {
+    color: var(--color-primary);
+  }
+  .aibox.fail p {
+    margin: 6px 0 10px;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .aibox .row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+  }
+  .aibox small {
+    color: var(--color-muted);
+  }
+  .aibox.ready {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    border-color: var(--color-secondary);
+    background: var(--color-secondary-bg);
+    font-weight: 600;
+  }
+  .aibox.notes {
+    border: 2px solid var(--color-gold-soft);
+    background: #fdf6e3;
+  }
+  .aibox.notes h3 {
+    margin: 0 0 6px;
+    font-size: 0.95rem;
+    color: #8a5a00;
+  }
+  .aibox ul {
+    margin: 0 0 8px;
+    padding-left: 20px;
+  }
+  .checks li {
+    font-weight: 600;
+    color: #6b4400;
+    margin: 3px 0;
+  }
+  .infos li {
+    color: var(--color-muted);
+    margin: 2px 0;
+  }
+  .aibox details summary {
+    cursor: pointer;
+    font-weight: 600;
+    margin: 4px 0;
+  }
+  .excl li {
+    margin: 3px 0;
+    word-break: break-word;
+  }
+  .tag {
+    display: inline-block;
+    font-size: 0.75rem;
+    padding: 1px 7px;
+    border-radius: 999px;
+    background: var(--color-surface-2);
+    color: var(--color-muted);
+  }
+  .aibox .by {
+    margin: 6px 0 0;
+    font-size: 0.82rem;
+    color: var(--color-muted);
   }
   .tabs {
     display: flex;

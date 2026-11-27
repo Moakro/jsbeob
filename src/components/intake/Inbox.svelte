@@ -4,13 +4,16 @@
   import { api } from "../../lib/api";
   import {
     HINT_LABEL,
+    KIND_LABEL,
     INBOX_PATH,
     INTAKE_CHANGED,
     INTAKE_LEVEL,
     INTAKE_OPEN,
-    STATUS_LABEL,
+    checkCount,
     fmtWhen,
     intakeApi,
+    isProcessing,
+    statusLabel,
     type Intake,
   } from "../../lib/intake";
 
@@ -44,6 +47,15 @@
       loading = false;
     }
   }
+
+  // AI 처리 중인 건이 보이면 10초마다 다시 읽는다(화면이 보일 때만)
+  $effect(() => {
+    if (!allowed || !items.some(isProcessing)) return;
+    const t = setInterval(() => {
+      if (document.visibilityState === "visible" && !loading) load();
+    }, 10_000);
+    return () => clearInterval(t);
+  });
 
   onMount(() => {
     const t = new URLSearchParams(location.search).get("tab");
@@ -85,7 +97,7 @@
       <h1>올림함 {#if open}<span class="cnt">{open}</span>{/if}</h1>
       <button type="button" class="btn btn-primary" onclick={() => window.dispatchEvent(new CustomEvent(INTAKE_OPEN))}>＋ 올리기</button>
     </div>
-    <p class="lead">편집진이 올린 공문·사진·메모를 모아 둡니다. 한 건을 열어 원본을 보며 글로 옮겨 쓰거나 버립니다.</p>
+    <p class="lead">편집진이 올린 공문·사진·메모를 모아 둡니다. 사진·PDF·메모는 AI 가 1~2분 안에 일정·소식 초안을 만들어 둡니다(초안 준비). 한 건을 열어 원본과 대조해 고친 뒤 게시하거나 버립니다.</p>
     <div class="tabs" role="tablist">
       {#each TABS as t}
         <button type="button" role="tab" aria-selected={tab === t.v} class:on={tab === t.v} onclick={() => setTab(t.v)}>{t.label}</button>
@@ -108,14 +120,16 @@
               <span class="body">
                 <span class="ttl">{summary(it)}</span>
                 <span class="meta">
-                  {#if it.hint}<span class="hint">{HINT_LABEL[it.hint] ?? it.hint}</span>{/if}
+                  {#if it.kind}<span class="hint">{KIND_LABEL[it.kind] ?? it.kind}</span>
+                  {:else if it.hint}<span class="hint">{HINT_LABEL[it.hint] ?? it.hint}</span>{/if}
                   <span>{fileLabel(it)}</span>
                   <span>· {it.user.name ?? "알 수 없음"}</span>
                   <span>· {fmtWhen(it.created_at)}</span>
                 </span>
               </span>
-              <span class={`st st-${it.status}`}>
-                {STATUS_LABEL[it.status]}{#if it.status === "published" && it.post}<small>{it.post.title}</small>{/if}
+              <span class={`st st-${it.status}`} class:busy={isProcessing(it)}>
+                {statusLabel(it)}{#if it.status === "published" && it.post}<small>{it.post.title}</small>
+                {:else if it.status === "ready" && checkCount(it)}<small class="chk">확인 필요 {checkCount(it)}</small>{/if}
               </span>
             </a>
           </li>
@@ -266,6 +280,33 @@
   .st-ready {
     background: var(--color-secondary-bg);
     color: var(--color-secondary);
+  }
+  .st.busy {
+    background: var(--color-surface-2);
+    color: var(--color-gold);
+  }
+  .st-extracting::before {
+    content: "";
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    margin-right: 6px;
+    border-radius: 50%;
+    background: var(--color-gold);
+    animation: blink 1.2s ease-in-out infinite;
+  }
+  @keyframes blink {
+    50% {
+      opacity: 0.25;
+    }
+  }
+  .st-ready {
+    background: var(--color-secondary);
+    color: #fff;
+  }
+  .st small.chk {
+    color: #fff;
+    font-weight: 700;
   }
   .st-failed {
     background: var(--color-primary-bg);

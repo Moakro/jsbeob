@@ -38,7 +38,14 @@ export interface Intake {
   kind: string | null;
   title: string | null;
   draft_blocks: any[];
-  warnings: any[];
+  warnings: IntakeWarning[];
+  /** 글에서 뺀 내용(담당자 연락처·회신 기한 등) — 편집진만 본다 */
+  excluded: { kind: string; text: string; reason: string }[];
+  doc_type: string | null;
+  model: string | null;
+  attempts: number;
+  /** AI 가 읽을 수 있는 원본(JPG·PNG·WebP·PDF·메모)이 있나 — 없으면 직접 작성만 */
+  ai_readable: boolean;
   error: string | null;
   post_id: string | null;
   post: { id: string; title: string; board: string } | null;
@@ -49,15 +56,42 @@ export interface Intake {
   purged_at: string | null;
 }
 
+export interface IntakeWarning {
+  level: "check" | "info";
+  text: string;
+}
+
 export const STATUS_LABEL: Record<Intake["status"], string> = {
   uploaded: "올림",
-  extracting: "읽는 중",
-  ready: "초안 준비됨",
+  extracting: "AI 처리 중",
+  ready: "초안 준비",
   failed: "실패",
   published: "게시됨",
   discarded: "버림",
 };
 export const HINT_LABEL: Record<string, string> = { event_notice: "일정·소식", photos: "사진", document: "자료" };
+export const KIND_LABEL: Record<string, string> = { ...HINT_LABEL, unknown: "종류 모름" };
+export const EXCLUDED_LABEL: Record<string, string> = {
+  person_contact: "개인 연락처",
+  person_name: "사람 이름",
+  private_talk: "사적인 말",
+  internal_request: "우리 단체 할 일",
+  internal_deadline: "회신·제출 기한",
+  doc_meta: "문서 정보",
+  seal: "직인·서명",
+  financial: "계좌 등",
+  canceled_event: "취소된 약속",
+  other: "기타",
+};
+/** 상태 이름 — 'uploaded' 는 AI 가 읽을 수 있으면 '처리 대기', 아니면 '올림'(직접 작성) */
+export function statusLabel(it: Pick<Intake, "status" | "ai_readable">) {
+  return it.status === "uploaded" && it.ai_readable ? "처리 대기" : STATUS_LABEL[it.status];
+}
+/** AI 처리를 기다리는 중인가(화면이 몇 초마다 다시 묻는다) */
+export function isProcessing(it: Pick<Intake, "status" | "ai_readable">) {
+  return it.status === "extracting" || (it.status === "uploaded" && it.ai_readable);
+}
+export const checkCount = (it: Pick<Intake, "warnings">) => (it.warnings ?? []).filter((w) => w.level !== "info").length;
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, { credentials: "same-origin", ...init });
@@ -74,6 +108,13 @@ export const intakeApi = {
   count: () => req<{ open: number }>("/api/intake/count"),
   get: (id: string) => req<{ intake: Intake }>(`/api/intake/${id}`),
   discard: (id: string) => req<{ ok: boolean }>(`/api/intake/${id}`, { method: "DELETE" }),
+  /** AI 다시 읽기·다시 시도 — 감시 서비스가 다음 확인(30초 안) 때 가져간다 */
+  extract: (id: string, hint?: string | null) =>
+    req<{ intake: Intake }>(`/api/intake/${id}/extract`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(hint === undefined ? {} : { hint }),
+    }),
 };
 
 export interface UploadResult {
@@ -181,7 +222,7 @@ export function fmtWhen(s: string, now = new Date()) {
   return `${k.getUTCMonth() + 1}.${k.getUTCDate()} ${hm}`;
 }
 
-/** 올림 → 편집기 처음 내용(0단계: 메모·주소를 글 블록 하나로). 1단계에서는 AI 초안(draft_blocks)이 먼저 */
+/** 올림 → 편집기 처음 내용. AI 초안(draft_blocks)이 있으면 그것, 없으면 메모·주소를 글 블록 하나로(0단계) */
 export function intakeStartBlocks(it: Intake): any[] {
   if (it.draft_blocks?.length) return it.draft_blocks;
   const text = [it.note?.trim(), it.url?.trim()].filter(Boolean).join("\n\n");
