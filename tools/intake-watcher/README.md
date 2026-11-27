@@ -1,6 +1,6 @@
 # 올림함 AI 초안 감시 서비스 (intake-watcher)
 
-편집진이 ＋ 로 올린 공문·사진·PDF·카톡 캡처·메모를 **미니PC에서** 읽어 일정·소식 초안을 만들어 올림함에 되돌린다.
+편집진이 ＋ 로 올린 공문(사진·PDF·한글 HWP·HWPX)·카톡 캡처·메모를 **미니PC에서** 읽어 일정·소식 초안을 만들어 올림함에 되돌린다.
 설계: `docs/design/ai-intake.md` 4.3 (2026-11-27 오너 결정 — 사이트 서버는 AI 를 부르지 않는다).
 
 ```
@@ -9,6 +9,7 @@
                                        ←── 30초마다 POST /api/intake-worker/claim  (새 올림만 물음, AI 비용 없음)
   uploaded → extracting, attempts+1   ──→  {intake}
                                        ←── GET  /api/intake-worker/:id/file/:n     (원본을 임시 폴더로)
+                                            한글 HWP·HWPX → HTML(표 유지)+그림 (convert-hwp.mjs, @ohah/hwpjs)
                                             claude -p (Read 만, 임시 폴더 안만, Bash·웹·MCP·훅 없음, JSON 스키마)
                                             답 검사 → 블록 조립(천기·음력·상대 날짜, jsbeob-api/intake-draft.mjs)
   → ready / failed                     ←── POST /api/intake-worker/:id/result
@@ -19,8 +20,28 @@
 - 실패(claude 오류·시간 초과·답이 틀에 안 맞음·글씨를 못 읽음) → `failed` + 사유. 올림함의 **다시 시도**로 다시 대기열에.
 - 감시 서비스가 처리 중에 꺼지면 그 건은 `extracting` 으로 남았다가 10분 뒤 다시 잡힌다(최대 3번, 그다음은 `failed`).
 - 늦게 끝난 결과가 새 결과를 덮지 않게, 결과는 잡을 때 받은 `attempt` 가 맞을 때만 쓰인다(아니면 409).
-- AI 가 못 읽는 형식(HEIC·HWP·DOCX)만 있는 건은 잡지 않는다 → `uploaded` 로 남고 직접 작성.
+- AI 가 못 읽는 형식(HEIC·DOCX)만 있는 건은 잡지 않는다 → `uploaded` 로 남고 직접 작성.
+- 한글 HWP·HWPX 는 claim 때 `{"accept": ["application/x-hwp", "application/hwp+zip"]}` 로 "변환해서 읽을 수 있다"고 알릴 때만 넘어온다(옛 감시 서비스는 계속 PDF·사진만 받는다).
 - 로그에는 공문 내용을 적지 않는다(건 id·블록 수·경고 수·토큰·시간만). claude 세션 기록도 남기지 않는다(`--no-session-persistence`).
+
+## 한글 문서(HWP·HWPX) 변환 — convert-hwp.mjs
+
+공문이 한글 파일로 오는 경우가 많아(2026-11-27 오너 지시) 감시 서비스가 Claude 에게 넘기기 전에 바꾼다.
+
+- 변환기: [`@ohah/hwpjs`](https://www.npmjs.com/package/@ohah/hwpjs) 0.1.2 (MIT, WASM — 한글 프로그램·네트워크 불필요). 저장소 최상위 `package.json` 에 버전 고정.
+- `hwpjs export-html` → 문단 `<p>`, 표 `<table>`(rowspan·colspan 유지) / `hwpjs extract-images` → 그림 파일(PNG·JPG·GIF·WebP 만, 문서당 10개, 하나 8MB).
+- 변환기 안내 문구를 지우고 그림 자리는 `[그림 k: 같이 넘긴 파일 …]`, 못 읽은 개체는 `[빠진 개체: 도형·글상자 …]` 로 바꾼 `<n>-hangul.html` 을 Claude 에게 넘긴다(원본 .hwp 는 지움). 지시문에 "한글 문서에서 변환됨, 글상자·복잡한 표는 빠졌을 수 있음"이 붙는다.
+- 받은 파일은 믿을 수 없는 입력: 따로 띄운 프로세스(`node --max-old-space-size=1024`), 명령 하나 60초, 임시 폴더 안에서만, 결과 HTML 400KB 까지(넘으면 자르고 경고).
+- 확인 목록(warnings)에 자동으로 넣는 것: 못 읽은 개체 수, 위치를 모르는 글, 넘기지 못한 그림, 못 읽은 파일과 이유.
+- 못 읽음 처리(그 파일만 빼고 나머지로 계속, 남은 게 없으면 `failed` + 이유): **배포용 문서**, **암호 걸린 문서**, 손상·형식 불일치, 시간 초과·메모리 초과.
+
+| 시험 (2026-11-27, 로컬) | 결과 |
+|---|---|
+| HWP5 공문, 표(합친 칸) 안 천기 156년 음력 9월 19일·장소 | 일정 2026-10-29(음력 9/19)·장소 정확, 원문 요일 불일치 경고 |
+| HWPX 공문, 표 4행 + 그림(약도 글씨) | 일정 3개 + 그림 속 셔틀버스 안내까지 읽음 |
+| 배포용 .hwp + 사진 | 배포용만 '못 읽음' 경고, 사진으로 초안 |
+| 암호 .hwpx 만 | `failed` — "암호가 걸린 문서라 읽을 수 없습니다" |
+| 글상자 문서 | 빠진 개체·위치 모를 글 경고 |
 
 ## 손으로 시험 (로컬)
 
@@ -51,7 +72,7 @@ systemctl --user daemon-reload && systemctl --user enable --now jsbeob-intake-wa
 journalctl --user -u jsbeob-intake-watcher -f
 ```
 
-- 서비스는 `~/Dev/svelte/jsbeob`(main) 코드를 돌린다. 머지 뒤 `git pull` 하고 `systemctl --user restart jsbeob-intake-watcher`.
+- 서비스는 `~/Dev/svelte/jsbeob`(main) 코드를 돌린다. 머지 뒤 `git pull` 하고(의존성이 바뀌었으면 `pnpm install --frozen-lockfile`) `systemctl --user restart jsbeob-intake-watcher`.
 - `claude` 는 오너 구독 로그인으로 돈다(`ANTHROPIC_API_KEY` 는 넘기지 않음). 구독 사용 한도에 걸리면 그 건은 `failed` — 나중에 다시 시도.
 - 미니PC가 꺼져 있으면 올림은 `처리 대기` 로 남을 뿐이고, 켜지면 밀린 것부터 처리한다.
 

@@ -104,7 +104,8 @@ function check(sc, v, at, errs) {
 
 // ── 지시문 ─────────────────────────────────────────────────────────────
 /**
- * ctx: { uploadedAt: "YYYY-MM-DD HH:MM:SS"(UTC, DB 값), hint, note, url, files:[{path, name, content_type}] }
+ * ctx: { uploadedAt: "YYYY-MM-DD HH:MM:SS"(UTC, DB 값), hint, note, url, files:[{path, name, content_type, converted_from?}] }
+ *   converted_from: "hwp"·"hwpx"(한글 문서를 HTML 로 바꾼 본문) | "hwp-image"(그 문서에서 꺼낸 그림) — tools/intake-watcher/convert-hwp.mjs
  */
 export function buildSystemPrompt(ctx) {
   const up = kstDate(ctx.uploadedAt);
@@ -157,15 +158,35 @@ export function buildSystemPrompt(ctx) {
 
 ## warnings
 - 읽기 어려웠던 곳, 애매한 점, 서로 다른 문서가 섞여 있는 것 같을 때, 급한 회신 기한처럼 편집진이 알아야 할 것을 짧은 한국어 문장으로.
-- 다음은 **서버가 따로 계산해 알리므로 warnings 에 쓰지 않는다**: 연도 추정(year_inferred), 상대 날짜 계산, 대화 중 바뀐 내용(changes), 천기·음력이라 year 를 비워 둔 것, 요일 대조.${ctx.hint ? `\n\n## 편집진이 고른 종류\n- ${HINT_TEXT[ctx.hint] ?? ctx.hint} (참고용 힌트)` : ""}`;
+- 다음은 **서버가 따로 계산해 알리므로 warnings 에 쓰지 않는다**: 연도 추정(year_inferred), 상대 날짜 계산, 대화 중 바뀐 내용(changes), 천기·음력이라 year 를 비워 둔 것, 요일 대조.${hangulSection(ctx)}${ctx.hint ? `\n\n## 편집진이 고른 종류\n- ${HINT_TEXT[ctx.hint] ?? ctx.hint} (참고용 힌트)` : ""}`;
 }
 const HINT_TEXT = { event_notice: "일정·소식", photos: "사진", document: "자료" };
+
+/** 한글 문서(HWP·HWPX)를 변환해 넘길 때만 붙는 안내 */
+function hangulSection(ctx) {
+  if (!ctx.files?.some((f) => f.converted_from === "hwp" || f.converted_from === "hwpx")) return "";
+  return `
+
+## 한글 문서(HWP·HWPX)에서 변환된 파일
+- 형식이 text/html 이고 "한글 문서에서 변환"이라고 적힌 파일은 한글 공문을 프로그램으로 변환한 것이다. 원래 모양(글자 크기·배치·직인)은 없고 글자와 표만 남아 있다. doc_type 은 원문 성격대로(대개 "공문"·"안내문") 정한다.
+- 표는 <table> 로 들어 있고 rowspan·colspan 은 합친 칸이다. 일시·장소가 표 안에 있는 경우가 많으니 **표의 행·열 머리(구분·일시·장소 등)를 맞춰** 읽는다.
+- "[그림 k: 같이 넘긴 파일 …]" 은 그 자리에 있던 그림이고, 그 파일도 Read 로 읽어 그림 속 글씨(포스터·약도 등)를 함께 본다. "[그림 k: 넘기지 못함]"·"[빠진 개체: …]"·"[아래는 원래 위치를 확인하지 못한 글 …]" 은 변환에서 빠지거나 자리가 흐트러진 곳이다.
+- **글상자·도형 안의 글, 복잡한 표는 변환에서 빠졌을 수 있다.** 본문이 "아래 표와 같이"라는데 표가 없거나, 행사 안내인데 날짜·장소가 안 보이는 것처럼 빠진 것이 의심되면 warnings 에 "한글 문서 변환에서 ○○이 빠진 것 같음 — 원본 확인 필요"처럼 적는다. 빠진 내용을 짐작해 채우지 않는다. 서식·직인이 없다는 것처럼 변환 자체에 대한 일반적인 말은 warnings 에 쓰지 않는다.`;
+}
 
 export function buildUserPrompt(ctx) {
   const lines = [];
   if (ctx.files?.length) {
     lines.push("아래 파일을 Read 도구로 모두 읽어라(순서대로):");
-    for (const f of ctx.files) lines.push(`- ${f.path}  (원래 이름: ${f.name}, 형식: ${f.content_type})`);
+    for (const f of ctx.files) {
+      const from =
+        f.converted_from === "hwp" || f.converted_from === "hwpx"
+          ? `, 한글 문서(${f.converted_from.toUpperCase()})에서 변환 — 글상자·복잡한 표는 빠졌을 수 있음`
+          : f.converted_from === "hwp-image"
+            ? ", 한글 문서 안에 있던 그림"
+            : "";
+      lines.push(`- ${f.path}  (원래 이름: ${f.name}, 형식: ${f.content_type}${from})`);
+    }
   } else {
     lines.push("파일은 없고 메모만 있다.");
   }

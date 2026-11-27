@@ -195,7 +195,7 @@
         {/if}
 
         {#if open && !it.ai_readable && !it.draft_blocks.length}
-          <p class="aibox muted">AI 가 아직 못 읽는 형식입니다(HEIC·한글·워드). 직접 작성해 주세요 — 사진은 JPG 로, 한글 문서는 PDF 로 저장해 올리면 AI 초안이 만들어집니다.</p>
+          <p class="aibox muted">AI 가 아직 못 읽는 형식입니다(HEIC·워드). 직접 작성해 주세요 — 사진은 JPG 로, 워드 문서는 PDF 로 저장해 올리면 AI 초안이 만들어집니다.</p>
         {/if}
 
         <footer>
