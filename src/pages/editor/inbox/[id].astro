@@ -1,0 +1,13 @@
+---
+// 올림 한 건 — 원본 + 글로 옮기기 (2026-11-27 올림함 0단계)
+import Base from "../../../layouts/Base.astro";
+import InboxItem from "../../../components/intake/InboxItem.svelte";
+export const prerender = false;
+Astro.response.headers.set("X-Robots-Tag", "noindex");
+const { id } = Astro.params;
+if (!id || !/^[0-9a-f-]{36}$/.test(id)) return Astro.redirect("/editor/inbox/");
+---
+
+<Base title="올림함" tight>
+  <InboxItem client:load id={id} />
+</Base>

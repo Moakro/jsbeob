@@ -1,0 +1,370 @@
+// 편집진 '＋ 올리기' 올림함 — 0단계(AI 없음) (2026-11-27, docs/design/ai-intake.md 4.1·4.5)
+//
+//   POST   /api/intake               multipart(files[], note, url, hint, source) → R2 비공개 저장 + 기록 행
+//   GET    /api/intake               올림함 목록(?status=open|published|discarded|all), ＋ 배지 숫자(open)
+//   GET    /api/intake/count         ＋ 배지 숫자만
+//   GET    /api/intake/:id           한 건(원본 목록·메모)
+//   GET    /api/intake/:id/file/:n   원본 보기 — 편집진만, Cache-Control: private, no-store
+//   DELETE /api/intake/:id           버리기(원본도 R2 에서 삭제, 기록은 'discarded' 로 남김)
+//
+// 원본 키는 intake/<연>/<월>/<id>/<순번>.<확장자> — /api/files 는 media/·comments/ 모양만 내주므로 이 접두어는 절대 공개로 나가지 않는다.
+// 모든 요청은 index.ts 의 requestUser 하나로 회원을 알아낸다(쿠키 + 출처 검사, 앱이 생기면 Bearer 토큰도 같은 자리).
+// 응답은 모두 JSON, 오류는 {error, code}.
+import { LEVEL } from "../src/data/levels";
+
+/** 올림함을 쓰는 최소 등급 — 편집진(60) 이상 (결정 1) */
+export const INTAKE_LEVEL = LEVEL.EDITOR;
+/** 원본 보관 기간(결정 9) */
+const KEEP_DAYS = 365;
+/** 한 건에 파일 수 */
+const MAX_FILES = 10;
+const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
+const MAX_DOC_BYTES = 20 * 1024 * 1024;
+const MAX_NOTE = 5000;
+const MAX_URL = 2000;
+/** 남용 방지: 한 사람당 시간당 건수, 처리 안 된 건이 이만큼 넘으면 경고 (6장) */
+const PER_HOUR = 30;
+const OPEN_WARN = 200;
+/** 아직 처리하지 않은 상태 — ＋ 배지 숫자 */
+const OPEN_STATUSES = ["uploaded", "extracting", "ready", "failed"];
+const HINTS = new Set(["event_notice", "photos", "document"]);
+const SOURCES = new Set(["web", "app", "share"]);
+
+/** 받는 형식 — 확장자로 정한다(HWP 등은 브라우저가 붙이는 MIME 이 제각각). magic: 첫 바이트 검사(없으면 생략) */
+const TYPES = {
+  jpg: { ct: "image/jpeg", image: true, magic: [[0, [0xff, 0xd8, 0xff]]] },
+  jpeg: { ct: "image/jpeg", image: true, magic: [[0, [0xff, 0xd8, 0xff]]], ext: "jpg" },
+  png: { ct: "image/png", image: true, magic: [[0, [0x89, 0x50, 0x4e, 0x47]]] },
+  webp: { ct: "image/webp", image: true, magic: [[0, [0x52, 0x49, 0x46, 0x46]], [8, [0x57, 0x45, 0x42, 0x50]]] },
+  heic: { ct: "image/heic", image: true, magic: [[4, [0x66, 0x74, 0x79, 0x70]]] },
+  heif: { ct: "image/heif", image: true, magic: [[4, [0x66, 0x74, 0x79, 0x70]]] },
+  pdf: { ct: "application/pdf", magic: [[0, [0x25, 0x50, 0x44, 0x46]]] },
+  hwp: { ct: "application/x-hwp", magic: [[0, [0xd0, 0xcf, 0x11, 0xe0]]] },
+  hwpx: { ct: "application/hwp+zip", magic: [[0, [0x50, 0x4b]]] },
+  docx: { ct: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", magic: [[0, [0x50, 0x4b]]] },
+  doc: { ct: "application/msword", magic: [[0, [0xd0, 0xcf, 0x11, 0xe0]]] },
+};
+/** MIME 만 있고 이름에 확장자가 없을 때(붙여넣은 캡처 등) */
+const EXT_BY_MIME = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/heic": "heic", "image/heif": "heif", "application/pdf": "pdf" };
+/** 브라우저가 바로 보여 줄 수 있는 형식 — 나머지는 내려받기 */
+const INLINE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "application/pdf"]);
+
+const err = (error, code, status) => json({ error, code }, status);
+
+function json(body, status = 200, headers = {}) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "private, no-store", ...headers },
+  });
+}
+
+/**
+ * /api/intake* 라우터. deps.requestUser(req) → {id, level, display_name} | {error, status}
+ * (회원 확인은 index.ts 한 곳 — 쿠키 출처 검사·앞으로의 Bearer 토큰 포함)
+ */
+export async function handleIntake(req, env, path, deps) {
+  if (path !== "/api/intake" && !path.startsWith("/api/intake/")) return null;
+  const who = await deps.requestUser(req);
+  if (!who || who.error) return err(who?.error ?? "로그인이 필요합니다", who?.code ?? "unauthenticated", who?.status ?? 401);
+  if ((who.level ?? 0) < INTAKE_LEVEL) return err("편집진만 쓸 수 있습니다", "forbidden", 403);
+  const m = req.method;
+  if (path === "/api/intake") {
+    if (m === "POST") return createIntake(req, env, who);
+    if (m === "GET") return listIntakes(req, env);
+  }
+  if (path === "/api/intake/count" && m === "GET") return json({ open: await openCount(env) });
+  const fm = path.match(/^\/api\/intake\/([0-9a-f-]{36})\/file\/(\d{1,2})$/);
+  if (fm && (m === "GET" || m === "HEAD")) return serveIntakeFile(req, env, fm[1], Number(fm[2]));
+  const im = path.match(/^\/api\/intake\/([0-9a-f-]{36})$/);
+  if (im) {
+    if (m === "GET") return getIntake(env, im[1]);
+    if (m === "DELETE") return discardIntake(env, im[1], who);
+  }
+  return err("not found", "not_found", 404);
+}
+
+// ── 올리기 ─────────────────────────────────────────────────────────────
+async function createIntake(req, env, who) {
+  const ct = req.headers.get("Content-Type") ?? "";
+  if (!ct.startsWith("multipart/form-data")) return err("multipart/form-data 로 보내 주세요", "bad_content_type", 415);
+  const idem = (req.headers.get("Idempotency-Key") ?? "").trim();
+  if (idem && !/^[A-Za-z0-9_.:-]{8,100}$/.test(idem)) return err("Idempotency-Key 형식이 맞지 않습니다", "bad_idempotency_key", 400);
+  // 재전송: 같은 키로 이미 만든 건이 있으면 새로 만들지 않고 돌려준다(본문을 읽기 전에 — 큰 파일을 다시 받지 않게)
+  if (idem) {
+    const prev = await env.DB.prepare("SELECT * FROM intakes WHERE user_id=? AND idem_key=?").bind(who.id, idem).first();
+    if (prev) return json({ ok: true, replayed: true, intake: shapeIntake(prev) });
+  }
+  const recent = await env.DB.prepare(
+    "SELECT COUNT(*) AS n FROM intakes WHERE user_id=? AND created_at > datetime('now', '-1 hour')"
+  ).bind(who.id).first();
+  if ((recent?.n ?? 0) >= PER_HOUR) return err(`한 시간에 ${PER_HOUR}건까지 올릴 수 있습니다`, "rate_limited", 429);
+
+  let form;
+  try {
+    form = await req.formData();
+  } catch {
+    return err("올린 내용을 읽지 못했습니다", "bad_form", 400);
+  }
+  const note = str(form.get("note")).trim();
+  const url = str(form.get("url")).trim();
+  const hint = str(form.get("hint")).trim();
+  const source = str(form.get("source")).trim() || "web";
+  if (note.length > MAX_NOTE) return err(`메모는 ${MAX_NOTE}자까지입니다`, "note_too_long", 400);
+  if (url && (url.length > MAX_URL || !/^https?:\/\/[^\s]+$/i.test(url))) return err("인터넷 주소는 http:// 또는 https:// 로 시작해야 합니다", "bad_url", 400);
+  if (hint && !HINTS.has(hint)) return err("알 수 없는 종류입니다", "bad_hint", 400);
+  if (!SOURCES.has(source)) return err("알 수 없는 출처입니다", "bad_source", 400);
+
+  const raw = [...form.getAll("files[]"), ...form.getAll("files")].filter((f) => f && typeof f === "object" && "arrayBuffer" in f);
+  if (raw.length > MAX_FILES) return err(`한 번에 파일 ${MAX_FILES}개까지 올릴 수 있습니다`, "too_many_files", 400);
+  if (!raw.length && !note && !url) return err("파일·메모·주소 중 하나는 있어야 합니다", "empty", 400);
+
+  // 파일 검사(형식·크기·첫 바이트) → 해시
+  const files = [];
+  for (const f of raw) {
+    const name = cleanName(f.name || "");
+    let ext = (name.match(/\.([A-Za-z0-9]{2,5})$/)?.[1] ?? "").toLowerCase();
+    if (!TYPES[ext]) ext = EXT_BY_MIME[f.type] ?? ext;
+    const t = TYPES[ext];
+    if (!t) return err(`받지 않는 형식입니다: ${name || f.type || "이름 없음"} (사진 JPG·PNG·HEIC, PDF, 한글, 워드)`, "unsupported_type", 415);
+    const max = t.image ? MAX_IMAGE_BYTES : MAX_DOC_BYTES;
+    if (f.size > max) return err(`파일이 너무 큽니다: ${name} (${t.image ? "사진 8MB" : "문서 20MB"}까지)`, "too_large", 413);
+    if (!f.size) return err(`빈 파일입니다: ${name}`, "empty_file", 400);
+    const buf = await f.arrayBuffer();
+    if (!magicOk(new Uint8Array(buf, 0, Math.min(16, buf.byteLength)), t.magic)) {
+      return err(`파일 내용이 형식(${ext})과 맞지 않습니다: ${name}`, "type_mismatch", 415);
+    }
+    files.push({ buf, name: name || `파일.${t.ext ?? ext}`, ext: t.ext ?? ext, content_type: t.ct, size: buf.byteLength, sha256: await sha256Hex(buf) });
+  }
+  const fileHash = files.length ? await sha256Hex(new TextEncoder().encode(files.map((f) => f.sha256).join(","))) : null;
+
+  // 같은 파일 묶음을 이미 올렸으면(버린 것 제외) 새로 만들지 않고 알려 준다 — 전송이 끊겨 다시 보낸 경우도 여기서 걸린다
+  if (fileHash) {
+    const dup = await env.DB.prepare(
+      "SELECT * FROM intakes WHERE file_hash=? AND status <> 'discarded' AND purged_at IS NULL ORDER BY created_at DESC LIMIT 1"
+    ).bind(fileHash).first();
+    if (dup) return json({ ok: true, duplicate: true, intake: shapeIntake(dup) });
+  }
+
+  const id = crypto.randomUUID();
+  const now = new Date();
+  const prefix = `intake/${now.getUTCFullYear()}/${String(now.getUTCMonth() + 1).padStart(2, "0")}/${id}/`;
+  const stored = [];
+  try {
+    for (let i = 0; i < files.length; i++) {
+      const f = files[i];
+      const key = `${prefix}${i + 1}.${f.ext}`;
+      await env.UPLOADS.put(key, f.buf, {
+        httpMetadata: { contentType: f.content_type, cacheControl: "private, no-store" },
+        customMetadata: { uid: who.id, intake: id, sha256: f.sha256 },
+      });
+      stored.push({ key, name: f.name, content_type: f.content_type, size: f.size, sha256: f.sha256 });
+    }
+    await env.DB.prepare(
+      `INSERT INTO intakes (id, user_id, status, source, hint, note, url, files, file_hash, idem_key, purge_after)
+       VALUES (?, ?, 'uploaded', ?, ?, ?, ?, ?, ?, ?, datetime('now', '+${KEEP_DAYS} days'))`
+    ).bind(id, who.id, source, hint || null, note || null, url || null, JSON.stringify(stored), fileHash, idem || null).run();
+  } catch (e) {
+    // 반쯤 올라간 원본은 지운다
+    if (stored.length) await env.UPLOADS.delete(stored.map((s) => s.key)).catch(() => {});
+    // 같은 키가 동시에 두 번 들어온 경우 — 먼저 들어간 건을 돌려준다
+    if (idem) {
+      const prev = await env.DB.prepare("SELECT * FROM intakes WHERE user_id=? AND idem_key=?").bind(who.id, idem).first();
+      if (prev) return json({ ok: true, replayed: true, intake: shapeIntake(prev) });
+    }
+    throw e;
+  }
+  await onIntakeStatus(env, id, "uploaded");
+  const row = await env.DB.prepare(`${SELECT} WHERE i.id=?`).bind(id).first();
+  const open = await openCount(env);
+  return json(
+    { ok: true, intake: shapeIntake(row), open, ...(open > OPEN_WARN ? { warning: `처리하지 않은 올림이 ${open}건입니다. 올림함을 정리해 주세요.` } : {}) },
+    201
+  );
+}
+
+/**
+ * 상태가 바뀌는 지점 — 앱 푸시(FCM)·1단계 대기열을 붙일 자리 (4.5 "상태가 바뀌는 지점을 한 함수로").
+ * 0단계에서는 하는 일이 없다.
+ */
+export async function onIntakeStatus(_env, _id, _status) {}
+
+// ── 목록·한 건 ────────────────────────────────────────────────────────
+const SELECT = `SELECT i.*, u.display_name AS user_name, h.display_name AS handled_name, p.title AS post_title, p.board AS post_board
+  FROM intakes i LEFT JOIN users u ON u.id = i.user_id LEFT JOIN users h ON h.id = i.handled_by LEFT JOIN posts p ON p.id = i.post_id`;
+
+async function openCount(env) {
+  const r = await env.DB.prepare(
+    `SELECT COUNT(*) AS n FROM intakes WHERE status IN (${OPEN_STATUSES.map(() => "?").join(",")})`
+  ).bind(...OPEN_STATUSES).first();
+  return r?.n ?? 0;
+}
+
+async function listIntakes(req, env) {
+  const sp = new URL(req.url).searchParams;
+  const status = sp.get("status") || "open";
+  const limit = Math.min(100, Math.max(1, Number(sp.get("limit")) || 50));
+  const before = sp.get("before"); // created_at 커서
+  const conds = [];
+  const binds = [];
+  if (status === "open") {
+    conds.push(`i.status IN (${OPEN_STATUSES.map(() => "?").join(",")})`);
+    binds.push(...OPEN_STATUSES);
+  } else if (status === "published" || status === "discarded") {
+    conds.push("i.status = ?");
+    binds.push(status);
+  } else if (status !== "all") {
+    return err("알 수 없는 상태입니다", "bad_status", 400);
+  }
+  if (before) {
+    conds.push("i.created_at < ?");
+    binds.push(before);
+  }
+  const where = conds.length ? `WHERE ${conds.join(" AND ")}` : "";
+  const rs = await env.DB.prepare(`${SELECT} ${where} ORDER BY i.created_at DESC LIMIT ?`).bind(...binds, limit + 1).all();
+  const rows = rs.results ?? [];
+  const more = rows.length > limit;
+  const items = rows.slice(0, limit).map(shapeIntake);
+  return json({ items, next: more ? rows[limit - 1].created_at : null, open: await openCount(env) });
+}
+
+async function getIntake(env, id) {
+  const row = await env.DB.prepare(`${SELECT} WHERE i.id=?`).bind(id).first();
+  if (!row) return err("없는 올림입니다", "not_found", 404);
+  return json({ intake: shapeIntake(row) });
+}
+
+/** 응답 모양 — R2 키는 내보내지 않는다(원본은 file_url 로만) */
+export function shapeIntake(r) {
+  const files = parseArr(r.files);
+  const purged = !!r.purged_at;
+  return {
+    id: r.id,
+    status: r.status,
+    source: r.source,
+    hint: r.hint ?? null,
+    note: r.note ?? null,
+    url: r.url ?? null,
+    user: { id: r.user_id, name: r.user_name ?? null },
+    files: files.map((f, i) => ({
+      n: i + 1,
+      name: f.name,
+      content_type: f.content_type,
+      size: f.size,
+      file_url: purged ? null : `/api/intake/${r.id}/file/${i + 1}`,
+    })),
+    // 1단계에서 채워지는 칸
+    kind: r.kind ?? null,
+    title: r.title ?? null,
+    draft_blocks: parseArr(r.draft_blocks),
+    warnings: parseArr(r.warnings),
+    error: r.error ?? null,
+    // 결과
+    post_id: r.post_id ?? null,
+    post: r.post_id && r.post_title != null ? { id: r.post_id, title: r.post_title, board: r.post_board } : null,
+    handled_by: r.handled_by ? { id: r.handled_by, name: r.handled_name ?? null } : null,
+    created_at: r.created_at,
+    updated_at: r.updated_at,
+    purge_after: r.purge_after ?? null,
+    purged_at: r.purged_at ?? null,
+  };
+}
+
+// ── 원본 보기 ──────────────────────────────────────────────────────────
+async function serveIntakeFile(req, env, id, n) {
+  const row = await env.DB.prepare("SELECT files, purged_at FROM intakes WHERE id=?").bind(id).first();
+  if (!row || row.purged_at) return err("없는 파일입니다", "not_found", 404);
+  const f = parseArr(row.files)[n - 1];
+  if (!f || typeof f.key !== "string" || !f.key.startsWith(`intake/`)) return err("없는 파일입니다", "not_found", 404);
+  const obj = await env.UPLOADS.get(f.key);
+  if (!obj) return err("없는 파일입니다", "not_found", 404);
+  const ct = f.content_type || "application/octet-stream";
+  const inline = INLINE_TYPES.has(ct) && new URL(req.url).searchParams.get("download") !== "1";
+  const headers = new Headers({
+    "Content-Type": ct,
+    "Content-Length": String(obj.size),
+    "Cache-Control": "private, no-store",
+    "X-Content-Type-Options": "nosniff",
+    "Content-Disposition": `${inline ? "inline" : "attachment"}; filename*=UTF-8''${encodeURIComponent(f.name || `file-${n}`)}`,
+    "Referrer-Policy": "no-referrer",
+  });
+  return new Response(req.method === "HEAD" ? null : obj.body, { headers });
+}
+
+// ── 버리기 ─────────────────────────────────────────────────────────────
+async function discardIntake(env, id, who) {
+  const row = await env.DB.prepare("SELECT id, status, files, purged_at FROM intakes WHERE id=?").bind(id).first();
+  if (!row) return err("없는 올림입니다", "not_found", 404);
+  if (row.status === "discarded") return json({ ok: true, already: true });
+  await purgeFiles(env, row);
+  await env.DB.prepare(
+    "UPDATE intakes SET status='discarded', handled_by=?, purged_at=COALESCE(purged_at, datetime('now')), updated_at=datetime('now') WHERE id=?"
+  ).bind(who.id, id).run();
+  await onIntakeStatus(env, id, "discarded");
+  return json({ ok: true });
+}
+
+async function purgeFiles(env, row) {
+  if (row.purged_at) return;
+  const keys = parseArr(row.files).map((f) => f?.key).filter((k) => typeof k === "string" && k.startsWith("intake/"));
+  if (keys.length) await env.UPLOADS.delete(keys);
+}
+
+// ── 게시 연결 (index.ts createPost 가 쓴다) ────────────────────────────
+/** 글로 옮길 수 있는 올림인지 — 문제가 있으면 오류 글을 돌려준다 */
+export async function checkIntakeForPost(env, intakeId, user) {
+  if (typeof intakeId !== "string" || !/^[0-9a-f-]{36}$/.test(intakeId)) return "올림 번호가 맞지 않습니다";
+  if ((user?.level ?? 0) < INTAKE_LEVEL) return "편집진만 올림을 글로 옮길 수 있습니다";
+  const row = await env.DB.prepare("SELECT status FROM intakes WHERE id=?").bind(intakeId).first();
+  if (!row) return "없는 올림입니다";
+  if (row.status === "published") return "이미 글로 옮긴 올림입니다";
+  if (row.status === "discarded") return "버린 올림입니다";
+  return null;
+}
+/** 글 저장과 같은 묶음(DB.batch)에 넣을 문 */
+export function intakePublishStmt(env, intakeId, postId, uid) {
+  return env.DB.prepare(
+    "UPDATE intakes SET status='published', post_id=?, handled_by=?, updated_at=datetime('now') WHERE id=? AND status NOT IN ('published','discarded')"
+  ).bind(postId, uid, intakeId);
+}
+
+// ── 1년 지난 원본 자동 삭제 (Cron, 하루 1번 — wrangler.toml [triggers]) ──
+export async function purgeExpiredIntakes(env, limit = 200) {
+  const rs = await env.DB.prepare(
+    "SELECT id, files, purged_at FROM intakes WHERE purged_at IS NULL AND purge_after IS NOT NULL AND purge_after <= datetime('now') ORDER BY purge_after LIMIT ?"
+  ).bind(limit).all();
+  let n = 0;
+  for (const row of rs.results ?? []) {
+    await purgeFiles(env, row);
+    // 원본과 함께 올린 메모·주소도 지운다. 기록(누가·언제·만든 글)은 남긴다
+    await env.DB.prepare(
+      "UPDATE intakes SET purged_at=datetime('now'), note=NULL, url=NULL, updated_at=datetime('now') WHERE id=?"
+    ).bind(row.id).run();
+    n++;
+  }
+  return n;
+}
+
+// ── 도우미 ─────────────────────────────────────────────────────────────
+function str(v) {
+  return typeof v === "string" ? v : "";
+}
+function parseArr(t) {
+  try {
+    const v = JSON.parse(t ?? "[]");
+    return Array.isArray(v) ? v : [];
+  } catch {
+    return [];
+  }
+}
+function cleanName(n) {
+  // 경로·제어 문자 제거, 길이 제한
+  return String(n).replace(/^.*[\\/]/, "").replace(/[\u0000-\u001f\u007f"]/g, "").slice(0, 120).trim();
+}
+function magicOk(head, magic) {
+  if (!magic) return true;
+  return magic.every(([off, bytes]) => bytes.every((b, i) => head[off + i] === b));
+}
+async function sha256Hex(buf) {
+  const d = await crypto.subtle.digest("SHA-256", buf);
+  return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}

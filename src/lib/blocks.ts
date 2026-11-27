@@ -102,7 +102,7 @@ export class ImageDecodeError extends Error {}
  * 사진 열기 — createImageBitmap 이 못 읽으면 <img> 로 한 번 더 시도한다
  * (Safari 의 HEIC 처럼 <img> 로만 열리는 경우가 있다). 둘 다 안 되면 ImageDecodeError.
  */
-async function decodeImage(file: Blob, max = 2400): Promise<ImageBitmap | HTMLImageElement> {
+export async function decodeImage(file: Blob, max = 2400): Promise<ImageBitmap | HTMLImageElement> {
   try {
     return await createImageBitmap(file, { imageOrientation: "from-image" });
   } catch {

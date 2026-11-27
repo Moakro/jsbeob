@@ -14,6 +14,8 @@ if (!["both", "api", "site"].includes(mode)) {
   process.exit(2);
 }
 const { ports, env } = devEnv(root);
+// DEV_HOST=100.x.x.x pnpm dev → 사이트를 그 주소로도 연다(같은 Tailscale 망의 다른 기기에서 보기). 기본은 localhost 만
+const devHost = process.env.DEV_HOST?.trim() || "";
 const bin = (name) => path.join(root, "node_modules/.bin", name);
 
 const portInUse = (port) =>
@@ -60,12 +62,15 @@ if (mode !== "site") {
   if (mode === "both" && (await portInUse(ports.api))) {
     console.log(`[api] ${ports.api} 이 이미 사용 중 — 떠 있는 API 를 그대로 쓴다.`);
   } else {
-    const args = ["dev", "-c", "wrangler.toml", "--port", String(ports.api)];
+    // --test-scheduled: Cron(올림함 원본 1년 삭제)을 /__scheduled 로 직접 불러 볼 수 있게 (로컬 전용 경로)
+    const args = ["dev", "-c", "wrangler.toml", "--port", String(ports.api), "--test-scheduled"];
     // 로그인 콜백·허용 출처가 이 사이트 포트를 가리키게 (기본 포트면 .dev.vars 값 그대로)
     if (ports.site !== DEFAULT_SITE_PORT) args.push("--var", `SITE_ORIGIN:http://localhost:${ports.site}`);
+    // DEV_HOST(예: Tailscale 주소)로 사이트를 열면 그 출처의 쿠키 요청도 받게 (올림함 출처 검사)
+    if (devHost) args.push("--var", `ALLOWED_ORIGINS:http://${devHost}:${ports.site}`);
     // 디버거(inspector) 포트도 worktree 마다 고정 — 기본(9229부터 빈 것)은 두 곳이 동시에 뜰 때 서로 같은 번호를 잡는다
     if (ports.isolated) args.push("--inspector-port", String(ports.api + 1000));
     run("api", "33", bin("wrangler"), args, path.join(root, "jsbeob-api"));
   }
 }
-if (mode !== "api") run("site", "36", bin("astro"), ["dev", "--port", String(ports.site)], root);
+if (mode !== "api") run("site", "36", bin("astro"), ["dev", "--port", String(ports.site), ...(devHost ? ["--host", devHost] : [])], root);

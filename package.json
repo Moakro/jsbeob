@@ -11,6 +11,7 @@
     "dev:site": "node scripts/dev.mjs site",
     "dev:api": "node scripts/dev.mjs api",
     "dev:login": "node scripts/dev-login.mjs",
+    "test:intake": "node scripts/test-intake.mjs",
     "setup:worktree": "bash scripts/worktree-setup.sh",
     "db:local:init": "cd jsbeob-api && wrangler d1 execute jsbeob-db --local -c wrangler.toml --file=schema.sql",
     "build": "astro build",

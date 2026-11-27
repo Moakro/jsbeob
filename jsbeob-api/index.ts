@@ -25,6 +25,8 @@ export interface Env {
   MEDIA_PUBLIC_BASE?: string;
   YOUTUBE_API_KEY?: string;
   YOUTUBE_CHANNEL_ID?: string;
+  /** 쿠키 요청에서 SITE_ORIGIN 말고도 받아 줄 출처(쉼표로 구분, 선택) — 로컬에서 Tailscale 주소로 열 때 등 */
+  ALLOWED_ORIGINS?: string;
 }
 
 // 복원: 2026-11-01 배포본(jsbeob-api-preview) 번들에서 복원. 원본 TS 타입 정보는 번들에서 사라져
@@ -37,6 +39,7 @@ import { handleContent, mediaUrl, refIndexStmts, renderRowBlocks, siteHosts } fr
 import { handleMedia } from "./media";
 import { branchCodeSet, handleBranches } from "./branch";
 import { handleLegacy } from "./legacy";
+import { checkIntakeForPost, handleIntake, intakePublishStmt, purgeExpiredIntakes } from "./intake";
 
 const COOKIE_NAME = "jb_session";
 const SESSION_TTL = 60 * 60 * 24 * 30;
@@ -68,10 +71,17 @@ const NICKNAME_RESERVED = [
   "도주"
 ];
 export default {
+  /** Cron(하루 1번, wrangler.toml [triggers]) — 1년 지난 올림 원본 삭제 (2026-11-27, 결정 9) */
+  async scheduled(_event, env, ctx) {
+    ctx.waitUntil(purgeExpiredIntakes(env).then((n) => console.log(`intake purge: ${n}`)));
+  },
   async fetch(req, env) {
     const url = new URL(req.url);
     const path = url.pathname;
     try {
+      // 편집진 올림함 (2026-11-27, intake.ts)
+      const intakeRes = await handleIntake(req, env, path, { requestUser: (r) => requestUser(r, env) });
+      if (intakeRes) return intakeRes;
       const libRes = await handleLibrary(req, env, path, {
         adminUser: async (r) => {
           const uid = await currentUserId(r, env);
@@ -286,6 +296,41 @@ async function verifySession(secret, token) {
 async function currentUserId(req, env) {
   const sess = await verifySession(env.AUTH_SECRET, getCookie(req, COOKIE_NAME));
   return sess?.sub ?? null;
+}
+/**
+ * 요청에서 회원을 알아내는 함수(올림함 /api/intake* 가 쓴다, 2026-11-27 docs/design/ai-intake.md 4.5).
+ * - 쿠키(jb_session): 바꾸는 요청(GET·HEAD 외)은 Origin 머리말이 있으면 사이트 출처와 같아야 한다.
+ * - Authorization: Bearer <토큰>: 앱 로그인이 생기면 여기서 받는다. 지금은 세션과 같은 서명 형식에
+ *   aud:"app" 이 든 토큰만 통과(아직 발급하는 곳은 없음).
+ * 돌려주는 값: {id, level, display_name} 또는 {error, code, status}
+ */
+async function requestUser(req, env) {
+  const auth = req.headers.get("Authorization") ?? "";
+  let uid = null;
+  if (/^Bearer\s+/i.test(auth)) {
+    const p = await verifySession(env.AUTH_SECRET, auth.replace(/^Bearer\s+/i, "").trim());
+    if (!p || p.aud !== "app" || !p.sub) return { error: "토큰이 맞지 않습니다", code: "bad_token", status: 401 };
+    uid = p.sub;
+  } else {
+    if (req.method !== "GET" && req.method !== "HEAD" && !originAllowed(req, env)) {
+      return { error: "허용하지 않는 출처입니다", code: "bad_origin", status: 403 };
+    }
+    uid = await currentUserId(req, env);
+  }
+  if (!uid) return { error: "로그인이 필요합니다", code: "unauthenticated", status: 401 };
+  const u = await loadUser(env, uid);
+  if (!u) return { error: "로그인이 필요합니다", code: "unauthenticated", status: 401 };
+  return { id: u.id, level: u.level ?? 0, display_name: u.display_name };
+}
+function originAllowed(req, env) {
+  const origin = req.headers.get("Origin");
+  if (!origin) return true; // 같은 출처 요청 일부·앱 등은 Origin 을 안 보낸다 — 쿠키는 SameSite=Lax 로 한 번 더 막힌다
+  const ok = new Set([new URL(req.url).origin]);
+  for (const o of [env.SITE_ORIGIN, ...(env.ALLOWED_ORIGINS ?? "").split(",")]) {
+    const v = (o ?? "").trim().replace(/\/$/, "");
+    if (v) ok.add(v);
+  }
+  return ok.has(origin);
 }
 async function loadUser(env, userId) {
   await env.DB.prepare(
@@ -1585,7 +1630,8 @@ async function eventAdmin(req, env) {
   const uid = await currentUserId(req, env);
   if (!uid) return null;
   const u = await loadUser(env, uid);
-  return u && u.level >= LEVEL.ADMIN ? { id: u.id } : null;
+  // 편집진(60) 이상 — 올림함에서 게시까지 하도록 (2026-11-27 결정 2)
+  return u && u.level >= LEVEL.EDITOR ? { id: u.id } : null;
 }
 async function listEvents(req, env) {
   const admin = await eventAdmin(req, env);
@@ -1622,7 +1668,7 @@ async function createEvent(req, env) {
   const uid = await currentUserId(req, env);
   if (!uid) return json({ error: "not authenticated" }, 401);
   const admin = await eventAdmin(req, env);
-  if (!admin) return json({ error: "일정은 운영자만 추가할 수 있습니다" }, 403);
+  if (!admin) return json({ error: "일정은 편집진 이상만 추가할 수 있습니다" }, 403);
   const raw = await req.json().catch(() => ({}));
   const parsed = normalizeEventInput(raw);
   if (parsed.error) return json({ error: parsed.error }, 400);
@@ -1652,7 +1698,7 @@ async function updateEvent(req, env, id) {
   const uid = await currentUserId(req, env);
   if (!uid) return json({ error: "not authenticated" }, 401);
   const admin = await eventAdmin(req, env);
-  if (!admin) return json({ error: "일정은 운영자만 수정할 수 있습니다" }, 403);
+  if (!admin) return json({ error: "일정은 편집진 이상만 수정할 수 있습니다" }, 403);
   const existing = await env.DB.prepare("SELECT id FROM events WHERE id=?").bind(id).first();
   if (!existing) return json({ error: "not found" }, 404);
   const raw = await req.json().catch(() => ({}));
@@ -1707,7 +1753,7 @@ async function deleteEvent(req, env, id) {
   const uid = await currentUserId(req, env);
   if (!uid) return json({ error: "not authenticated" }, 401);
   const admin = await eventAdmin(req, env);
-  if (!admin) return json({ error: "일정은 운영자만 삭제할 수 있습니다" }, 403);
+  if (!admin) return json({ error: "일정은 편집진 이상만 삭제할 수 있습니다" }, 403);
   const existing = await env.DB.prepare("SELECT id FROM events WHERE id=?").bind(id).first();
   if (!existing) return json({ error: "not found" }, 404);
   await env.DB.prepare("DELETE FROM events WHERE id=?").bind(id).run();
@@ -2014,8 +2060,10 @@ async function viewerOf(req, env) {
   return u ? { id: uid, level: u.level ?? 0 } : null;
 }
 /** 공지 고정(게시판 설정 options.notice 가 켜진 게시판만) */
-function noticeStmts(env, board, postId, raw) {
+function noticeStmts(env, board, postId, raw, user = null) {
   if (!board?.options?.notice || raw.notice === void 0) return [];
+  // 공지 고정은 관리자만 (2026-11-27 결정 2: 편집진이 소식에 글을 써도 공지 고정은 관리자 권한으로 남김)
+  if ((user?.level ?? 0) < LEVEL.ADMIN) return [];
   return [env.DB.prepare("UPDATE posts SET is_pinned=? WHERE id=?").bind(raw.notice ? 1 : 0, postId)];
 }
 /**
@@ -2407,6 +2455,13 @@ async function createPost(req, env) {
     body.category = lf.category;
     libSeries = lf.series_id;
   }
+  // 올림함에서 옮겨 쓰는 글이면(intake_id) 그 올림을 '게시됨'으로 같은 묶음에서 바꾼다 (2026-11-27 올림함 0단계)
+  const intakeId = body.intake_id ?? null;
+  if (intakeId !== null) {
+    const ie = await checkIntakeForPost(env, intakeId, u);
+    if (ie) return json({ error: ie }, 400);
+    if (body.blocks === void 0) return json({ error: "올림은 블록 글로만 옮길 수 있습니다" }, 400);
+  }
   const id = uuid();
   // 글마다 비공개(options.private_posts 게시판만, 기본 공개)
   const isPrivate = bc.options?.private_posts && body.is_private === true ? 1 : 0;
@@ -2438,8 +2493,9 @@ async function createPost(req, env) {
         isPrivate
       ),
       ...refIndexStmts(env, "post", id, pb.blocks),
-      ...noticeStmts(env, bc, id, body),
-      ...scheduleStmts(env, bc, id, uid, title, pb.blocks)
+      ...noticeStmts(env, bc, id, body, u),
+      ...scheduleStmts(env, bc, id, uid, title, pb.blocks),
+      ...(intakeId ? [intakePublishStmt(env, intakeId, id, uid)] : [])
     ]);
     return json({ ok: true, id });
   }
@@ -2567,7 +2623,7 @@ async function updatePost(req, env, id) {
   if (title.length === 0 || title.length > 200) {
     return json({ error: "제목은 1~200자여야 합니다" }, 400);
   }
-  const newsStmts = noticeStmts(env, bc, id, body);
+  const newsStmts = noticeStmts(env, bc, id, body, u);
   let libSeries = post.series_id;
   if (post.board === LIBRARY_BOARD) {
     const lf = await normLibraryPostFields(
