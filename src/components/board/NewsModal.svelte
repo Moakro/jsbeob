@@ -27,6 +27,12 @@
       !!post &&
       (lv >= LEVEL.ADMIN || (!!cfg && ((cfg.delete_own && me.id === post.author_id) || lv >= cfg.delete_level))),
   );
+  // 수정 — 같은 방식으로 게시판 설정의 수정 권한(본인 글 수정 허용·수정 등급)을 따른다 (2026-11-27 편집진 본인 글 수정)
+  const canEdit = $derived(
+    !!me &&
+      !!post &&
+      (lv >= LEVEL.ADMIN || (!!cfg && ((cfg.edit_own && me.id === post.author_id) || lv >= cfg.edit_level))),
+  );
   let deleting = $state(false);
   async function remove() {
     if (!post || deleting) return;
@@ -147,7 +153,7 @@
             <span>조회 {post.view_count}</span>
             <!-- 공식 글 실제 등록자 — 권한자에게만 온다 (2026-11-16) -->
             {#if post.registered_by}<span class="reg" title="권한자에게만 보입니다">등록 {post.registered_by}</span>{/if}
-            {#if (me?.level ?? 0) >= LEVEL.ADMIN}<a href={`${postHref("news", post.id)}edit/`}>수정</a>{/if}
+            {#if canEdit}<a href={`${postHref("news", post.id)}edit/`}>수정</a>{/if}
             {#if canDelete}<button type="button" class="del" disabled={deleting} onclick={remove}
                 >{deleting ? "삭제 중…" : "삭제"}</button
               >{/if}
