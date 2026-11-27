@@ -116,6 +116,20 @@ export const listRecentPhotos = async (request: Request, limit = 9) => {
 export const listRecentOrialter = async (request: Request, limit = 5) =>
   (await contentGet(`/api/posts?board=orialter&limit=${limit}`, request).catch(() => null))?.posts ?? [];
 
+/** 공유 미리보기용 기간 — full: 2026.12.04(금) ~ 12.06(일), 아니면 12.04(금)~12.06(일) */
+function ogPeriod(p: { start: string; end?: string | null }, full: boolean) {
+  const W = "일월화수목금토";
+  const one = (d: string, year: boolean) => {
+    const [y, m, dd] = d.slice(0, 10).split("-");
+    const wd = W[new Date(Date.UTC(+y, +m - 1, +dd)).getUTCDay()];
+    return `${year ? `${y}.` : ""}${m}.${dd}(${wd})`;
+  };
+  const a = one(p.start, full);
+  if (!p.end || p.end.slice(0, 10) === p.start.slice(0, 10)) return a;
+  const b = one(p.end, full && p.end.slice(0, 4) !== p.start.slice(0, 4));
+  return full ? `${a} ~ ${b}` : `${a}~${b}`;
+}
+
 /**
  * 게시판 글 공유 미리보기용(OG) — 제목·요약·첫 사진. 볼 수 없는 글(비공개 등)은 null (2026-11-21)
  */
@@ -123,16 +137,23 @@ export async function getPostMeta(request: Request, id: string) {
   const r = await contentGet(`/api/posts/${encodeURIComponent(id)}?count=0`, request).catch(() => null);
   const p = r?.post;
   if (!p) return null;
-  const text = String(p.body_md ?? "")
-    .replace(/https?:\/\/\S+/g, "")
+  const raw = String(p.body_md ?? "").replace(/https?:\/\/\S+/g, "");
+  // 일정 블록은 본문(body_md)에 '일정 2026-12-04 ~ 2026-12-06 · 이름' 으로 들어 있다 → 짧은 날짜로 (2026-11-27)
+  const schedRe = /일정 (\d{4}-\d{2}-\d{2})(?: ~ (\d{4}-\d{2}-\d{2}))?(?: · )?/g;
+  const many = (raw.match(schedRe) ?? []).length > 1;
+  const text = raw
+    .replace(schedRe, (_m, a: string, b?: string) => (many ? `${ogPeriod({ start: a, end: b ?? null }, false)} ` : ""))
     .replace(/\s+/g, " ")
     .trim();
   const firstLine = text.slice(0, 60);
+  // 일정 글은 설명 맨 앞에 전체 기간(요일 포함)
+  const when = p.period?.start ? ogPeriod(p.period, true) : "";
+  const desc = [when, text].filter(Boolean).join(" · ");
   const img = (p.attachments ?? []).find((a: any) => a.type === "image" && a.url)?.url ?? null;
   const yt = (p.attachments ?? []).find((a: any) => a.type === "video" && a.videoId)?.videoId ?? null;
   return {
     title: (p.title || firstLine || "").trim(),
-    description: text.slice(0, 150) || null,
+    description: desc ? (desc.length > 150 ? `${desc.slice(0, 149)}…` : desc) : null,
     image: img ?? (yt ? `https://i.ytimg.com/vi/${yt}/hqdefault.jpg` : null),
     author: p.author?.display_name ?? null,
   };

@@ -15,6 +15,7 @@
   } from "../../lib/api";
   import { uploadImage, parseYouTube } from "../../lib/blocks";
   import { confirmDialog } from "../../lib/confirm";
+  import { shareLink } from "../../lib/share";
   import { BRANCHES } from "../../data/branches";
   import ModalFrame from "../ModalFrame.svelte";
 
@@ -513,14 +514,9 @@
   }
 
   async function share(p: { id: string }) {
-    const url = new URL(postHref(BOARD, p.id), location.origin).href;
-    try {
-      if (navigator.share) await navigator.share({ title: "오리알터", url });
-      else {
-        await navigator.clipboard.writeText(url);
-        flash("주소를 복사했습니다");
-      }
-    } catch {}
+    const r = await shareLink({ url: postHref(BOARD, p.id), title: "오리알터" });
+    if (r === "copied") flash("주소를 복사했습니다");
+    else if (r === "failed") flash("복사하지 못했습니다");
   }
 
   function flash(msg: string, ms = 2200) {
