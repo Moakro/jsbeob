@@ -1,6 +1,7 @@
 // 자료실 카테고리·시리즈 API (/api/library/*)
 // 복원: 2026-11-01 배포본(jsbeob-api-preview) 번들에서 복원. 원본 TS 타입 정보는 번들에서 사라져
 // 대부분 생략되었다(tsconfig strict:false). 동작은 배포본과 같다.
+import { LEVEL } from "../src/data/levels";
 export const LIBRARY_BOARD = "etc";
 const RESERVED_KEYS = new Set(["places", "library", "p", "write", "edit", "new", "api", "search", "all"]);
 const KEY_RE = /^[a-z][a-z0-9-]{1,29}$/;
@@ -48,7 +49,7 @@ export async function handleLibrary(req, env, path, ctx) {
   if (path === "/api/library/categories" && m === "GET") return json({ categories: await listCategories(db) });
   if (path === "/api/library/posts" && m === "GET") return listLibraryPosts(req, db);
   let r = path.match(/^\/api\/library\/posts\/([^/]+)\/meta$/);
-  if (r && m === "GET") return postMeta(db, decodeURIComponent(r[1]));
+  if (r && m === "GET") return postMeta(db, decodeURIComponent(r[1]), await ctx.viewerUser(req));
   r = path.match(/^\/api\/library\/series\/([^/]+)$/);
   if (r && m === "GET") return seriesToc(db, decodeURIComponent(r[1]));
   const admin = await ctx.adminUser(req);
@@ -141,14 +142,15 @@ async function listLibraryPosts(req, db) {
     next: more ? page[page.length - 1]?.created_at ?? null : null
   });
 }
-async function postMeta(db, id) {
+async function postMeta(db, id, viewer) {
   if (!ID_RE.test(id)) return bad("not found", 404);
   const r = await db.prepare(
-    `SELECT p.id, p.board, p.category, p.title, p.series_id, s.title AS series_title
+    `SELECT p.id, p.board, p.category, p.title, p.series_id, p.status, p.author_id, s.title AS series_title
        FROM posts p LEFT JOIN series s ON s.id = p.series_id
-       WHERE p.id = ? AND p.status = 'published'`
+       WHERE p.id = ? AND p.status IN ('published','hidden')`
   ).bind(id).first();
-  if (!r) return bad("not found", 404);
+  // 숨긴(비공개) 글은 글쓴이·관리자만 (2026-11-28)
+  if (!r || (r.status === "hidden" && !(viewer && (viewer.level >= LEVEL.ADMIN || viewer.id === r.author_id)))) return bad("not found", 404);
   return json({
     post: {
       id: r.id,

@@ -8,6 +8,7 @@
   import ModalFrame from "../ModalFrame.svelte";
   import ShareButton from "../ShareButton.svelte";
   import NewsList from "./NewsList.svelte";
+  import PublishToggle from "./PublishToggle.svelte";
 
   let { openId = null, syncUrl = false }: { openId?: string | null; syncUrl?: boolean } = $props();
 
@@ -163,6 +164,7 @@
                 >{deleting ? "삭제 중…" : "삭제"}</button
               >{/if}
           </p>
+          <PublishToggle {post} {me} onchange={(h) => post && (post = { ...post, is_hidden: h })} />
           <div class="body" class:plain-one={plainOne}>{@html post.body_html}</div>
         </article>
       {/if}

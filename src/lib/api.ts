@@ -77,6 +77,8 @@ export interface PostDetail extends PostSummary {
   body_md: string;
   /** 공식 콘텐츠 글의 실제 등록자 — 권한자에게만 온다 */
   registered_by?: string;
+  /** 신고로 숨긴 글 — 글쓴이는 스스로 공개하지 못한다 (2026-11-28) */
+  report_hidden?: boolean;
   [k: string]: unknown;
 }
 
@@ -208,6 +210,13 @@ export const api = {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ private: isPrivate }),
+    }),
+  /** 공개·비공개(숨김) 전환 — 관리자·글쓴이 (2026-11-28) */
+  setPostStatus: (id: string, status: "published" | "hidden") =>
+    req<{ ok: boolean; status: "published" | "hidden" }>(`/api/posts/${id}/status`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status }),
     }),
   /** 게시판 설정(권한·블록) — 2026-11-16 게시판 관리 */
   boards: () => req<{ boards: BoardConfig[] }>("/api/boards"),

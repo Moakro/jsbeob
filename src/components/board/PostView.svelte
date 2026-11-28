@@ -6,6 +6,7 @@
   import { api, BOARDS, boardBase, postHref, type BoardConfig, type PostDetail, type MeUser } from "../../lib/api";
   import YouTubeEmbed from "./YouTubeEmbed.svelte";
   import SeriesBox from "./SeriesBox.svelte";
+  import PublishToggle from "./PublishToggle.svelte";
 
   let {
     id,
@@ -247,6 +248,7 @@
         </div>
       {/if}
     </header>
+    <PublishToggle {post} {me} onchange={(h) => post && (post = { ...post, is_hidden: h })} />
 
     {#if series && series.items.length}
       <SeriesBox title={series.title} items={series.items} />
