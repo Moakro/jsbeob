@@ -3,7 +3,7 @@
 // jsbeob-api/.dev.vars 에 LIBRARY_SYNC_TOKEN(32자 이상)이 있어야 한다(.dev.vars.example 참고).
 // 임시 폴더에 시험용 자료실(사이드카·그림·index.jsonl, 설계 4절 형식)을 만들고 GENMEDIA_ROOT 로 넘겨
 //   --dry → --apply → 다시 --dry(변화 없음) → 표기 바꿈 → 파일 바꿈 → use.web false(지움 + 쓰는 곳) → 색인에서 빠짐(고아)
-// 순서로 확인한다. 끝에 시험 행(library_id LTEST-…)·시험 홈 타일을 로컬 D1 에서 지운다. 운영(--remote)은 건드리지 않는다.
+// 순서로 확인한다. 범위(--only·설정 파일 include, 기본 증산-·전북)도 시험한다 — 기본 시험 자료는 '전북-시험' 묶음. 끝에 시험 행(library_id LTEST-…)·시험 홈 타일을 로컬 D1 에서 지운다. 운영(--remote)은 건드리지 않는다.
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -59,7 +59,7 @@ async function picture(rel, { w, h, color, format = "jpeg" }) {
 }
 
 const entries = {};
-async function entry(key, { kind = "image", topic = "시험", license = "PD", web = true, modifiable = true, credit, title, description, year, fileOpts, derived, warnings = [] }) {
+async function entry(key, { kind = "image", topic = "전북-시험", tags = ["시험"], license = "PD", web = true, modifiable = true, credit, title, description, year, fileOpts, derived, warnings = [] }) {
   const id = ID(key);
   const dir = `${LIB}/${kind}/${topic}`;
   const files = [];
@@ -84,7 +84,7 @@ async function entry(key, { kind = "image", topic = "시험", license = "PD", we
     use: { video: true, web },
     modifiable,
     ...(year ? { year } : {}),
-    tags: ["시험"],
+    tags,
     added: { at: "2026-11-28", by: "test-library-sync" },
     meta_path: `${dir}/${id}.meta.json`,
     origin: "sidecar",
@@ -220,6 +220,30 @@ try {
   const orph = sync("--apply");
   check("색인에서 빠짐: 고아 1건 보고", orph.plan.orphan.length === 1 && orph.plan.orphan[0].id === ID("derived"));
   check("고아는 지우지 않음", (await byLib("derived"))[0]?.status === "active" && !orph.results.length);
+
+  // 7.5) 범위(지역 묶음) — 기본은 설정 파일 include(증산-·전북)
+  await entry("seoul", { topic: "서울-시험", fileOpts: { w: 300, h: 200, color: "#c3c" } });
+  await entry("seoultag", { topic: "서울-시험2", tags: ["증산-관련"], fileOpts: { w: 310, h: 200, color: "#3cc" } });
+  await entry("jeungsan", { topic: "증산-시험", fileOpts: { w: 320, h: 200, color: "#cc3" } });
+  writeIndex(Object.keys(entries).filter((k) => k !== "derived"));
+  const sc = sync();
+  check("범위: 기본은 설정 파일(증산-, 전북)", JSON.stringify(sc.scope.patterns) === JSON.stringify(["증산-", "전북"]) && /library-sync\.config\.json/.test(sc.scope.source), JSON.stringify(sc.scope));
+  check("범위: 서울-시험은 건너뜀(범위 밖)으로 세기만", sc.plan.out_of_scope.some((x) => x.id === ID("seoul") && x.group === "서울-시험") && !sc.plan.skip.some((x) => x.id === ID("seoul")));
+  check("범위: 태그가 맞으면 범위 안(seoultag) · 증산- 묶음 올림", JSON.stringify(ids(sc.plan.upload)) === JSON.stringify([ID("jeungsan"), ID("seoultag")].sort()), JSON.stringify(ids(sc.plan.upload)));
+  const onlyG = sync("--only", "전북-*");
+  check("--only glob(전북-*): 증산·서울은 범위 밖", onlyG.scope.source === "--only" && !onlyG.plan.upload.length && onlyG.plan.out_of_scope.some((x) => x.id === ID("jeungsan")));
+  const onlyS = sync("--apply", "--only", "서울-", "--only", "증산-");
+  check("--only 여러 번: 서울-·증산- 3건 올림, 올라간 전북-시험은 범위 밖이지만 그대로", onlyS.results.length === 3 && onlyS.results.every((r) => r.ok) && onlyS.plan.out_of_scope_live.some((x) => x.id === ID("big")) && (await byLib("big"))[0]?.status === "active", JSON.stringify(onlyS.results));
+  check("--only 범위 밖은 고아로 치지 않음", !onlyS.plan.orphan.some((x) => x.id === ID("big")) && onlyS.plan.orphan.some((x) => x.id === ID("derived")));
+  // 서울 자료가 올라간 뒤 기본 범위로 돌아와 use.web 을 끄고 --apply → 지우지 않고 '범위 밖이지만 올라가 있음'
+  entries.seoul.use.web = false;
+  writeIndex(Object.keys(entries).filter((k) => k !== "derived"));
+  const live = sync("--apply");
+  const seoulRow = (await byLib("seoul"))[0];
+  check("범위 밖이지만 올라가 있음으로 보고(쓰는 곳 포함)", live.plan.out_of_scope_live.some((x) => x.id === ID("seoul") && x.media_id === seoulRow?.id && Array.isArray(x.usage)), JSON.stringify(live.plan.out_of_scope_live));
+  check("범위 밖 자료는 web 을 꺼도 지우지 않음", seoulRow?.status === "active" && !live.plan.delete.some((x) => x.id === ID("seoul")) && !live.results.length);
+  const all = sync("--all");
+  check("--all: 범위 없음 → 서울(use.web false)은 지움 대상", all.scope.patterns === null && all.plan.delete.some((x) => x.id === ID("seoul")));
 
   // 8) 자료실에서 온 사진이 아니면 고치거나 지울 수 없음
   const plain = d1("SELECT id FROM media WHERE library_id IS NULL LIMIT 1")[0];

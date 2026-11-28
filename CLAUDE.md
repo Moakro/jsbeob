@@ -37,6 +37,7 @@ pnpm build      # astro build — 화면 쪽 자동 검사(lint 스크립트는 
 pnpm test:intake  # 올림함 API 시험 — pnpm dev 를 띄운 상태에서. 로컬 D1 에 시험 계정을 만들고 시험 데이터는 지운다
 pnpm test:library-sync  # 공용 자료실 → 사진 창고 동기화 시험 — pnpm dev:api 를 띄운 상태에서(.dev.vars 에 LIBRARY_SYNC_TOKEN 필요)
 pnpm library:sync       # 자료실 동기화 미리보기(--dry 기본). 실제 반영은 --apply, 운영 대상(--api https://jsbeob.com)은 오너 확인 뒤에만
+                        # 범위: 기본 scripts/library-sync.config.json include(증산-·전북). --only <패턴>(여러 번), --all
 ```
 
 ## 로컬 D1

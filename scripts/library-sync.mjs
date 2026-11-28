@@ -14,6 +14,14 @@
 //   --index <경로>                        기본 $GENMEDIA_ROOT/assets-shared/library/index.jsonl
 //   GENMEDIA_ROOT                         기본 ~/GenMedia — 색인의 files[].path 는 이 기준 상대 경로
 //   --json                                결과를 JSON 한 덩어리로(시험·다른 도구용)
+//   --only <패턴>                         보낼 범위(지역 묶음). 여러 번 가능. 앞부분 일치(예: 증산-), * ? 가 있으면 glob(예: 전북-*)
+//   --all                                 범위 없이 색인 전체
+//   --config <경로>                        기본 scripts/library-sync.config.json — include 목록이 기본 범위(--only 가 없을 때)
+//
+// 범위(2026-11-28 오너 결정: 증산·전북 관련만)
+//   지역 묶음 = 색인 항목의 group·region 칸, 없으면 파일 경로 library/<종류>/<지역 묶음>/… 의 그 칸. 태그(tags)가 패턴에 맞아도 범위 안.
+//   범위 밖 자료는 '건너뜀(범위 밖)'으로 세기만 하고, 이미 jsbeob 에 올라가 있으면 지우지 않고 '범위 밖이지만 올라가 있음'으로 보고한다.
+//   고아(색인에서 사라짐)는 색인에 아예 없는 행만 — 범위 밖 항목은 고아로 치지 않는다.
 //
 // 보내는 조건: use.web === true · 라이선스 경고 없음 · kind ∈ image|map|aerial|satellite · credit 있음(200자 이하)
 // 보내는 파일: files 중 role=derived, 없으면 original → 웹용 파생본(긴 변 2560px, 8MB 이하, jpg·png·webp).
@@ -35,10 +43,11 @@ const MAX_EDGE = 2560;
 const MAX_BYTES = 8 * 1024 * 1024;
 const LIMITS = { alt: 300, caption: 500, credit: 200, taken_at: 100, source_url: 1000 };
 const META_KEYS = ["alt", "caption", "credit", "taken_at", "source_url", "license_code"];
+const DEFAULT_CONFIG = path.join(root, "scripts/library-sync.config.json");
 
 // ── 옵션 ────────────────────────────────────────────────────────────────────
 function parseArgs(argv) {
-  const o = { apply: false, json: false };
+  const o = { apply: false, json: false, only: [], all: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     const val = () => {
@@ -52,6 +61,9 @@ function parseArgs(argv) {
     else if (a === "--api") o.api = val();
     else if (a === "--index") o.index = val();
     else if (a === "--token-file") o.tokenFile = val();
+    else if (a === "--only") o.only.push(val());
+    else if (a === "--all") o.all = true;
+    else if (a === "--config") o.config = val();
     else if (a === "-h" || a === "--help") {
       console.log(readFileSync(fileURLToPath(import.meta.url), "utf8").split("\n").filter((l) => l.startsWith("//")).map((l) => l.slice(3)).join("\n"));
       process.exit(0);
@@ -146,9 +158,65 @@ export function metaDiff(meta, row) {
   return d;
 }
 
+// ── 범위(지역 묶음) ────────────────────────────────────────────────────────
+/** 색인 항목의 지역 묶음 — group·region 칸, 없으면 경로 library/<종류>/<지역 묶음>/… */
+export function groupOf(it) {
+  for (const k of ["group", "region"]) if (typeof it[k] === "string" && it[k].trim()) return it[k].trim();
+  const paths = [it.meta_path, ...(Array.isArray(it.files) ? it.files.map((f) => f?.path) : [])].filter((p) => typeof p === "string");
+  for (const p of paths) {
+    const segs = p.split("/");
+    const i = segs.lastIndexOf("library");
+    if (i >= 0 && segs.length > i + 3) return segs[i + 2];
+  }
+  return null;
+}
+
+/** 패턴 하나 → 판정 함수. * ? 가 있으면 glob(전체 일치), 없으면 앞부분 일치 */
+export function patternMatcher(pat) {
+  if (/[*?]/.test(pat)) {
+    const re = new RegExp("^" + pat.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*").replace(/\?/g, ".") + "$");
+    return (s) => re.test(s);
+  }
+  return (s) => s.startsWith(pat);
+}
+
+/** 범위 만들기. patterns 가 null 이면 전체 */
+export function makeScope(patterns, source) {
+  if (!patterns) return { patterns: null, source, test: () => true };
+  const ms = patterns.map(patternMatcher);
+  const hit = (s) => typeof s === "string" && ms.some((m) => m(s));
+  return {
+    patterns,
+    source,
+    test: (it) => hit(groupOf(it)) || (Array.isArray(it.tags) && it.tags.some(hit)),
+  };
+}
+
+/** 옵션·설정 파일에서 범위 정하기: --all > --only > 설정 파일 include > 전체 */
+export function resolveScope(opt) {
+  if (opt.all) return makeScope(null, "--all");
+  if (opt.only?.length) return makeScope(opt.only, "--only");
+  const file = expandHome(opt.config ?? DEFAULT_CONFIG);
+  if (!existsSync(file)) {
+    if (opt.config) die(`설정 파일이 없습니다: ${file}`);
+    return makeScope(null, "설정 없음(전체)");
+  }
+  let cfg;
+  try {
+    cfg = JSON.parse(readFileSync(file, "utf8"));
+  } catch (e) {
+    die(`설정 파일을 읽지 못했습니다(${file}): ${e.message}`);
+  }
+  const inc = cfg?.include;
+  if (inc === undefined || inc === null) return makeScope(null, `${path.relative(root, file) || file}(include 없음 → 전체)`);
+  if (!Array.isArray(inc) || !inc.every((x) => typeof x === "string" && x)) die(`설정 파일 include 는 문자열 목록이어야 합니다: ${file}`);
+  if (!inc.length) die(`설정 파일 include 가 비어 있습니다 — 전체를 보내려면 --all: ${file}`);
+  return makeScope(inc, path.relative(root, file).startsWith("..") ? file : path.relative(root, file));
+}
+
 // ── 계획 세우기 (서버에 쓰지 않음) ─────────────────────────────────────────
-export function plan(items, rows, genmediaRoot) {
-  const out = { upload: [], replace: [], update: [], delete: [], orphan: [], skip: [], same: [] };
+export function plan(items, rows, genmediaRoot, scope = makeScope(null, "전체")) {
+  const out = { upload: [], replace: [], update: [], delete: [], orphan: [], skip: [], same: [], out_of_scope: [], out_of_scope_live: [] };
   const byLib = new Map();
   for (const r of rows) {
     if (!byLib.has(r.library_id)) byLib.set(r.library_id, []);
@@ -157,6 +225,13 @@ export function plan(items, rows, genmediaRoot) {
   for (const it of items) {
     const rs = byLib.get(it.id) ?? [];
     const active = rs.filter((r) => r.status === "active");
+    if (!scope.test(it)) {
+      // 범위 밖 — 세기만. 이미 올라가 있어도 지우지 않고 보고만
+      const group = groupOf(it);
+      for (const r of active) out.out_of_scope_live.push({ id: it.id, media_id: r.id, title: it.title, group });
+      if (!active.length) out.out_of_scope.push({ id: it.id, title: it.title, group });
+      continue;
+    }
     const why = ineligible(it);
     if (why) {
       // 예전에 보냈는데 이제 웹에 쓸 수 없다 → 지움(쓰는 곳 목록은 실행 전에 붙인다)
@@ -201,7 +276,8 @@ export function plan(items, rows, genmediaRoot) {
     if (Object.keys(diff).length) out.update.push({ ...base, media_id: row.id, diff });
     else out.same.push({ id: it.id, media_id: row.id });
   }
-  // 색인에서 사라진 자료 — 지우지 않고 보고만(사람이 확인 후 관리 화면에서 삭제)
+  // 색인에서 사라진 자료 — 지우지 않고 보고만(사람이 확인 후 관리 화면에서 삭제).
+  // 색인에 있는 범위 밖 항목은 위에서 따로 보고했으므로 고아가 아니다.
   const inIndex = new Set(items.map((it) => it.id));
   for (const r of rows) {
     if (r.status === "active" && !inIndex.has(r.library_id)) out.orphan.push({ id: r.library_id, media_id: r.id, title: r.alt, url: r.url });
@@ -272,8 +348,9 @@ async function sendFile(call, method, p, item) {
 }
 
 // ── 출력 ─────────────────────────────────────────────────────────────────
-function printPlan(p, { api, index, apply }) {
+function printPlan(p, { api, index, apply, scope }) {
   const L = (s = "") => console.log(s);
+  L(`범위: ${scope.patterns ? scope.patterns.join(", ") : "전체(범위 없음)"}  — ${scope.source}`);
   L(`자료실 → jsbeob 사진 창고  ${apply ? "【실제 반영 --apply】" : "【미리보기 --dry — 아무것도 바꾸지 않음】"}`);
   L(`  색인: ${index}`);
   L(`  대상: ${api}`);
@@ -290,8 +367,15 @@ function printPlan(p, { api, index, apply }) {
   sec("표기 고침", p.update, (x) => `${x.id} → media ${x.media_id}: ${Object.entries(x.diff).map(([k, d]) => `${k} 「${d.from ?? ""}」→「${d.to ?? ""}」`).join(", ")}${warn(x)}`);
   sec("지움(웹 사용 끔)", p.delete, (x) => `${x.id} → media ${x.media_id} (${x.reason})${usageText(x.usage)}`);
   sec("고아(색인에서 사라짐 — 지우지 않음, 사람이 확인)", p.orphan, (x) => `${x.id} → media ${x.media_id} ${x.title ?? ""}${usageText(x.usage)}`);
+  sec("범위 밖이지만 올라가 있음(지우지 않음 — 사람이 확인)", p.out_of_scope_live, (x) => `${x.id} → media ${x.media_id} ${x.title ?? ""} [${x.group ?? "묶음 모름"}]${usageText(x.usage)}`);
   sec("건너뜀", p.skip, (x) => `${x.id} ${x.title ?? ""} — ${x.reason}`);
   if (p.problems?.length) sec("색인 문제", p.problems, (x) => `${x.line ? `${x.line}줄 ` : ""}${x.id ?? ""} ${x.reason}`);
+  if (p.out_of_scope.length) {
+    const g = {};
+    for (const x of p.out_of_scope) g[x.group ?? "묶음 모름"] = (g[x.group ?? "묶음 모름"] ?? 0) + 1;
+    L(`■ 건너뜀(범위 밖) ${p.out_of_scope.length}건 — ${Object.entries(g).map(([k, n]) => `${k} ${n}`).join(", ")}`);
+    L();
+  }
   L(`변화 없음 ${p.same.length}건`);
 }
 function usageText(usage) {
@@ -317,14 +401,15 @@ export async function run(argv) {
     }
   }
   if (!existsSync(index)) die(`자료실 색인이 없습니다: ${index}`);
+  const scope = resolveScope(opt);
 
   const call = client(api, token);
   const { items, problems } = readIndex(index);
   const { media: rows } = await call("/api/library-sync/media");
-  const p = plan(items, rows, genmediaRoot);
+  const p = plan(items, rows, genmediaRoot, scope);
   p.problems = problems;
   // 지움·고아는 쓰는 곳을 붙여 보인다(설계 6절: 글에 붙은 곳 목록)
-  for (const x of [...p.delete, ...p.orphan]) x.usage = (await call(`/api/library-sync/media/${x.media_id}/usage`)).usage;
+  for (const x of [...p.delete, ...p.orphan, ...p.out_of_scope_live]) x.usage = (await call(`/api/library-sync/media/${x.media_id}/usage`)).usage;
   // 미리보기에서도 파일을 열 수 있는지 확인(깨진 그림·모르는 형식은 여기서 걸러 보인다)
   for (const list of [p.upload, p.replace]) {
     for (let i = list.length - 1; i >= 0; i--) {
@@ -365,9 +450,9 @@ export async function run(argv) {
       return src ? { ...rest, src: { rel: src.rel, role: src.role, sha256: src.sha256 } } : rest;
     };
     const plain = Object.fromEntries(Object.entries(p).map(([k, v]) => [k, Array.isArray(v) ? v.map(slim) : v]));
-    console.log(JSON.stringify({ api, index, apply: opt.apply, plan: plain, results }, null, 2));
+    console.log(JSON.stringify({ api, index, apply: opt.apply, scope: { patterns: scope.patterns, source: scope.source }, plan: plain, results }, null, 2));
   } else {
-    printPlan(p, { api, index, apply: opt.apply });
+    printPlan(p, { api, index, apply: opt.apply, scope });
     if (opt.apply) {
       console.log();
       console.log(`반영 결과: 성공 ${results.length - failed.length} · 실패 ${failed.length}`);
