@@ -2317,10 +2317,12 @@ async function listPosts(req, env) {
     keys = asked.filter((k) => keys.includes(k));
   }
   if (keys.length === 0) return json({ posts: [], next: null, has_more: false });
-  // 숨긴 글(신고 처리)은 피드(view=feed) 게시판에서만 글쓴이·관리자에게 '숨겨짐' 표시로 보인다 (2026-11-28)
+  // 숨긴 글(비공개·신고 처리)은 글쓴이·관리자에게 '숨겨짐' 표시로 보인다 (2026-11-28)
+  // 피드(view=feed) 게시판은 늘, 목록형은 '전체 보기' 목록이 with_hidden=1 을 줄 때만(첫 화면 소식 상자는 빼고)
   const feedOnly = keys.every((k) => cfg.get(k)?.view === "feed");
-  if (feedOnly && viewer && viewer.level >= LEVEL.ADMIN) where.push("p.status IN ('published','hidden')");
-  else if (feedOnly && viewer) {
+  const withHidden = feedOnly || url.searchParams.get("with_hidden") === "1";
+  if (withHidden && viewer && viewer.level >= LEVEL.ADMIN) where.push("p.status IN ('published','hidden')");
+  else if (withHidden && viewer) {
     where.push("(p.status='published' OR (p.status='hidden' AND p.author_id = ?))");
     binds.push(viewer.id);
   } else where.push("p.status='published'");

@@ -92,6 +92,8 @@ export interface ListPostsParams {
   limit?: number;
   author?: string;
   page?: number;
+  /** 글쓴이·관리자에게 숨긴(hidden) 글도 — 목록형 게시판 '전체 보기' 목록용 */
+  with_hidden?: boolean;
 }
 
 export interface ListPostsResult {
@@ -192,6 +194,7 @@ export const api = {
     if (params.limit) sp.set("limit", String(params.limit));
     if (params.author) sp.set("author", params.author);
     if (params.page) sp.set("page", String(params.page));
+    if (params.with_hidden) sp.set("with_hidden", "1");
     return req<ListPostsResult>(`/api/posts?${sp.toString()}`);
   },
   /** count=false: 조회수를 올리지 않는다(수정 창·저장 뒤 다시 읽기) */
