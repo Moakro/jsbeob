@@ -33,7 +33,16 @@
     icon?: string;
     href?: string;
   };
-  type Category = { key: string; label: string; color: string; icon?: string; members: string[] };
+  /** sepBefore: 칩 앞에 구분선, themePost: 칩 서랍에 띄울 테마 자료 글 id (2026-11-28) */
+  type Category = {
+    key: string;
+    label: string;
+    color: string;
+    icon?: string;
+    members: string[];
+    sepBefore?: boolean;
+    themePost?: string | null;
+  };
 
   let {
     mode,
@@ -343,13 +352,13 @@
     }
     const ids = membersOf(c.key);
     if (!ids.length) return flash(`지도에 위치가 등록된 ${c.label}${josaIga(c.label)} 아직 없습니다.`);
-    openBundle(c.key, ids, ids[0], false);
+    openBundle(c.key, ids, ids[0], false, c.themePost ?? null);
   }
 
   const SINGLE_LEVEL = 4;
 
   /** 칩·본문 묶음 열기 — 서랍에 장소 목록을 넘기고 지도를 그 장소들에 맞춘다 */
-  function openBundle(key: string, ids: string[], first: string, modal: boolean) {
+  function openBundle(key: string, ids: string[], first: string, modal: boolean, post: string | null = null) {
     activeCat = key;
     if (mode === "input") {
       repaint();
@@ -364,7 +373,8 @@
       window.dispatchEvent(
         new CustomEvent("jb:drawer-bundle", {
           // theme: 테마(칩) 묶음 — 서랍이 '장소 비우기'를 숨긴다(칩을 다시 누르면 비워진다)
-          detail: { items: ids.map((id) => ({ kind: drawerKind, id })), active, modal, theme: !modal },
+          // post: 테마 자료 글 — 서랍이 장소 카드 대신 이 글을 띄운다
+          detail: { items: ids.map((id) => ({ kind: drawerKind, id })), active, modal, theme: !modal, post },
         }),
       );
     if ((window as any).__jbDrawerReady) send();
@@ -384,7 +394,7 @@
     const padTop = searchPlaceholder ? 110 : 56;
     const padRight = narrow ? 56 : Math.min(460, container.clientWidth * 0.45);
     const padBottom = narrow ? Math.round(window.innerHeight * 0.3) + 24 : 60;
-    const padLeft = categories.length && !narrow ? 150 : 48;
+    const padLeft = categories.length && !narrow ? 190 : 48;
     if (!animate) {
       if (pts.length === 1) {
         map.setLevel(SINGLE_LEVEL);
@@ -816,7 +826,8 @@
       // 처음부터 고른 칩(?tag=)
       if (initialCat && !isBundle) {
         const ids = membersOf(initialCat);
-        if (ids.length) openBundle(initialCat, ids, ids[0], false);
+        if (ids.length)
+          openBundle(initialCat, ids, ids[0], false, categories.find((c) => c.key === initialCat)?.themePost ?? null);
         return;
       }
       // 본문 지도 묶음
@@ -846,6 +857,23 @@
   }
 </script>
 
+{#snippet chip(c: Category)}
+  {@const n = counts[c.key] ?? 0}
+  <button
+    type="button"
+    class="km-chip"
+    class:is-on={activeCat === c.key}
+    class:is-empty={n === 0}
+    style={`--chip-color:${c.color}`}
+    aria-pressed={activeCat === c.key}
+    onclick={(e) => toggleCat(c, e)}
+  >
+    <span class="km-chip-dot" aria-hidden="true"></span>
+    {c.label}
+    <span class="km-chip-count">{n}</span>
+  </button>
+{/snippet}
+
 {#if errorMsg}
   <div class="map-fallback" style={`height:${height}`}>
     <div class="map-fallback-inner">
@@ -855,7 +883,7 @@
     </div>
   </div>
 {:else}
-  <div class="kmap" class:has-search={!!searchPlaceholder} style={`height:${height};--km-top:${controlsTop}`}>
+  <div class="kmap" class:has-search={!!searchPlaceholder} class:is-display={mode === "display"} style={`height:${height};--km-top:${controlsTop}`}>
     <div class="map-container" bind:this={container}></div>
     {#if onClose}
       <button type="button" class="km-close" aria-label="지도 닫기" title="닫기" onclick={onClose}>
@@ -978,21 +1006,9 @@
             {homeLabel}
           </button>
         {/if}
-        {#each categories as c (c.key)}
-          {@const n = counts[c.key] ?? 0}
-          <button
-            type="button"
-            class="km-chip"
-            class:is-on={activeCat === c.key}
-            class:is-empty={n === 0}
-            style={`--chip-color:${c.color}`}
-            aria-pressed={activeCat === c.key}
-            onclick={(e) => toggleCat(c, e)}
-          >
-            <span class="km-chip-dot" aria-hidden="true"></span>
-            {c.label}
-            <span class="km-chip-count">{n}</span>
-          </button>
+        {#each categories as c, i (c.key)}
+          {#if c.sepBefore && (i > 0 || homeLabel)}<span class="km-chip-sep" aria-hidden="true"></span>{/if}
+          {@render chip(c)}
         {/each}
       </nav>
     {/if}
@@ -1582,6 +1598,39 @@
     height: 13px;
     fill: #f5c84c;
     flex: none;
+  }
+  /* 태그 '앞에 구분선' (2026-11-28) */
+  .km-chip-sep {
+    align-self: stretch;
+    height: 1px;
+    margin: 3px 4px;
+    background: #ffffffb3;
+    box-shadow: 0 1px 2px #00000059;
+  }
+  /* 넓은 화면은 칩을 크게(약 1.3배), 휴대폰은 그대로 (2026-11-28) */
+  @media (min-width: 761px) {
+    .kmap.is-display .km-chips {
+      gap: 6px;
+    }
+    .kmap.is-display .km-chip {
+      gap: 7px;
+      padding: 6px 14px;
+      font-size: 15.5px;
+    }
+    .kmap.is-display .km-chip-dot {
+      width: 10px;
+      height: 10px;
+    }
+    .kmap.is-display .km-chip-count {
+      font-size: 14px;
+    }
+    .kmap.is-display .km-chip-home svg {
+      width: 17px;
+      height: 17px;
+    }
+    .kmap.is-display .km-chip-sep {
+      margin: 4px 6px;
+    }
   }
   .km-chip:focus-visible {
     outline: 2px solid #fff;

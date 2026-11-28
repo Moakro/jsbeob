@@ -265,7 +265,9 @@ CREATE TABLE tags (
   created_by  TEXT REFERENCES users(id),
   updated_by  TEXT REFERENCES users(id),
   created_at  TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+  updated_at  TEXT NOT NULL DEFAULT (datetime('now')),
+  sep_before    INTEGER NOT NULL DEFAULT 0,   -- 1 = 지도 칩 줄에서 이 칩 앞에 구분선 (2026-11-28)
+  theme_post_id TEXT                          -- 테마 자료 글(posts.id) — 칩 서랍에 이 글 하나를 띄움 (2026-11-28)
 );
 CREATE TABLE tag_links (
   tag_id      TEXT NOT NULL REFERENCES tags(id) ON DELETE CASCADE,

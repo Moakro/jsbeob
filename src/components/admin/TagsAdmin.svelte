@@ -2,7 +2,7 @@
   // 관리자 — 태그. id 가 없으면 목록(끌어서/↑↓ 순서 = 지도 버튼 순서), 있으면("new" 포함) 태그 편집기.
   // 복원(2026-11-01): 배포본 _astro/AdminApp.*.js 에 함께 묶인 컴포넌트. 파일 이름은 추정.
   import { onMount } from "svelte";
-  import { adminApi } from "../../lib/blocks";
+  import { adminApi, searchContent } from "../../lib/blocks";
   import { MARKER_ICONS, TAG_COLORS, iconPath } from "../../lib/map-categories";
   import { confirmDialog } from "../../lib/confirm";
 
@@ -65,7 +65,32 @@
     icon: "pin",
     on_map: true,
     status: "active",
+    sep_before: false,
+    theme_post_id: null as string | null,
   });
+  // 테마 자료 글(2026-11-28)
+  let themePost = $state<{ id: string; title: string; label?: string } | null>(null);
+  let postQ = $state("");
+  let postHits = $state<any[]>([]);
+  let postSeq = 0;
+  $effect(() => {
+    const k = postQ.trim();
+    const seq = ++postSeq;
+    if (!k) {
+      postHits = [];
+      return;
+    }
+    const t = setTimeout(async () => {
+      const items = await searchContent(k, ["post"]).catch(() => []);
+      if (seq === postSeq) postHits = items.slice(0, 10);
+    }, 250);
+    return () => clearTimeout(t);
+  });
+  function pickPost(p: any) {
+    themePost = { id: p.id, title: p.title, label: p.label };
+    f.theme_post_id = p.id;
+    postQ = "";
+  }
   let points = $state<any[]>([]);
   let contents = $state<any[]>([]);
   let allPoints = $state<any[]>([]);
@@ -102,6 +127,9 @@
     f.icon = t.icon;
     f.on_map = t.on_map;
     f.status = t.status;
+    f.sep_before = !!t.sep_before;
+    f.theme_post_id = t.theme_post_id ?? null;
+    themePost = t.theme_post ?? null;
     points = t.points;
     contents = t.contents;
   }
@@ -417,6 +445,36 @@
           />
           숨김 <small>지도 버튼·마커에서 빠짐</small></label
         >
+        <label class="check"><input type="checkbox" bind:checked={f.sep_before} /> 앞에 구분선</label>
+      </section>
+      <section class="box">
+        <strong>테마 자료 글</strong>
+        {#if themePost}
+          <div class="tp">
+            <span>{themePost.title}</span>
+            <button
+              type="button"
+              class="x"
+              aria-label="테마 자료 글 빼기"
+              onclick={() => {
+                themePost = null;
+                f.theme_post_id = null;
+              }}>✕</button
+            >
+          </div>
+        {/if}
+        <div class="add">
+          <input bind:value={postQ} placeholder="자료 글 제목으로 찾기" />
+          {#if postHits.length}
+            <ul class="hits">
+              {#each postHits as p (p.id)}
+                <li>
+                  <button type="button" onclick={() => pickPost(p)}>{p.title} <small>{p.label}</small></button>
+                </li>
+              {/each}
+            </ul>
+          {/if}
+        </div>
       </section>
       <section class="box">
         <strong>미리보기</strong>
@@ -628,6 +686,19 @@
   .add {
     display: grid;
     gap: 6px;
+  }
+  .tp {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 0.9rem;
+  }
+  .tp .x {
+    border: 0;
+    background: none;
+    cursor: pointer;
+    color: var(--color-fg-muted, #888);
   }
   .hits button {
     border: 0;
