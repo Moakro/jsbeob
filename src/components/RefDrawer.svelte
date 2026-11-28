@@ -237,6 +237,7 @@
     }
     // 테마 밖의 장소를 하나 더하면(검색·다른 마커) 다시 '장소 비우기'가 쓸모 있다
     if (!modal) themeBundle = false;
+    themePost = null;
     tabs = [...tabs, { key: k, card: null, error: null, backlinks: null }];
     dir = 1;
     swipeFrom = 0;
@@ -302,8 +303,64 @@
 
   /** 지도 테마 버튼(칩)으로 연 묶음인가 — 그때는 '장소 비우기'를 숨긴다(칩을 다시 누르면 닫힌다, 2026-11-21) */
   let themeBundle = $state(false);
+
+  // ── 테마 자료 글(2026-11-28) — 태그에 자료 글이 지정된 칩은 장소 카드 대신 그 글 하나를 띄우고,
+  // 마커·‹ › 로 글 안의 그 장소 대목(지도 블록 위 소제목부터)으로 스크롤한다.
+  /** 테마 글 카드 key(post:<id>)와 장소 순서 */
+  let themePost = $state<{ key: string; points: string[] } | null>(null);
+  let themeIdx = $state(0);
+  const inTheme = $derived(!!themePost && view === "card" && tabs[active]?.key === themePost.key);
+
+  /** 글 안 그 장소 대목으로 부드럽게 */
+  async function scrollToPoint(id: string) {
+    for (let n = 0; n < 100; n++) {
+      await tick();
+      const body = root?.querySelector<HTMLElement>(".sd-body.sd-slide");
+      const blk = body?.querySelector<HTMLElement>(`.sd-content .blk-map[data-map-point="${CSS.escape(id)}"]`);
+      if (body && blk) {
+        // 지도 블록 위쪽의 가까운 소제목(앞 장소의 지도 블록을 넘지 않음)
+        let start: HTMLElement = blk;
+        for (let el = blk.previousElementSibling as HTMLElement | null; el; el = el.previousElementSibling as HTMLElement | null) {
+          if (el.matches(".blk-map")) break;
+          if (el.matches(".blk-heading")) {
+            start = el;
+            break;
+          }
+        }
+        const top = start.getBoundingClientRect().top - body.getBoundingClientRect().top + body.scrollTop;
+        body.scrollTo({ top: Math.max(0, top - 12), behavior: reduceMotion() ? "auto" : "smooth" });
+        return;
+      }
+      await new Promise((r) => setTimeout(r, 50));
+    }
+  }
+  function themeGo(i: number) {
+    if (!themePost) return;
+    const n = themePost.points.length;
+    themeIdx = (i + n) % n;
+    scrollToPoint(themePost.points[themeIdx]);
+  }
+
+  function openThemePost(postId: string, points: string[], at: number) {
+    themeBundle = true;
+    const key = keyOf("post", postId);
+    themePost = { key, points };
+    themeIdx = Math.max(0, Math.min(at, points.length - 1));
+    tabs = [{ key, card: null, error: null, backlinks: null }];
+    active = 0;
+    dir = 1;
+    swipeFrom = 0;
+    tab = "refs";
+    view = "card";
+    expanded = false;
+    open = true;
+    loadCard(key);
+    tick().then(() => root?.querySelector(".sd-body")?.scrollTo(0, 0));
+  }
+
   function openBundle(items: { kind: string; id: string }[], at: number, asModal: boolean, theme = false) {
     if (!asModal) themeBundle = theme;
+    themePost = null;
     if (asModal && !modal) {
       saved = { tabs: $state.snapshot(tabs) as Tab[], active, view, open, tab };
       modal = true;
@@ -486,6 +543,7 @@
 
   function clearAll() {
     themeBundle = false;
+    themePost = null;
     tabs = [];
     active = 0;
     view = "list";
@@ -630,13 +688,33 @@
     };
     const onBundle = (e: Event) => {
       const d = (e as CustomEvent).detail;
-      if (Array.isArray(d?.items)) openBundle(d.items, d.active ?? 0, !!d.modal, !!d.theme);
+      if (!Array.isArray(d?.items)) return;
+      if (d.post && !d.modal) openThemePost(d.post, d.items.map((x: any) => x.id), d.active ?? 0);
+      else openBundle(d.items, d.active ?? 0, !!d.modal, !!d.theme);
     };
     const onClear = () => clearAll();
     const onOpen = (e: Event) => {
       const d = (e as CustomEvent).detail;
       if (!d?.kind || !d?.id) return;
       if (sheet) expanded = false;
+      // 테마 글을 보는 중에 그 테마 장소 마커를 누르면 글 안 그 대목으로
+      const ti = themePost && d.kind === "point" ? themePost.points.indexOf(d.id) : -1;
+      if (themePost && ti >= 0) {
+        const k = themePost.key;
+        const i = tabs.findIndex((t) => t.key === k);
+        if (i >= 0) {
+          if (i !== active) {
+            dir = i > active ? 1 : -1;
+            swipeFrom = 0;
+            active = i;
+          }
+          open = true;
+          tab = "refs";
+          view = "card";
+          themeGo(ti);
+          return;
+        }
+      }
       openCard(d.kind, d.id);
     };
     // 지도 페이지(장소 시트)
@@ -715,7 +793,12 @@
 
   // 지도가 선택 마커를 맞추도록 서랍 상태를 알린다
   $effect(() => {
-    const key = open && view === "card" ? (tabs[active]?.key ?? null) : null;
+    const key =
+      open && view === "card"
+        ? inTheme && themePost
+          ? `point:${themePost.points[themeIdx]}`
+          : (tabs[active]?.key ?? null)
+        : null;
     window.dispatchEvent(new CustomEvent("jb:drawer-state", { detail: { open, key, count: tabs.length } }));
   });
 </script>
@@ -1031,7 +1114,24 @@
           </div>
         {/each}
       </div>
-      {#if tabs.length > 1}
+      {#if inTheme && themePost && themePost.points.length > 1}
+        <footer class="sd-foot" class:is-map={mapMode}>
+          <div class="sd-nav">
+            <button type="button" class="sd-arrow" aria-label="이전 장소" onclick={() => themeGo(themeIdx - 1)}>‹</button>
+            <div class="dots">
+              {#each themePost.points as pid, i (pid)}
+                <button
+                  type="button"
+                  class:on={i === themeIdx}
+                  aria-label={`${i + 1}번째 장소`}
+                  onclick={() => themeGo(i)}
+                ></button>
+              {/each}
+            </div>
+            <button type="button" class="sd-arrow" aria-label="다음 장소" onclick={() => themeGo(themeIdx + 1)}>›</button>
+          </div>
+        </footer>
+      {:else if tabs.length > 1}
         <footer class="sd-foot" class:is-map={mapMode}>
           <div class="sd-nav">
             <button type="button" class="sd-arrow" aria-label="이전 카드" onclick={() => step(-1)}>‹</button>

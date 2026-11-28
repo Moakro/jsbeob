@@ -24,6 +24,8 @@ const categories = tags.map((t) => ({
   color: t.color,
   icon: t.icon,
   members: t.members,
+  sepBefore: !!t.sep_before,
+  themePost: t.theme_post ?? null,
 }));
 const wantTag = Astro.url.searchParams.get("tag");
 const initialCat = wantTag ? (tags.find((t) => t.slug === wantTag || t.id === wantTag)?.id ?? "") : "";

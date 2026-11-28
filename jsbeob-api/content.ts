@@ -452,9 +452,11 @@ async function publicListPoints(env) {
   });
   const shown = new Set(points.map((p) => p.id));
   const tr = await env.DB.prepare(
-    `SELECT t.id, t.slug, t.name, t.color, t.icon, t.description, tl.owner_id AS pid
+    `SELECT t.id, t.slug, t.name, t.color, t.icon, t.description, t.sep_before, tl.owner_id AS pid,
+            CASE WHEN po.status='published' AND po.board NOT IN (${PRIVATE_BOARDS_SQL}) THEN po.id END AS theme_post_id
        FROM tags t JOIN tag_links tl ON tl.tag_id=t.id AND tl.owner_type='point'
        JOIN map_points mp ON mp.id=tl.owner_id
+       LEFT JOIN posts po ON po.id=t.theme_post_id
       WHERE t.on_map=1 AND t.status='active'
       ORDER BY t.sort_order, t.name, tl.sort_order, mp.name`
   ).all();
@@ -462,7 +464,8 @@ async function publicListPoints(env) {
   for (const r of tr.results ?? []) {
     if (!shown.has(r.pid)) continue;
     let t = tags.find((x) => x.id === r.id);
-    if (!t) tags.push(t = { id: r.id, slug: r.slug, name: r.name, color: r.color, icon: r.icon, description: r.description, members: [] });
+    // sep_before: 칩 앞에 구분선, theme_post: 칩 서랍에 띄울 테마 자료 글 id (2026-11-28)
+    if (!t) tags.push(t = { id: r.id, slug: r.slug, name: r.name, color: r.color, icon: r.icon, description: r.description, sep_before: !!r.sep_before, theme_post: r.theme_post_id ?? null, members: [] });
     t.members.push(r.pid);
   }
   return json({ points, tags });
@@ -617,6 +620,8 @@ function shapeTag(r) {
     icon: r.icon,
     description: r.description,
     on_map: !!r.on_map,
+    sep_before: !!r.sep_before,
+    theme_post_id: r.theme_post_id ?? null,
     sort_order: r.sort_order,
     status: r.status,
     updated_at: r.updated_at
@@ -646,8 +651,12 @@ async function loadTag(env, id) {
        LEFT JOIN places p ON l.owner_type='place' AND p.id=l.owner_id
       WHERE l.tag_id=? AND l.owner_type IN ('article','place') ORDER BY title`
   ).bind(id).all();
+  const tp = r.theme_post_id ? await env.DB.prepare(
+    `SELECT p.id, p.title, p.status, p.board, p.category, bd.label AS board_label FROM posts p LEFT JOIN boards bd ON bd.key = p.board WHERE p.id=?`
+  ).bind(r.theme_post_id).first() : null;
   return {
     ...shapeTag(r),
+    theme_post: tp ? { id: tp.id, title: tp.title, status: tp.status, label: tp.board_label ?? BOARD_LABELS[tp.board] ?? "게시글", href: refHref("post", tp) } : null,
     points: pts.results ?? [],
     contents: (cs.results ?? []).filter((c) => c.title !== null)
   };
@@ -679,19 +688,26 @@ async function adminSaveTag(req, env, id, uid) {
   const dupName = await env.DB.prepare("SELECT id FROM tags WHERE (name=? OR slug=?) AND id<>?").bind(name, slug, itemId).first();
   if (dupName) return json({ error: "같은 이름이나 주소의 태그가 이미 있습니다" }, 409);
   const desc = str(raw.description, 300);
+  const sepBefore = raw.sep_before ? 1 : 0;
+  let themePost = null;
+  if (raw.theme_post_id !== void 0 && raw.theme_post_id !== null && raw.theme_post_id !== "") {
+    if (typeof raw.theme_post_id !== "string" || raw.theme_post_id.length > 64) throw new InputError("테마 자료 글 형식이 잘못되었습니다");
+    if (!await env.DB.prepare("SELECT id FROM posts WHERE id=?").bind(raw.theme_post_id).first()) throw new InputError("없는 자료 글입니다. 다시 골라 주세요");
+    themePost = raw.theme_post_id;
+  }
   const stmts = [];
   if (id) {
     stmts.push(
       env.DB.prepare(
-        `UPDATE tags SET slug=?, name=?, color=?, icon=?, description=?, on_map=?, status=?, updated_by=?, updated_at=datetime('now') WHERE id=?`
-      ).bind(slug, name, color, icon, desc, onMap, status, uid, itemId)
+        `UPDATE tags SET slug=?, name=?, color=?, icon=?, description=?, on_map=?, status=?, sep_before=?, theme_post_id=?, updated_by=?, updated_at=datetime('now') WHERE id=?`
+      ).bind(slug, name, color, icon, desc, onMap, status, sepBefore, themePost, uid, itemId)
     );
   } else {
     stmts.push(
       env.DB.prepare(
-        `INSERT INTO tags (id, slug, name, color, icon, description, on_map, status, sort_order, created_by, updated_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM tags), ?, ?)`
-      ).bind(itemId, slug, name, color, icon, desc, onMap, status, uid, uid)
+        `INSERT INTO tags (id, slug, name, color, icon, description, on_map, status, sep_before, theme_post_id, sort_order, created_by, updated_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM tags), ?, ?)`
+      ).bind(itemId, slug, name, color, icon, desc, onMap, status, sepBefore, themePost, uid, uid)
     );
   }
   if (raw.points !== void 0) {
