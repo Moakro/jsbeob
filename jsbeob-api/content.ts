@@ -173,7 +173,7 @@ async function serveFile(req, env, path) {
   if (etagIn && etagIn === obj.httpEtag) return new Response(null, { status: 304, headers });
   return new Response(req.method === "HEAD" ? null : obj.body, { headers });
 }
-const MEDIA_COLS = "id, r2_key, content_type, width, height, size_bytes, alt, caption, credit, taken_at, source_url, created_at";
+const MEDIA_COLS = "id, r2_key, content_type, width, height, size_bytes, alt, caption, credit, taken_at, source_url, license_code, created_at";
 function shapeMedia(env, r) {
   return {
     id: r.id,
@@ -187,6 +187,8 @@ function shapeMedia(env, r) {
     credit: r.credit,
     taken_at: r.taken_at,
     source_url: r.source_url,
+    // 공용 자료실에서 온 사진의 라이선스 코드(PD·CC-BY-SA·KOGL-3 …) — 있으면 화면이 credit 을 그림 아래에 보인다
+    license_code: r.license_code ?? null,
     created_at: r.created_at
   };
 }

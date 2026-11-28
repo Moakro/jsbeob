@@ -598,7 +598,7 @@ export async function handleIntakeWorker(req, env, path) {
   return err("not found", "not_found", 404);
 }
 
-async function sameSecret(a, b) {
+export async function sameSecret(a, b) {
   // 길이·내용을 시간 차이로 알 수 없게 해시끼리 비교
   const [x, y] = await Promise.all([a, b].map((v) => crypto.subtle.digest("SHA-256", new TextEncoder().encode(v))));
   const p = new Uint8Array(x), q = new Uint8Array(y);

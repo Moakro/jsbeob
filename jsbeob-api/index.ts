@@ -27,6 +27,8 @@ export interface Env {
   YOUTUBE_CHANNEL_ID?: string;
   /** 쿠키 요청에서 SITE_ORIGIN 말고도 받아 줄 출처(쉼표로 구분, 선택) — 로컬에서 Tailscale 주소로 열 때 등 */
   ALLOWED_ORIGINS?: string;
+  /** 공용 자료실 동기화 도구(미니PC scripts/library-sync.mjs) 전용 열쇠, 32자 이상 — 없으면 /api/library-sync/* 는 404 */
+  LIBRARY_SYNC_TOKEN?: string;
 }
 
 // 복원: 2026-11-01 배포본(jsbeob-api-preview) 번들에서 복원. 원본 TS 타입 정보는 번들에서 사라져
@@ -37,6 +39,7 @@ import { LIBRARY_BOARD, handleLibrary, normLibraryPostFields } from "./library";
 import { BlockError, allKeys, allPointIds, blocksForEditor, imageItems, normalizeBlocks, parseStoredBlocks, plainFromBlocks, resolveBlocks, s } from "./blocks";
 import { handleContent, mediaUrl, refIndexStmts, renderRowBlocks, siteHosts } from "./content";
 import { handleMedia } from "./media";
+import { handleLibrarySync } from "./library-sync";
 import { branchCodeSet, handleBranches } from "./branch";
 import { handleLegacy } from "./legacy";
 import { handleReports, openReportCount } from "./reports";
@@ -84,6 +87,9 @@ export default {
       // 올림함 AI 초안 — 미니PC 감시 서비스 전용 열쇠로만 (2026-11-27, intake.ts)
       const workerRes = await handleIntakeWorker(req, env, path);
       if (workerRes) return workerRes;
+      // 공용 자료실 → 사진 창고 가져오기 — 미니PC 동기화 도구 전용 열쇠로만 (2026-11-28, library-sync.ts)
+      const syncRes = await handleLibrarySync(req, env, path);
+      if (syncRes) return syncRes;
       // 편집진 올림함 (2026-11-27, intake.ts)
       const intakeRes = await handleIntake(req, env, path, { requestUser: (r) => requestUser(r, env) });
       if (intakeRes) return intakeRes;
