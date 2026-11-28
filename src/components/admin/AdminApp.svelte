@@ -22,6 +22,7 @@
   import BoardsAdmin from "./BoardsAdmin.svelte";
   import MembersAdmin from "./MembersAdmin.svelte";
   import BranchesAdmin from "./BranchesAdmin.svelte";
+  import ReportsAdmin from "./ReportsAdmin.svelte";
 
   let me = $state<any>(null);
   let ready = $state(false);
@@ -43,7 +44,10 @@
     { key: "home", label: "홈 편성" },
     { key: "members", label: "회원" },
     { key: "boards", label: "게시판" }, // 2026-11-16 게시판 관리
+    { key: "reports", label: "신고" }, // 2026-11-28 오리알터 신고·숨김
   ];
+  /** 처리 전 신고(대상 수) — 탭 배지 */
+  let reportsOpen = $state(0);
   const TABS = new Set([
     ...SECTION_TABS.filter((t) => t.enabled).map((t) => t.key),
     ...EXTRA_TABS.map((t) => t.key),
@@ -116,7 +120,10 @@
     window.addEventListener("hashchange", onHash);
     api
       .me()
-      .then((r: any) => (me = r.user))
+      .then((r: any) => {
+        me = r.user;
+        reportsOpen = r.user?.reports_open ?? 0;
+      })
       .catch(() => (me = null))
       .finally(() => (ready = true));
     return () => window.removeEventListener("hashchange", onHash);
@@ -140,7 +147,11 @@
     {/each}
     <span class="sep" aria-hidden="true"></span>
     {#each EXTRA_TABS as t (t.key)}
-      <a href={`#${t.key}`} class:on={activeTab === t.key}>{t.label}</a>
+      <a href={`#${t.key}`} class:on={activeTab === t.key}
+        >{t.label}{#if t.key === "reports" && reportsOpen}<span class="tab-badge" aria-label={`처리 전 ${reportsOpen}건`}
+            >{reportsOpen}</span
+          >{/if}</a
+      >
     {/each}
   </nav>
   {#key route.key}
@@ -160,6 +171,8 @@
       <HomeTiles />
     {:else if route.tab === "boards"}
       <BoardsAdmin />
+    {:else if route.tab === "reports"}
+      <ReportsAdmin onchange={(n) => (reportsOpen = n)} />
     {:else if route.tab === "members"}
       <MembersAdmin meId={me.id} />
     {:else if route.tab === "photos"}
@@ -218,5 +231,18 @@
   }
   .dim {
     color: var(--color-muted);
+  }
+  .tab-badge {
+    display: inline-block;
+    min-width: 18px;
+    margin-left: 5px;
+    padding: 0 5px;
+    border-radius: 999px;
+    background: var(--color-primary);
+    color: #fff;
+    font-size: 0.72rem;
+    font-weight: 700;
+    line-height: 18px;
+    text-align: center;
   }
 </style>

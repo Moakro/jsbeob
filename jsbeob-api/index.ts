@@ -39,6 +39,8 @@ import { handleContent, mediaUrl, refIndexStmts, renderRowBlocks, siteHosts } fr
 import { handleMedia } from "./media";
 import { branchCodeSet, handleBranches } from "./branch";
 import { handleLegacy } from "./legacy";
+import { handleReports, openReportCount } from "./reports";
+import { stripImageMeta } from "./image-meta";
 import { checkIntakeForPost, handleIntake, handleIntakeWorker, intakePublishStmt, purgeExpiredIntakes } from "./intake";
 
 const COOKIE_NAME = "jb_session";
@@ -85,6 +87,15 @@ export default {
       // 편집진 올림함 (2026-11-27, intake.ts)
       const intakeRes = await handleIntake(req, env, path, { requestUser: (r) => requestUser(r, env) });
       if (intakeRes) return intakeRes;
+      // 글·댓글 신고와 숨김 (2026-11-28, reports.ts)
+      const reportRes = await handleReports(req, env, path, {
+        requestUser: (r) => requestUser(r, env),
+        canSeePost: async (p, u) => {
+          const b = await getBoard(env.DB, p.board);
+          return canSeePostIn(b, p.author_id, u) && (p.is_private !== 1 || canSeePrivatePost(p.author_id, u));
+        }
+      });
+      if (reportRes) return reportRes;
       const libRes = await handleLibrary(req, env, path, {
         adminUser: async (r) => {
           const uid = await currentUserId(r, env);
@@ -533,7 +544,9 @@ async function getMe(req, env) {
       affiliation: u.affiliation,
       level: u.level,
       needs_nickname: !u.display_name,
-      member: mp ? { branch: mp.branch, real_name: mp.real_name ?? "" } : null
+      member: mp ? { branch: mp.branch, real_name: mp.real_name ?? "" } : null,
+      // 처리 전 신고(대상 수) — 관리자 화면 배지 (2026-11-28)
+      ...(u.level ?? 0) >= LEVEL.ADMIN ? { reports_open: await openReportCount(env) } : {}
     }
   });
 }
@@ -955,6 +968,7 @@ async function listComments(req, env) {
   if (tp) {
     const cv = await viewerOf(req, env);
     if (!(await canSeePost(env, tp.board, tp.author_id, cv))) return json({ error: "not found" }, 404);
+    if (tp.status === "hidden" && !canSeePrivatePost(tp.author_id, cv)) return json({ error: "not found" }, 404);
     // 비공개 글의 답변은 글쓴이·관리자만
     if (tp.is_private === 1 && !canSeePrivatePost(tp.author_id, cv)) return json({ error: "비공개 글입니다", private: true }, 403);
   }
@@ -1045,6 +1059,7 @@ async function createComment(req, env) {
     const tb = await getBoard(env.DB, tp.board);
     const cu = { id: uid, level: u.level ?? 0 };
     if (!canSeePostIn(tb, tp.author_id, cu)) return json({ error: "not found" }, 404);
+    if (tp.status === "hidden" && !canSeePrivatePost(tp.author_id, cu)) return json({ error: "not found" }, 404);
     if (tp.is_private === 1 && !canSeePrivatePost(tp.author_id, cu)) return json({ error: "비공개 글입니다", private: true }, 403);
     if (!canCommentIn(tb, cu)) return json({ error: "이 게시판에는 댓글을 쓸 수 없습니다" }, 403);
   }
@@ -1523,7 +1538,9 @@ async function uploadImage(req, env) {
   const ext = extFromContentType(ct);
   const id = uuid();
   const key = `${userPrefix}${id}.${ext}`;
-  await env.UPLOADS.put(key, buf, {
+  // 찍은 위치(GPS) 등 EXIF·XMP 를 지우고 저장 — 화면은 이미 다시 저장해 보내지만 다른 경로 대비 (2026-11-28)
+  const clean = stripImageMeta(buf, ct);
+  await env.UPLOADS.put(key, clean, {
     httpMetadata: { contentType: ct, cacheControl: "public, max-age=31536000, immutable" },
     customMetadata: { uid, originalSize: String(buf.byteLength), ...hash ? { hash } : {} }
   });
@@ -2217,7 +2234,7 @@ async function adminBoards(req, env, key) {
 /** 댓글 대상이 게시글이면 그 글의 게시판·글쓴이 */
 async function postBoardOf(env, targetType, targetId) {
   if (targetType !== "post") return null;
-  return await env.DB.prepare("SELECT board, author_id, is_private FROM posts WHERE id=?").bind(targetId).first();
+  return await env.DB.prepare("SELECT board, author_id, is_private, status FROM posts WHERE id=?").bind(targetId).first();
 }
 function parseAttachments(raw) {
   if (!raw) return [];
@@ -2241,8 +2258,12 @@ function shapePost(r, includeBody) {
     comment_count: r.comment_count ?? 0,
     is_pinned: r.is_pinned === 1,
     is_private: r.is_private === 1,
+    // 관리자가 숨긴 글(신고 처리, 2026-11-28) — 글쓴이·관리자에게만 온다
+    ...r.status === "hidden" ? { is_hidden: true } : {},
     // 목록용 본문 앞부분(오리알터 피드 카드) — 목록에서만 채운다
     ...r.excerpt != null ? { excerpt: r.excerpt } : {},
+    // 본문 첫 블록이 소제목이면 그 글(오리알터 카드에서 굵게 — ＋ 버튼 시트의 '제목', 2026-11-28)
+    ...r.lead_heading ? { lead_heading: r.lead_heading } : {},
     // 소식 일정 기간(달력에 들어간 일정) — 없으면 null
     period: r.ev_start ? { start: r.ev_start, end: r.ev_end ?? null } : null,
     // 최근 댓글 한 건(오리알터 피드 카드 아래 미리보기 — 밴드처럼)
@@ -2272,7 +2293,7 @@ async function listPosts(req, env) {
     50,
     Math.max(1, Number(url.searchParams.get("limit")) || POST_PAGE_SIZE)
   );
-  const where = ["p.status='published'"];
+  const where = [];
   const binds = [];
   const viewer = await viewerOf(req, env);
   // 볼 수 있는 게시판만 — 본인 글만 보는 게시판은 본인 글만(관리자는 전부)
@@ -2286,6 +2307,13 @@ async function listPosts(req, env) {
     keys = asked.filter((k) => keys.includes(k));
   }
   if (keys.length === 0) return json({ posts: [], next: null, has_more: false });
+  // 숨긴 글(신고 처리)은 피드(view=feed) 게시판에서만 글쓴이·관리자에게 '숨겨짐' 표시로 보인다 (2026-11-28)
+  const feedOnly = keys.every((k) => cfg.get(k)?.view === "feed");
+  if (feedOnly && viewer && viewer.level >= LEVEL.ADMIN) where.push("p.status IN ('published','hidden')");
+  else if (feedOnly && viewer) {
+    where.push("(p.status='published' OR (p.status='hidden' AND p.author_id = ?))");
+    binds.push(viewer.id);
+  } else where.push("p.status='published'");
   where.push(`p.board IN (${keys.map(() => "?").join(",")})`);
   binds.push(...keys);
   const ownOnly = readable.filter((b) => b.read_scope === "own" && keys.includes(b.key)).map((b) => b.key);
@@ -2331,6 +2359,9 @@ async function listPosts(req, env) {
     `SELECT p.id, p.board, p.category, p.title, p.attachments, p.cover_image,
             p.view_count, p.is_pinned, p.is_private, p.status, p.created_at, p.updated_at,
             substr(p.body_md, 1, 1200) AS excerpt, mp.branch AS author_branch,
+            CASE WHEN json_valid(p.body_blocks) THEN
+              CASE WHEN json_extract(p.body_blocks, '$[0].type') = 'heading' THEN json_extract(p.body_blocks, '$[0].text') END
+            END AS lead_heading,
             lc.body AS lc_body, lc.created_at AS lc_at, lcu.display_name AS lc_author,
             (SELECT MIN(e.start_date) FROM events e WHERE e.source_post_id = p.id) AS ev_start,
             (SELECT NULLIF(MAX(COALESCE(e.end_date, e.start_date)), MIN(e.start_date)) FROM events e WHERE e.source_post_id = p.id) AS ev_end,
@@ -2435,6 +2466,14 @@ function legacyPostBlocks(env, bodyMd, attachments) {
   }
   return out;
 }
+/** 피드(오리알터) 게시판 하루 게시 수 상한 — 관리자는 빼고 */
+const FEED_DAILY_LIMIT = 20;
+/** 오늘(한국 날짜) 0시의 UTC 시각 — DB created_at 형식("YYYY-MM-DD HH:MM:SS") */
+function kstDayStartUtc(now = Date.now()) {
+  const kst = new Date(now + 9 * 3600e3);
+  const start = Date.UTC(kst.getUTCFullYear(), kst.getUTCMonth(), kst.getUTCDate()) - 9 * 3600e3;
+  return new Date(start).toISOString().slice(0, 19).replace("T", " ");
+}
 async function createPost(req, env) {
   const uid = await currentUserId(req, env);
   if (!uid) return json({ error: "not authenticated" }, 401);
@@ -2446,6 +2485,14 @@ async function createPost(req, env) {
   const bc = await getBoard(env.DB, board);
   if (!bc || bc.storage !== "post") return json({ error: "invalid board" }, 400);
   if (!canCreateIn(bc, u)) return json({ error: "이 게시판에 글을 쓸 권한이 없습니다" }, 403);
+  // 남용 방지 — 피드(오리알터) 게시판은 한 사람 하루(한국 날짜) FEED_DAILY_LIMIT 개까지. 지운 글도 센다 (2026-11-28)
+  if (bc.view === "feed" && (u.level ?? 0) < LEVEL.ADMIN) {
+    const n = await env.DB.prepare("SELECT COUNT(*) AS n FROM posts WHERE author_id=? AND board=? AND created_at >= ?")
+      .bind(uid, board, kstDayStartUtc()).first();
+    if ((n?.n ?? 0) >= FEED_DAILY_LIMIT) {
+      return json({ error: `오늘은 더 올릴 수 없습니다 (하루 ${FEED_DAILY_LIMIT}개까지). 내일 다시 올려 주세요.`, code: "daily_limit" }, 429);
+    }
+  }
   let title = (body.title ?? "").trim();
   const titleOptional = !!bc.options.title_optional;
   if (!titleOptional && title.length === 0 || title.length > 200) {
@@ -2539,10 +2586,12 @@ async function getPost(req, env, id) {
             ${POST_COMMENT_COUNT_SQL} AS comment_count
      FROM posts p JOIN users u ON u.id = p.author_id
      LEFT JOIN member_profiles mp ON mp.user_id = u.id
-     WHERE p.id=? AND p.status='published'`
+     WHERE p.id=? AND p.status IN ('published','hidden')`
   ).bind(id).first();
   if (!r) return json({ error: "not found" }, 404);
   const viewer = await viewerOf(req, env);
+  // 숨긴 글(신고 처리) — 글쓴이·관리자만 본다. 그 밖에는(공유 미리보기를 만드는 서버 요청 포함) 없는 글
+  if (r.status === "hidden" && !canSeePrivatePost(r.author_uid, viewer)) return json({ error: "not found" }, 404);
   const rb = await getBoard(env.DB, r.board);
   if (!canSeePostIn(rb, r.author_uid, viewer)) {
     return json({ error: "not found" }, 404);

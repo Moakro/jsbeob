@@ -504,3 +504,20 @@ CREATE INDEX IF NOT EXISTS idx_intakes_hash ON intakes(file_hash);
 CREATE INDEX IF NOT EXISTS idx_intakes_user ON intakes(user_id, created_at);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_intakes_idem ON intakes(user_id, idem_key) WHERE idem_key IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_intakes_purge ON intakes(purge_after) WHERE purged_at IS NULL;
+
+-- 글·댓글 신고 (2026-11-28, migrations/2026-11-28-reports.sql — 설명은 그 파일). 숨김은 posts/comments.status=hidden
+CREATE TABLE IF NOT EXISTS reports (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  target_type TEXT NOT NULL,                       -- post|comment
+  target_id   TEXT NOT NULL,
+  user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  reason      TEXT NOT NULL DEFAULT '',            -- 선택(빈 값 가능), 500자까지
+  status      TEXT NOT NULL DEFAULT 'open',        -- open|resolved
+  resolution  TEXT,                                -- hidden|restored|kept
+  resolved_by TEXT REFERENCES users(id),
+  resolved_at TEXT,
+  created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE (target_type, target_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_reports_open ON reports(status, target_type, target_id);
+CREATE INDEX IF NOT EXISTS idx_posts_author_board_created ON posts(author_id, board, created_at);

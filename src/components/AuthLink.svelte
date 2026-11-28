@@ -74,7 +74,8 @@
       class="auth-avatar"
       aria-haspopup="menu"
       aria-expanded={open}
-      aria-label="내 계정 메뉴"
+      class:has-rep={!!user.reports_open}
+      aria-label={user.reports_open ? `내 계정 메뉴 (처리 전 신고 ${user.reports_open}건)` : "내 계정 메뉴"}
       bind:this={buttonEl}
       onclick={() => (open = !open)}
     >
@@ -91,6 +92,12 @@
         <a role="menuitem" href="/community/help/?mine=1" onclick={() => (open = false)}>내 문의</a>
         {#if (user.level ?? 0) >= LEVEL.ADMIN}
           <a role="menuitem" href="/admin/" onclick={() => (open = false)}>사이트 관리</a>
+          {#if user.reports_open}
+            <!-- 처리 전 신고 — 관리자 배지 (2026-11-28) -->
+            <a role="menuitem" href="/admin/#reports" onclick={() => (open = false)}
+              >신고 처리 <span class="rep-n">{user.reports_open}</span></a
+            >
+          {/if}
         {/if}
         <button type="button" role="menuitem" onclick={logout}>로그아웃</button>
         <!-- 옛 홈페이지(jsbeob.com) 게시판 글 보관함 (2026-11-12) -->
@@ -239,5 +246,23 @@
     color: var(--color-primary);
     text-decoration: none;
     outline: none;
+  }
+  /* 처리 전 신고가 있으면 내 계정 동그라미에 붉은 테(관리자) — overflow:hidden 이라 점 대신 outline */
+  .auth-avatar.has-rep {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+  }
+  .rep-n {
+    display: inline-block;
+    min-width: 18px;
+    margin-left: 4px;
+    padding: 0 5px;
+    border-radius: 999px;
+    background: var(--color-primary);
+    color: #fff;
+    font-size: 0.72rem;
+    font-weight: 700;
+    line-height: 18px;
+    text-align: center;
   }
 </style>
