@@ -2,10 +2,12 @@
   // 관리자 — 자료실 '도서' 순서 (2026-11-28 오너 결정)
   // 위: 법종교 간행·관련 묶음(끌기·▲▼로 순서), 아래: 교계 참고 도서(가나다순, 순서 없음).
   // '법종교' 켜기/끄기로 묶음을 옮기고, '순서 저장' 한 번으로 보낸다. 저장은 bjg·sort_order 만 바꾸고 공개 상태는 안 바뀐다.
+  // 공개/비공개 버튼은 따로 바로 저장한다 — 바뀐 상태는 statusOf 에만 적어 순서 편집 내용(mine/rest)을 건드리지 않는다.
   import { untrack } from "svelte";
   import { library } from "../../lib/library";
   import { BJG_LABEL, BJG_OTHERS_LABEL } from "../../lib/content-types";
   import OrderList from "./OrderList.svelte";
+  import StatusToggle from "./StatusToggle.svelte";
 
   type Book = {
     id: string;
@@ -28,6 +30,8 @@
   let saved = $state("");
   let saving = $state(false);
   let msg = $state<{ tone: "ok" | "err"; text: string } | null>(null);
+  /** 목록에서 바로 바꾼 공개 상태(id → status). 되돌리기·순서 저장과 무관하게 유지 */
+  let statusOf = $state<Record<string, string>>({});
 
   const sig = () => JSON.stringify([mine.map((b) => b.id), rest.map((b) => b.id).sort()]);
   function reset() {
@@ -75,14 +79,16 @@
 </script>
 
 {#snippet info(b: Book)}
+  {@const st = statusOf[b.id] ?? b.status}
   <a class="t" href={`#article/${b.id}`}
     >{b.title}{#if b.hanja}<span class="hanja">{b.hanja}</span>{/if}</a
   >
   {#if b.chapters}<span class="meta">{b.chapters}장</span>{/if}
-  <span class={`badge ${b.status}`}>{statusLabel[b.status] ?? b.status}</span>
+  <span class={`badge ${st}`}>{statusLabel[st] ?? st}</span>
+  <StatusToggle item={{ ...b, status: st }} onchange={(v) => (statusOf[b.id] = v)} />
   <a
     class="view"
-    href={b.status === "published" ? b.href : `${b.href}?preview=1`}
+    href={st === "published" ? b.href : `${b.href}?preview=1`}
     target="_blank"
     rel="noopener">보기</a
   >

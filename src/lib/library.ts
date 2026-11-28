@@ -77,6 +77,9 @@ export const library = {
   /** 책 순서·'법종교 간행' 표시 저장 (2026-11-28) — 그 분류의 최상위 책 전부. status 는 안 바뀐다 */
   orderBooks: (kind: string, bjg: string[], others: string[]) =>
     req("/api/admin/content/books/order", jsonBody("PUT", { kind, bjg, others })),
+  /** 목록에서 공개/비공개(작성 중) 바로 바꾸기 — 책이면 장도 함께 (2026-11-28) */
+  setStatus: (id: string, status: "published" | "draft") =>
+    req(`/api/admin/content/articles/${encodeURIComponent(id)}/status`, jsonBody("PUT", { status })),
   orderCategories: (keys: string[]) => req("/api/library/categories/order", jsonBody("PUT", { keys })),
   deleteCategory: (key: string) => req(`/api/library/categories/${encodeURIComponent(key)}`, { method: "DELETE" }),
   series: () => req("/api/library/series"),
