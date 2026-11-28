@@ -23,7 +23,7 @@
     loading = true;
     error = null;
     try {
-      const r = await api.listPosts({ board: "news", page: p, limit: size });
+      const r = await api.listPosts({ board: "news", page: p, limit: size, with_hidden: true });
       rows = r.posts;
       page = r.page ?? p;
       pages = r.pages ?? 1;
@@ -61,7 +61,7 @@
   {:else}
     <ul class:dim={loading}>
       {#each rows as n (n.id)}
-        <li class:on={n.id === current}>
+        <li class:on={n.id === current} class:is-hidden={n.is_hidden}>
           <button
             type="button"
             aria-current={n.id === current ? "true" : undefined}
@@ -70,6 +70,7 @@
             {#if n.is_pinned}<span class="tag notice">공지</span>{/if}
             {#if n.period}<span class="tag sched">일정</span>{/if}
             {#if !n.is_pinned && !n.period}<span class="tag">소식</span>{/if}
+            {#if n.is_hidden}<span class="hidden-tag">숨겨짐</span>{/if}
             <span class="t">{n.title}</span>
             {#if n.period}
               <small class="period">{fmtPeriodFull(n.period)}</small>
@@ -186,6 +187,24 @@
   small.period {
     color: var(--color-secondary);
     font-weight: 700;
+  }
+  /* 숨긴 글 — 오리알터 피드(OrialterFeed .post.is-hidden·.hidden-tag)와 같은 표시 (2026-11-28) */
+  .is-hidden {
+    opacity: 0.72;
+    outline: 2px dashed var(--color-rule);
+    outline-offset: -2px;
+  }
+  .hidden-tag {
+    flex: none;
+    display: inline-block;
+    padding: 0 7px;
+    border-radius: 999px;
+    background: var(--color-ink);
+    color: #fff;
+    font-size: 0.72rem;
+    font-weight: 700;
+    line-height: 18px;
+    vertical-align: 1px;
   }
   .state {
     margin: 0;

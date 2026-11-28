@@ -52,6 +52,7 @@
         q: q || undefined,
         before: reset ? undefined : next || undefined,
         has_image: meta?.photo || undefined,
+        with_hidden: true,
       });
       posts = reset ? r.posts : [...posts, ...r.posts];
       next = r.next;
@@ -172,11 +173,12 @@
             </div>
           </li>
         {:else}
-        <li class:pinned={p.is_pinned}>
+        <li class:pinned={p.is_pinned} class:is-hidden={p.is_hidden}>
           <a href={postHref(board, p.id)}>
             <span class="title">
               {#if p.is_pinned}<span class="pin">공지</span>{/if}
               {#if p.is_private}<span class="lock">🔒 비공개</span>{/if}
+              {#if p.is_hidden}<span class="hidden-tag">숨겨짐</span>{/if}
               {p.title}
               {#if p.comment_count > 0}<span class="cc">[{p.comment_count}]</span>{/if}
             </span>
@@ -281,6 +283,24 @@
     color: var(--color-primary);
     font-weight: 700;
     font-size: 0.8rem;
+    margin-right: 6px;
+  }
+  /* 숨긴 글 — 오리알터 피드(OrialterFeed .post.is-hidden·.hidden-tag)와 같은 표시 (2026-11-28) */
+  .is-hidden {
+    opacity: 0.72;
+    outline: 2px dashed var(--color-rule);
+    outline-offset: -2px;
+  }
+  .hidden-tag {
+    display: inline-block;
+    padding: 0 7px;
+    border-radius: 999px;
+    background: var(--color-ink);
+    color: #fff;
+    font-size: 0.72rem;
+    font-weight: 700;
+    line-height: 18px;
+    vertical-align: 1px;
     margin-right: 6px;
   }
   .lock {
