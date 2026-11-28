@@ -2,7 +2,11 @@
 """articles 장 글 본문 일괄 교체 SQL(적용·되돌리기) 만들기 (2026-11-28, 대순전경 구조화)
 
 쓰는 법:
-  python3 scripts/scripture/make-update-sql.py <원본 rows.json(운영)> <새 rows.json(로컬 import 결과)> <출력 폴더> [표식]
+  python3 scripts/scripture/make-update-sql.py <원본 rows.json(운영)> <새 rows.json(로컬 import 결과)> <출력 폴더> [표식] [--hide id,id,…]
+
+- --hide: 장을 합친 뒤 남는 '이어지는 조각' 행(예: 제3장-2·-3). 기본 적용 SQL 은 이 행들을 건드리지 않고,
+  오너가 숨김을 고르면 쓸 hide-fragments.sql(status='hidden') / unhide-fragments.sql(원래 status 로)을 따로 만든다.
+  updated_at 이 원본과 같은 행만 바꾼다.
 
 - 바꾸는 칸: body_md, body_html, body_blocks, meta, updated_at (제목·slug·status·sort_order·parent_id 는 그대로)
 - D1 한 문장 길이 제한(100KB) 때문에 값을 임시 표(_scripture_stage)에 조각으로 이어 붙인 뒤,
@@ -62,9 +66,18 @@ def finish_sql(where_extra, set_updated):
 
 
 def main():
-    orig_p, new_p, out_dir = sys.argv[1:4]
-    marker = sys.argv[4] if len(sys.argv) > 4 else "jsbooks-md 2026-11-28"
+    argv = sys.argv[1:]
+    hide = []
+    if "--hide" in argv:
+        k = argv.index("--hide")
+        hide = [x for x in argv[k + 1].split(",") if x]
+        del argv[k:k + 2]
+    orig_p, new_p, out_dir = argv[0:3]
+    marker = argv[3] if len(argv) > 3 else "jsbooks-md 2026-11-28"
     orig, new = load(orig_p), load(new_p)
+    # 바뀐 행만(본문·meta 가 같은 행 — 예: 그대로 둔 조각 행 — 은 대상에서 뺀다)
+    new = {i: r for i, r in new.items() if i in orig and any((r.get(c) or "") != (orig[i].get(c) or "") for c in ("body_md", "body_html", "body_blocks", "meta"))
+           or i not in orig}
     ids = [i for i in new if i in orig]
     missing = [i for i in new if i not in orig]
     if missing:
@@ -92,6 +105,21 @@ def main():
         "WHERE id IN (" + ", ".join(q(i) for i in ids) + ") ORDER BY sort_order;",
     ]
     (out / "verify.sql").write_text("\n".join(verify) + "\n", encoding="utf-8")
+    if hide:
+        miss = [i for i in hide if i not in orig]
+        if miss:
+            sys.exit(f"--hide: 원본에 없는 id: {miss}")
+        hrows = sorted((orig[i] for i in hide), key=lambda r: r["sort_order"])
+        h = ["-- 이어지는 조각 행 숨김(오너 결정 시에만): " + ", ".join(f"{r['slug']} {r['title']}" for r in hrows),
+             "-- 주의: 관리 화면에서 책(부모) 글을 저장하면 장 글 status 가 책 status 로 한꺼번에 바뀌어 숨김이 풀린다(content.ts)."]
+        u = ["-- 숨김 되돌리기: 원래 status·updated_at 으로"]
+        for r in hrows:
+            h.append(f"UPDATE articles SET status='hidden', updated_at=datetime('now') WHERE id={q(r['id'])} AND updated_at={q(r['updated_at'])} AND status={q(r['status'])};")
+            u.append(f"UPDATE articles SET status={q(r['status'])}, updated_at={q(r['updated_at'])} WHERE id={q(r['id'])} AND status='hidden';")
+        (out / "hide-fragments.sql").write_text("\n".join(h) + "\n", encoding="utf-8")
+        (out / "unhide-fragments.sql").write_text("\n".join(u) + "\n", encoding="utf-8")
+        verify[-1] = verify[-1].replace("WHERE id IN (", "WHERE id IN (" + ", ".join(q(i) for i in hide) + ", ")
+        (out / "verify.sql").write_text("\n".join(verify) + "\n", encoding="utf-8")
     exp = ["slug\tmd\thtml\tblocks (적용 후 기대값 / 되돌린 후 기대값)"]
     for i in ids:
         n, o = new[i], orig[i]
