@@ -1,5 +1,5 @@
 <script lang="ts">
-  // ＋ 버튼 '오리알터에 올리기' 시트 — 사진 여러 장 + 짧은 글(제목 선택) → 바로 게시 (2026-11-28 오너 결정)
+  // ＋ 버튼 '오리알터에 올리기' 시트 — 사진 여러 장 + 짧은 글(제목 없음) → 바로 게시 (2026-11-28 오너 결정)
   // AI·올림함을 거치지 않는다. 교인(40) 이상(오리알터 create_level). 권한·하루 상한은 API 가 검사한다.
   // 사진은 브라우저에서 WebP 로 다시 저장해 올리므로 찍은 위치(EXIF GPS)가 빠진다(서버도 한 번 더 지움).
   import ModalFrame from "../ModalFrame.svelte";
@@ -11,7 +11,6 @@
 
   type Pick = { k: string; file: File; url: string; broken: boolean };
   let picks = $state<Pick[]>([]);
-  let title = $state("");
   let text = $state("");
   let busy = $state(false);
   let stage = $state("");
@@ -45,7 +44,6 @@
   function reset() {
     for (const p of picks) URL.revokeObjectURL(p.url);
     picks = [];
-    title = "";
     text = "";
     error = null;
     stage = "";
@@ -65,8 +63,8 @@
       stage = "게시하는 중";
       const { id } = await api.createPost({
         board: ORIALTER_BOARD,
-        title: title.trim(),
-        blocks: orialterBlocks({ title, text, keys }),
+        title: "",
+        blocks: orialterBlocks({ text, keys }),
       });
       reset();
       onclose();
@@ -115,21 +113,12 @@
     {/if}
 
     <label class="fld">
-      <span>제목 <small>(선택)</small></span>
-      <input type="text" bind:value={title} maxlength="80" placeholder="예) 오늘 오리알터 마당" disabled={busy} />
-    </label>
-    <label class="fld">
       <span>글</span>
-      <textarea bind:value={text} rows="4" maxlength="5000" placeholder="함께 나누고 싶은 이야기를 짧게 적어 주세요" disabled={busy}></textarea>
+      <textarea bind:value={text} rows="4" maxlength="5000" disabled={busy}></textarea>
     </label>
     {#if videos}
       <p class="note">▶ 유튜브 영상 {videos}개가 글과 함께 올라갑니다(주소는 글에서 빠집니다)</p>
     {/if}
-
-    <p class="guide">
-      올리면 바로 도생광장 오리알터에 게시되어 누구나 볼 수 있습니다. 사진의 찍은 위치(GPS) 정보는 지우고 올립니다.
-      부적절한 글은 신고를 받아 관리자가 숨길 수 있습니다.
-    </p>
 
     {#if error}<p class="err" role="alert">{error}</p>{/if}
     <div class="btns">
@@ -242,12 +231,7 @@
     font-weight: 600;
     font-size: 0.9rem;
   }
-  .fld small {
-    font-weight: 400;
-    color: var(--color-muted);
-  }
-  .fld textarea,
-  .fld input {
+  .fld textarea {
     width: 100%;
     padding: 10px 12px;
     border: 1px solid var(--color-rule);
@@ -260,12 +244,6 @@
     margin: -6px 0 0;
     color: var(--color-muted);
     font-size: 0.82rem;
-  }
-  .guide {
-    margin: 0;
-    font-size: 0.8rem;
-    color: var(--color-muted);
-    line-height: 1.6;
   }
   .err {
     margin: 0;
