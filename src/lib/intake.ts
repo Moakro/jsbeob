@@ -49,11 +49,74 @@ export interface Intake {
   error: string | null;
   post_id: string | null;
   post: { id: string; title: string; board: string } | null;
+  /** '달력만 등록'으로 만든 일정 id */
+  event_ids: string[];
+  /** 한 건 보기에서만: 만든 일정·같은 파일을 올린 다른 건·달력의 비슷한 일정 (2단계 중복 경고) */
+  events?: IntakeEvent[];
+  same_file?: SameFileIntake[];
+  similar_events?: SimilarEvents[];
   handled_by: { id: string; name: string | null } | null;
   created_at: string;
   updated_at: string;
   purge_after: string | null;
   purged_at: string | null;
+}
+
+export interface IntakeEvent {
+  id: string;
+  title: string;
+  start_date: string;
+  end_date: string | null;
+  is_public: number;
+  memo: string | null;
+}
+export interface SameFileIntake {
+  id: string;
+  status: Intake["status"];
+  created_at: string;
+  user: { id: string; name: string | null };
+  post: { id: string; title: string; board: string } | null;
+  event_count: number;
+}
+export interface SimilarEvent {
+  id: string;
+  title: string;
+  start_date: string;
+  end_date: string | null;
+  is_annual: number;
+  is_public: number;
+  category: string | null;
+  source_post_id: string | null;
+  source_block_id: string | null;
+  source_board: string | null;
+  source_category: string | null;
+  score: number;
+}
+export interface SimilarEvents {
+  label: string;
+  start: string;
+  end: string | null;
+  matches: SimilarEvent[];
+}
+/** 달력에서 그 일정을 여는 주소 — 그달로 가서 그날을 고르고 일정 내용을 펼친다 */
+export function calendarHref(date: string, eventId?: string) {
+  const [y, m] = date.split("-").map(Number);
+  return `/calendar/?y=${y}&m=${m}&d=${date}${eventId ? `&ev=${encodeURIComponent(eventId)}` : ""}`;
+}
+/** 달력만 등록할 일정 하나(편집 칸) */
+export interface CalendarDraft {
+  on: boolean;
+  label: string;
+  start: string;
+  end: string;
+  memo: string;
+}
+/** 초안의 일정 블록 → '달력만 등록' 편집 칸 (일정 블록이 없으면 빈 칸 하나) */
+export function calendarDrafts(it: Pick<Intake, "draft_blocks" | "title">): CalendarDraft[] {
+  const rows = (it.draft_blocks ?? [])
+    .filter((b) => b?.type === "schedule")
+    .map((b) => ({ on: true, label: b.label || it.title || "", start: b.start || "", end: b.end || "", memo: b.memo || "" }));
+  return rows.length ? rows : [{ on: true, label: it.title ?? "", start: "", end: "", memo: "" }];
 }
 
 export interface IntakeWarning {
@@ -115,12 +178,24 @@ export const intakeApi = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(hint === undefined ? {} : { hint }),
     }),
+  /** 달력만 등록 — 소식 글 없이 일정만 달력에 */
+  publishCalendar: (id: string, events: { label: string; start: string; end?: string; memo?: string }[], isPublic: boolean) =>
+    req<{ intake: Intake }>(`/api/intake/${id}/calendar`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ events, public: isPublic }),
+    }),
+  /** 달력 등록 되돌리기 — 만든 일정을 지우고 게시 전으로 */
+  undoCalendar: (id: string) => req<{ intake: Intake }>(`/api/intake/${id}/calendar`, { method: "DELETE" }),
 };
 
 export interface UploadResult {
   ok: boolean;
   intake: Intake;
   duplicate?: boolean;
+  /** 같은 파일을 이미 올렸을 때 — 막지 않고 새 건을 만든 뒤 알려 준다 */
+  duplicate_of?: SameFileIntake;
+  notice?: string;
   replayed?: boolean;
   warning?: string;
 }

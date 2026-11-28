@@ -1,7 +1,7 @@
 # 편집진 '+ 올리기' → AI가 일정·소식 글·자료로 구조화 (설계)
 
 - 상태: **설계 확정** (2026-11-27, 오너가 결정 15개를 확정, 천기 원년 = 서기 1871년) — 코드·DB·운영 변경 없음.
-- 구현: **0단계 구현됨**(2026-11-27, `jsbeob-api/intake.ts`·`src/components/intake/`·`/editor/inbox/`). **1단계(AI 초안) 구현됨**(2026-11-27, `jsbeob-api/intake-draft.mjs`·`tools/intake-watcher/`) — 운영 반영은 오너 승인 뒤.
+- 구현: **0단계 구현됨**(2026-11-27, `jsbeob-api/intake.ts`·`src/components/intake/`·`/editor/inbox/`). **1단계(AI 초안) 구현됨**(2026-11-27, `jsbeob-api/intake-draft.mjs`·`tools/intake-watcher/`) — 운영 반영은 오너 승인 뒤. **'달력만 등록'·중복 경고 구현됨**(2026-11-27, `POST/DELETE /api/intake/:id/calendar`, 한 건 보기의 `same_file`·`similar_events`, `jsbeob-api/intake-similar.mjs`).
 - **AI 실행 위치 결정(2026-11-27, 오너)**: 사이트 서버(Cloudflare Worker)는 AI 를 직접 부르지 않는다. **미니PC 감시 서비스**가 30초마다 새 올림만 묻고(AI 비용 없음), 있을 때만 **오너 구독 Claude Code(`claude -p`)** 를 깨워 초안을 만들어 되돌린다. 구독은 사이트 서버에서 쓸 수 없고 API 키는 아직 붙이지 않았기 때문. 편집진이 오너 한 명뿐인 지금에 맞춘 방식이며, AI 부르는 부분은 **갈아 끼울 수 있게**(구독 감시 서비스 ↔ API 키) 두었다 → 4.3. 아래 본문 중 "Claude API·대기열(Queue)·API 키"로 적힌 부분은 이 결정으로 바뀐 4.3·4.6·6·9장을 따른다.
 - 대상: 사이트 `jsbeob`(Astro+Svelte), API `jsbeob-api`(Cloudflare Worker, D1 `jsbeob-db`, R2 `jsbeob-uploads`)
 
@@ -407,6 +407,8 @@ AI는 블록을 직접 만들지 않고 **"올린 것에서 읽은 사실"** 을
 | `GET /api/intake/:id/file/:n` | 원본 보기 | 0 |
 | `DELETE /api/intake/:id` | 버리기(원본도 삭제) | 0 |
 | `POST /api/intake/:id/extract` | 다시 읽기·다시 시도(실패·초안 준비 → `uploaded`, `attempts=0`, 초안 지움. 선택: `{hint}`) | 1 |
+| `POST /api/intake/:id/calendar` | **달력만 등록**: `{events:[{label,start,end?,memo?}], public?}` → 일정마다 `events` 한 줄(카테고리 '일정', 공개 — `public:false` 면 편집진만, 메모 포함), 올림 `published`·`event_ids`·`handled_by`. 한 묶음(batch)으로, 이미 처리된 올림은 409 | 1 |
+| `DELETE /api/intake/:id/calendar` | 달력 등록 되돌리기: 만든 일정 지우고 게시 전(`ready`, 초안 없으면 `uploaded`)으로 | 1 |
 
 **감시 서비스 전용** (`INTAKE_WORKER_TOKEN`, 1단계):
 
@@ -418,7 +420,7 @@ AI는 블록을 직접 만들지 않고 **"올린 것에서 읽은 사실"** 을
 
 새 DB 칸은 없다 — 0단계 표의 `kind·title·model·extracted·draft_blocks·warnings·error·attempts·input_tokens·output_tokens` 를 그대로 쓰고, `attempts` 가 잡기 번호 구실을 한다. `warnings` 는 `[{level:"check"|"info", text}]`.
 
-게시는 **기존 `POST /api/posts`** 에 `intake_id` 만 더 받는다 → 저장에 성공하면 `intakes.post_id`·`status='published'` 를 같은 묶음에서 갱신. 달력 반영은 기존 `scheduleStmts` 그대로. '달력만'은 기존 `POST /api/events`.
+게시는 **기존 `POST /api/posts`** 에 `intake_id` 만 더 받는다 → 저장에 성공하면 `intakes.post_id`·`status='published'` 를 같은 묶음에서 갱신. 달력 반영은 기존 `scheduleStmts` 그대로. '달력만'은 `POST /api/intake/:id/calendar`(2026-11-27 구현 — 기존 `/api/events` 를 여러 번 부르면 올림 상태와 한 묶음이 안 되므로 따로 둠).
 
 **앱에서도 쓰는 API 로** (나중의 앱 공유하기 입구를 위해 0단계부터 지킬 것)
 - **인증을 한 곳에서**: 지금은 로그인 쿠키(`jb_session`)만 본다. `/api/intake*` 는 "요청에서 회원을 알아내는 함수" 하나만 거치게 해서, 앱 로그인이 생기면 **`Authorization: Bearer <토큰>`** 도 같은 자리에서 받게 한다. 앱용 토큰 로그인 자체는 앱 계획의 선결 과제이고 이 설계 범위 밖이다. 쿠키 요청에는 출처(Origin) 검사를, 토큰 요청에는 토큰 검사를 한다.
@@ -494,6 +496,7 @@ HWP·DOCX 에서 글자만 꺼내면 직인·표 모양 같은 정보는 사라�
 ## 7. 확장
 
 - **같은 행사 중복 감지**: ① 같은 파일 해시 → "이미 올린 것입니다(만든 글: …)" ② 추출한 날짜와 같은 날(±1일)의 달력 일정 중 이름이 비슷한 것을 찾아 경고(처음에는 글자 겹침 비교, 필요하면 나중에 AI 판단). 정정 공문이면 "기존 글 고치기"로 이어 주는 것은 2단계.
+  - **구현(2026-11-27)**: ① 같은 파일이면 막지 않고 새 건을 만들고 "이미 올린 것입니다(만든 글: …)" 안내, 앞 건에 AI 초안이 있으면 그 초안을 복사해 AI 를 다시 부르지 않음('AI 다시 읽기'로만). 한 건 화면에 같은 파일의 다른 건 목록. ② 한 건 보기(`GET /api/intake/:id`)에서 서버가 계산: 초안 일정마다 [시작-1일, 끝+1일] 과 겹치는 한 번 일정 + 월·일 ±1일인 매년 양력 일정 중, 숫자·띄어쓰기·흔한 말(안내·개최 등)을 뺀 이름이 서로를 품거나 두 글자 묶음 Dice ≥ 0.5 인 것. 음력 일정은 아직 비교하지 않음. 기존 글 고치기 연결은 아직.
 - **Google 캘린더**(선택, 3단계):
   - 쉬운 길: 사이트 달력을 **구독 주소(ICS)** 로 내보내기 → 오너가 구글 캘린더에 주소를 한 번 등록. 구현이 작지만 구글이 갱신하는 주기가 느리다(몇 시간~하루).
   - 바로 반영: Google Calendar API 로 사이트 → 구글 **한 방향** 동기화. 오너의 구글 계정 연결(OAuth)과 `events` 에 구글 일정 id 칸이 필요.

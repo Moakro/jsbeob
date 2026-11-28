@@ -26,6 +26,8 @@
   let today = $state<Date | null>(null);
   let selectedDate = $state<Date | null>(null);
   let monthEvents = $state<CalendarEvent[]>([]);
+  /** 펼쳐 보는 일정(글에 딸리지 않은 일정 — 올림함 '달력만 등록' 등). ?ev=<id> 로도 연다 (2026-11-27) */
+  let openedId = $state<string | null>(null);
 
   const WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"];
   const YEAR_OPTIONS = Array.from({ length: 301 }, (_, i) => 1800 + i);
@@ -44,6 +46,10 @@
     if (Number.isInteger(qy) && qy >= 1800 && qy <= 2100) year = qy;
     if (Number.isInteger(qm) && qm >= 1 && qm <= 12) month = qm;
     selectedDate = startOfDay(now);
+    // ?d=YYYY-MM-DD 그날을 고르고, ?ev=<id> 그 일정을 펼친다(올림함의 '만든 일정' 링크)
+    const qd = params.get("d")?.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (qd) selectDate(new Date(Number(qd[1]), Number(qd[2]) - 1, Number(qd[3])));
+    openedId = params.get("ev");
 
     const onUpdated = () => {
       fetchMonthEvents();
@@ -314,8 +320,11 @@
     else {
       const [y, m, d] = occ.occursOn.split("-").map(Number);
       selectDate(new Date(y, m - 1, d));
+      // 메모가 있는 일정(일정·기타)은 내용을 펼친다 — 기념일은 기념일 목록에 있으므로 그대로
+      openedId = occ.source.category !== "기념일" && occ.source.memo ? occ.source.id : null;
     }
   }
+  const opened = $derived(openedId ? (monthEvents.find((e) => e.id === openedId && !e.source_post_id) ?? null) : null);
   const todayIso = $derived(today ? isoDate(today) : "");
   const selectedIsToday = $derived(!!today && !!selectedDate && sameDay(selectedDate, today));
 
@@ -408,6 +417,17 @@
               <span class="ev-title">{occ.source.title}</span>
             </button>
           {/each}
+        </div>
+      {/if}
+      {#if opened}
+        <div class="ev-open" role="region" aria-label="일정 내용">
+          <div class="ev-open-head">
+            <strong>{opened.title}</strong>
+            <span class="ev-open-date">{opened.start_date}{opened.end_date && opened.end_date !== opened.start_date ? ` ~ ${opened.end_date}` : ""}</span>
+            {#if !opened.is_public}<span class="ev-open-priv">편집진만</span>{/if}
+            <button type="button" class="ev-open-x" aria-label="닫기" onclick={() => (openedId = null)}>✕</button>
+          </div>
+          {#if opened.memo}<p class="ev-open-memo">{opened.memo}</p>{/if}
         </div>
       {/if}
     </div>
@@ -831,6 +851,44 @@
     font-size: 0.6rem;
     color: var(--color-muted, #8a807a);
     line-height: 1.2;
+  }
+  .ev-open {
+    margin-top: 0.6rem;
+    padding: 0.6rem 0.8rem;
+    border: 1px solid var(--color-rule, #e8dfd9);
+    border-radius: 10px;
+    background: var(--color-surface, #fff);
+    font-size: 0.92rem;
+  }
+  .ev-open-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.5rem;
+  }
+  .ev-open-date {
+    color: var(--color-muted, #6b625c);
+    font-size: 0.85rem;
+  }
+  .ev-open-priv {
+    font-size: 0.75rem;
+    padding: 0 0.45rem;
+    border-radius: 999px;
+    background: var(--color-surface-2, #f3eee9);
+    color: var(--color-muted, #6b625c);
+  }
+  .ev-open-x {
+    margin-left: auto;
+    border: none;
+    background: transparent;
+    color: var(--color-muted, #6b625c);
+    cursor: pointer;
+    font-size: 0.9rem;
+  }
+  .ev-open-memo {
+    margin: 0.4rem 0 0;
+    white-space: pre-wrap;
+    word-break: break-word;
   }
   .detail-events {
     display: flex;

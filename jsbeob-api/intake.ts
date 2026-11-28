@@ -7,6 +7,9 @@
 //   GET    /api/intake/:id/file/:n   원본 보기 — 편집진만, Cache-Control: private, no-store
 //   DELETE /api/intake/:id           버리기(원본도 R2 에서 삭제, 기록은 'discarded' 로 남김)
 //   POST   /api/intake/:id/extract   AI 다시 읽기(실패·초안 준비됨 → 'uploaded' 로 되돌려 감시 서비스가 다시 가져가게) — 1단계
+//   POST   /api/intake/:id/calendar  달력만 등록 — 글 없이 일정만 events 에 넣고 published (event_ids)
+//   DELETE /api/intake/:id/calendar  달력 등록 되돌리기 — 만든 일정 지우고 게시 전으로
+//   (한 건 보기에는 같은 파일을 올린 다른 건(same_file)·달력의 비슷한 일정(similar_events) 경고가 붙는다 — 2단계 중복 경고)
 //
 // 1단계(AI 초안, 2026-11-27): 사이트 서버는 AI 를 부르지 않는다. 미니PC 감시 서비스(tools/intake-watcher)가
 // 감시 서비스 전용 열쇠(INTAKE_WORKER_TOKEN, Authorization: Bearer)로 아래를 부른다 — 회원 쿠키로는 못 쓴다.
@@ -18,6 +21,7 @@
 // 모든 요청은 index.ts 의 requestUser 하나로 회원을 알아낸다(쿠키 + 출처 검사, 앱이 생기면 Bearer 토큰도 같은 자리).
 // 응답은 모두 JSON, 오류는 {error, code}.
 import { LEVEL } from "../src/data/levels";
+import { titleSimilarity, titleKey } from "./intake-similar.mjs";
 
 /** 올림함을 쓰는 최소 등급 — 편집진(60) 이상 (결정 1) */
 export const INTAKE_LEVEL = LEVEL.EDITOR;
@@ -84,6 +88,9 @@ export async function handleIntake(req, env, path, deps) {
   if (fm && (m === "GET" || m === "HEAD")) return serveIntakeFile(req, env, fm[1], Number(fm[2]));
   const xm = path.match(/^\/api\/intake\/([0-9a-f-]{36})\/extract$/);
   if (xm && m === "POST") return requestExtract(req, env, xm[1]);
+  const cm = path.match(/^\/api\/intake\/([0-9a-f-]{36})\/calendar$/);
+  if (cm && m === "POST") return publishCalendar(req, env, cm[1], who);
+  if (cm && m === "DELETE") return undoCalendar(env, cm[1]);
   const im = path.match(/^\/api\/intake\/([0-9a-f-]{36})$/);
   if (im) {
     if (m === "GET") return getIntake(env, im[1]);
@@ -146,13 +153,16 @@ async function createIntake(req, env, who) {
   }
   const fileHash = files.length ? await sha256Hex(new TextEncoder().encode(files.map((f) => f.sha256).join(","))) : null;
 
-  // 같은 파일 묶음을 이미 올렸으면(버린 것 제외) 새로 만들지 않고 알려 준다 — 전송이 끊겨 다시 보낸 경우도 여기서 걸린다
+  // 같은 파일 묶음을 이미 올렸으면(버린 것 제외) 막지 않고 새 건을 만들되 알려 준다(2단계 중복 경고, 설계 7장 ①).
+  // 전송이 끊겨 다시 보낸 경우는 위의 Idempotency-Key 가 막는다. 앞 건에 AI 초안이 있으면 그 초안을 그대로 가져와
+  // AI 를 다시 부르지 않는다(설계 6장 '같은 파일 … AI 를 다시 부르지 않는다' — 'AI 다시 읽기'를 누를 때만).
+  let dup = null;
   if (fileHash) {
-    const dup = await env.DB.prepare(
-      "SELECT * FROM intakes WHERE file_hash=? AND status <> 'discarded' AND purged_at IS NULL ORDER BY created_at DESC LIMIT 1"
+    dup = await env.DB.prepare(
+      `${SELECT} WHERE i.file_hash=? AND i.status <> 'discarded' ORDER BY i.created_at DESC LIMIT 1`
     ).bind(fileHash).first();
-    if (dup) return json({ ok: true, duplicate: true, intake: shapeIntake(dup) });
   }
+  const copyDraft = !!dup && ["ready", "published"].includes(dup.status) && !!dup.kind && dup.draft_blocks != null;
 
   const id = crypto.randomUUID();
   const now = new Date();
@@ -172,6 +182,12 @@ async function createIntake(req, env, who) {
       `INSERT INTO intakes (id, user_id, status, source, hint, note, url, files, file_hash, idem_key, purge_after)
        VALUES (?, ?, 'uploaded', ?, ?, ?, ?, ?, ?, ?, datetime('now', '+${KEEP_DAYS} days'))`
     ).bind(id, who.id, source, hint || null, note || null, url || null, JSON.stringify(stored), fileHash, idem || null).run();
+    if (copyDraft) {
+      const warns = [{ level: "info", text: "같은 파일을 앞서 올린 건의 AI 초안을 그대로 가져왔습니다. 새로 읽히려면 'AI 다시 읽기'를 누르세요." }, ...parseArr(dup.warnings)];
+      await env.DB.prepare(
+        `UPDATE intakes SET status='ready', kind=?, title=?, extracted=?, draft_blocks=?, warnings=?, model=?, updated_at=datetime('now') WHERE id=?`
+      ).bind(dup.kind, dup.title, dup.extracted, dup.draft_blocks, JSON.stringify(warns.slice(0, 40)), dup.model, id).run();
+    }
   } catch (e) {
     // 반쯤 올라간 원본은 지운다
     if (stored.length) await env.UPLOADS.delete(stored.map((s) => s.key)).catch(() => {});
@@ -182,11 +198,17 @@ async function createIntake(req, env, who) {
     }
     throw e;
   }
-  await onIntakeStatus(env, id, "uploaded");
+  await onIntakeStatus(env, id, copyDraft ? "ready" : "uploaded");
   const row = await env.DB.prepare(`${SELECT} WHERE i.id=?`).bind(id).first();
   const open = await openCount(env);
   return json(
-    { ok: true, intake: shapeIntake(row), open, ...(open > OPEN_WARN ? { warning: `처리하지 않은 올림이 ${open}건입니다. 올림함을 정리해 주세요.` } : {}) },
+    {
+      ok: true,
+      intake: shapeIntake(row),
+      open,
+      ...(dup ? { duplicate: true, duplicate_of: shapeSameFile(dup), notice: sameFileNotice(dup) } : {}),
+      ...(open > OPEN_WARN ? { warning: `처리하지 않은 올림이 ${open}건입니다. 올림함을 정리해 주세요.` } : {}),
+    },
     201
   );
 }
@@ -239,7 +261,172 @@ async function listIntakes(req, env) {
 async function getIntake(env, id) {
   const row = await env.DB.prepare(`${SELECT} WHERE i.id=?`).bind(id).first();
   if (!row) return err("없는 올림입니다", "not_found", 404);
-  return json({ intake: shapeIntake(row) });
+  const [same_file, similar_events, events] = await Promise.all([sameFileIntakes(env, row), similarEvents(env, row), madeEvents(env, row)]);
+  return json({ intake: { ...shapeIntake(row), events, same_file, similar_events } });
+}
+
+// ── 중복 경고 (2단계, 설계 7장 '같은 행사 중복 감지') ─────────────────────
+/** 같은 파일 묶음(file_hash)을 올린 다른 건 — 버린 것 제외, 최근 5건 */
+async function sameFileIntakes(env, row) {
+  if (!row.file_hash) return [];
+  const rs = await env.DB.prepare(
+    `${SELECT} WHERE i.file_hash=? AND i.id<>? AND i.status <> 'discarded' ORDER BY i.created_at DESC LIMIT 5`
+  ).bind(row.file_hash, row.id).all();
+  return (rs.results ?? []).map(shapeSameFile);
+}
+function shapeSameFile(r) {
+  return {
+    id: r.id,
+    status: r.status,
+    created_at: r.created_at,
+    user: { id: r.user_id, name: r.user_name ?? null },
+    post: r.post_id && r.post_title != null ? { id: r.post_id, title: r.post_title, board: r.post_board } : null,
+    event_count: parseArr(r.event_ids).length,
+  };
+}
+/** 올릴 때 보여 줄 한 줄 — "이미 올린 것입니다(만든 글: …)" */
+function sameFileNotice(r) {
+  const made = r.post_title != null ? `만든 글: ${r.post_title}` : parseArr(r.event_ids).length ? `달력 일정 ${parseArr(r.event_ids).length}건` : "아직 게시 전";
+  return `이미 올린 것입니다(${made}). 새 건으로도 넣었으니 필요 없으면 버려 주세요.`;
+}
+
+const SIMILAR_MIN = 0.5;
+const addDays = (iso, n) => {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+};
+/**
+ * 초안의 일정(날짜가 정해진 것)마다 달력에서 ±1일 안에 이름이 비슷한 일정을 찾는다.
+ * - 한 번 일정: 기간이 [시작-1일, 끝+1일] 과 겹치면 후보. 매년 일정(양력): 월·일이 ±1일 안이면 후보.
+ * - 음력 일정(is_lunar)은 날짜를 바로 견줄 수 없어 이번에는 뺀다.
+ * - 이 올림이 만든 글·일정은 뺀다. 편집진 화면이므로 비공개 일정도 본다.
+ */
+async function similarEvents(env, row) {
+  if (["discarded"].includes(row.status)) return [];
+  const own = new Set(parseArr(row.event_ids));
+  const blocks = parseArr(row.draft_blocks)
+    .filter((b) => b?.type === "schedule" && DATE_RE.test(b.start ?? ""))
+    .slice(0, 10);
+  const out = [];
+  for (const b of blocks) {
+    const name = b.label || row.title || "";
+    if (titleKey(name).length < 2) continue;
+    const end = DATE_RE.test(b.end ?? "") ? b.end : b.start;
+    const lo = addDays(b.start, -1), hi = addDays(end, 1);
+    const md = [-1, 0, 1].map((n) => addDays(b.start, n).slice(5));
+    const rs = await env.DB.prepare(
+      `SELECT ev.id, ev.title, ev.start_date, ev.end_date, ev.is_annual, ev.is_public, ev.category, ev.source_post_id, ev.source_block_id,
+              sp.board AS source_board, sp.category AS source_category
+         FROM events ev LEFT JOIN posts sp ON sp.id = ev.source_post_id
+        WHERE ev.is_lunar = 0 AND (
+              (ev.is_annual = 0 AND ev.start_date <= ? AND COALESCE(ev.end_date, ev.start_date) >= ?)
+           OR (ev.is_annual = 1 AND substr(ev.start_date, 6) IN (?, ?, ?)))
+        LIMIT 300`
+    ).bind(hi, lo, ...md).all();
+    const matches = (rs.results ?? [])
+      .filter((e) => !own.has(e.id) && !(row.post_id && e.source_post_id === row.post_id))
+      .map((e) => ({ ...e, score: Math.round(titleSimilarity(name, e.title) * 100) / 100 }))
+      .filter((e) => e.score >= SIMILAR_MIN)
+      .sort((a, c) => c.score - a.score)
+      .slice(0, 5);
+    if (matches.length) out.push({ label: name, start: b.start, end: b.end ?? null, matches });
+  }
+  return out;
+}
+
+/** '달력만 등록'으로 만든 일정(지금 남아 있는 것) */
+async function madeEvents(env, row) {
+  const ids = parseArr(row.event_ids).filter((x) => typeof x === "string").slice(0, 50);
+  if (!ids.length) return [];
+  const rs = await env.DB.prepare(
+    `SELECT id, title, start_date, end_date, is_public, memo FROM events WHERE id IN (${ids.map(() => "?").join(",")}) ORDER BY start_date`
+  ).bind(...ids).all();
+  return rs.results ?? [];
+}
+
+// ── 달력만 등록 (1단계 남은 것, 설계 결정 5 ②) ──────────────────────────
+/** 한 번에 만드는 일정 수 */
+const MAX_CAL_EVENTS = 20;
+const EV_TITLE_MAX = 200;
+const EV_MEMO_MAX = 2000;
+/**
+ * 소식 글 없이 일정 블록(들)만 달력(events)에 넣는다. 본문 {events:[{label, start, end?, memo?}], public?:boolean}
+ * - 공개 범위·카테고리는 소식 글의 일정과 같은 규칙(카테고리 '일정', 공개, 연례·음력 아님). public:false 면 편집진만 보기(결정 5).
+ * - 소식 글의 일정과 달리 메모(시간·장소)를 일정에 함께 넣는다 — 볼 글이 없으므로.
+ * - 올림은 published, event_ids·handled_by 기록. 한 묶음(D1 batch)으로 — 올림을 먼저 published 로 바꾸고,
+ *   바뀐 경우에만 일정이 들어가게 해서 두 사람이 동시에 눌러도 한 번만 만든다.
+ */
+async function publishCalendar(req, env, id, who) {
+  let b;
+  try {
+    b = await req.json();
+  } catch {
+    return err("JSON 으로 보내 주세요", "bad_json", 400);
+  }
+  const row = await env.DB.prepare("SELECT id, status, title FROM intakes WHERE id=?").bind(id).first();
+  if (!row) return err("없는 올림입니다", "not_found", 404);
+  if (row.status === "published") return err("이미 게시한 올림입니다", "already_published", 409);
+  if (row.status === "discarded") return err("버린 올림입니다", "discarded", 409);
+  const raw = Array.isArray(b?.events) ? b.events : [];
+  if (!raw.length) return err("달력에 넣을 일정이 없습니다", "no_events", 400);
+  if (raw.length > MAX_CAL_EVENTS) return err(`한 번에 일정 ${MAX_CAL_EVENTS}개까지 넣을 수 있습니다`, "too_many_events", 400);
+  const evs = [];
+  for (const [i, e] of raw.entries()) {
+    const n = raw.length > 1 ? `${i + 1}번째 일정: ` : "";
+    const title = String(e?.label ?? "").replace(/\s*\n\s*/g, " ").trim() || String(row.title ?? "").trim();
+    const start = String(e?.start ?? "");
+    const end = String(e?.end ?? "");
+    const memo = String(e?.memo ?? "").trim();
+    if (!title) return err(`${n}이름을 적어 주세요`, "bad_event", 400);
+    if (title.length > EV_TITLE_MAX) return err(`${n}이름은 ${EV_TITLE_MAX}자까지입니다`, "bad_event", 400);
+    if (!DATE_RE.test(start) || Number.isNaN(Date.parse(start))) return err(`${n}날짜를 정해 주세요`, "bad_event", 400);
+    if (end && (!DATE_RE.test(end) || Number.isNaN(Date.parse(end)) || end < start)) return err(`${n}끝나는 날이 맞지 않습니다`, "bad_event", 400);
+    if (memo.length > EV_MEMO_MAX) return err(`${n}메모는 ${EV_MEMO_MAX}자까지입니다`, "bad_event", 400);
+    evs.push({ id: crypto.randomUUID(), title, start, end: end && end !== start ? end : null, memo: memo || null });
+  }
+  const pub = b?.public === false ? 0 : 1;
+  const ids = JSON.stringify(evs.map((e) => e.id));
+  const res = await env.DB.batch([
+    env.DB.prepare(
+      "UPDATE intakes SET status='published', event_ids=?, handled_by=?, updated_at=datetime('now') WHERE id=? AND status NOT IN ('published','discarded')"
+    ).bind(ids, who.id, id),
+    ...evs.map((e) =>
+      env.DB.prepare(
+        `INSERT INTO events (id, user_id, title, start_date, end_date, category, is_annual, is_lunar, is_public, memo)
+         SELECT ?, ?, ?, ?, ?, '일정', 0, 0, ?, ? WHERE EXISTS (SELECT 1 FROM intakes WHERE id=? AND status='published' AND event_ids=?)`
+      ).bind(e.id, who.id, e.title, e.start, e.end, pub, e.memo, id, ids)
+    ),
+  ]);
+  if (!res[0]?.meta?.changes) return err("그 사이 다른 사람이 처리한 올림입니다", "already_published", 409);
+  await onIntakeStatus(env, id, "published");
+  return getIntake(env, id);
+}
+
+/**
+ * 달력 등록 되돌리기 — 설계에 되돌리기 규정이 없어 간단히: 만든 일정을 지우고 올림을 게시 전 상태로 돌린다.
+ * (AI 초안이 있으면 '초안 준비', 없으면 '올림'.) 달력에서 그 사이 고친 일정도 함께 지워진다(확인 창에서 알림).
+ * 소식 글로 게시한 올림은 해당 없음(글 삭제는 글 화면에서).
+ */
+async function undoCalendar(env, id) {
+  const row = await env.DB.prepare("SELECT id, status, kind, post_id, event_ids FROM intakes WHERE id=?").bind(id).first();
+  if (!row) return err("없는 올림입니다", "not_found", 404);
+  if (row.status !== "published" || row.post_id || !row.event_ids) return err("달력만 등록한 올림이 아닙니다", "not_calendar", 409);
+  const ids = parseArr(row.event_ids).filter((x) => typeof x === "string");
+  const back = row.kind ? "ready" : "uploaded";
+  const res = await env.DB.batch([
+    env.DB.prepare(
+      "UPDATE intakes SET status=?, event_ids=NULL, handled_by=NULL, updated_at=datetime('now') WHERE id=? AND status='published' AND post_id IS NULL AND event_ids=?"
+    ).bind(back, id, row.event_ids),
+    ...(ids.length
+      ? [env.DB.prepare(
+          `DELETE FROM events WHERE id IN (${ids.map(() => "?").join(",")}) AND source_post_id IS NULL AND NOT EXISTS (SELECT 1 FROM intakes WHERE id=? AND event_ids IS NOT NULL)`
+        ).bind(...ids, id)]
+      : []),
+  ]);
+  if (!res[0]?.meta?.changes) return err("그 사이 다른 사람이 처리한 올림입니다", "stale", 409);
+  await onIntakeStatus(env, id, back);
+  return getIntake(env, id);
 }
 
 /** 응답 모양 — R2 키는 내보내지 않는다(원본은 file_url 로만) */
@@ -275,6 +462,8 @@ export function shapeIntake(r) {
     // 결과
     post_id: r.post_id ?? null,
     post: r.post_id && r.post_title != null ? { id: r.post_id, title: r.post_title, board: r.post_board } : null,
+    /** '달력만 등록'으로 만든 일정 id (한 건 보기에서는 events 에 제목·날짜도) */
+    event_ids: parseArr(r.event_ids),
     handled_by: r.handled_by ? { id: r.handled_by, name: r.handled_name ?? null } : null,
     created_at: r.created_at,
     updated_at: r.updated_at,
@@ -330,7 +519,7 @@ export async function checkIntakeForPost(env, intakeId, user) {
   if ((user?.level ?? 0) < INTAKE_LEVEL) return "편집진만 올림을 글로 옮길 수 있습니다";
   const row = await env.DB.prepare("SELECT status FROM intakes WHERE id=?").bind(intakeId).first();
   if (!row) return "없는 올림입니다";
-  if (row.status === "published") return "이미 글로 옮긴 올림입니다";
+  if (row.status === "published") return "이미 게시한 올림입니다";
   if (row.status === "discarded") return "버린 올림입니다";
   return null;
 }

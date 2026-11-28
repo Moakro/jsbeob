@@ -12,6 +12,9 @@
     INTAKE_CHANGED,
     INTAKE_LEVEL,
     KIND_LABEL,
+    STATUS_LABEL,
+    calendarDrafts,
+    calendarHref,
     checkCount,
     fmtSize,
     fmtWhen,
@@ -19,6 +22,7 @@
     intakeStartBlocks,
     isProcessing,
     statusLabel,
+    type CalendarDraft,
     type Intake,
   } from "../../lib/intake";
   import PostEditor from "../board/PostEditor.svelte";
@@ -37,6 +41,16 @@
   let shown = $state<Intake | null>(null);
   let editorKey = $state(0);
   let retrying = $state(false);
+  /** 게시 방식(결정 5): 소식 글 + 달력 / 달력만. 대화 캡처면 '달력만'이 기본(설계 2.7) */
+  let mode = $state<"post" | "calendar">("post");
+  let calRows = $state<CalendarDraft[]>([]);
+  let calPrivate = $state(false);
+  let calBusy = $state(false);
+  let calError = $state<string | null>(null);
+  function resetCalendar(src: Intake) {
+    calRows = calendarDrafts(src);
+    calError = null;
+  }
 
   onMount(() => {
     (async () => {
@@ -46,6 +60,8 @@
       try {
         it = (await intakeApi.get(id)).intake;
         shown = it;
+        resetCalendar(it);
+        if (it.doc_type === "대화캡처") mode = "calendar";
       } catch (e) {
         error = e instanceof Error ? e.message : "불러오기 실패";
         return;
@@ -81,6 +97,7 @@
     if (!it) return;
     shown = it;
     editorKey++;
+    resetCalendar(it);
   }
   async function retry() {
     if (!it || retrying) return;
@@ -95,6 +112,66 @@
       retrying = false;
     }
   }
+  const calOn = $derived(calRows.filter((r) => r.on));
+  async function publishCalendar() {
+    if (!it || calBusy) return;
+    calError = null;
+    if (!calOn.length) {
+      calError = "달력에 넣을 일정을 하나 이상 고르세요.";
+      return;
+    }
+    const bad = calOn.findIndex((r) => !r.label.trim() || !r.start);
+    if (bad >= 0) {
+      calError = `${calOn.length > 1 ? `${bad + 1}번째 일정: ` : ""}이름과 날짜를 적어 주세요.`;
+      return;
+    }
+    calBusy = true;
+    try {
+      it = (
+        await intakeApi.publishCalendar(
+          it.id,
+          calOn.map((r) => ({ label: r.label.trim(), start: r.start, ...(r.end && r.end !== r.start ? { end: r.end } : {}), ...(r.memo.trim() ? { memo: r.memo.trim() } : {}) })),
+          !calPrivate,
+        )
+      ).intake;
+      window.dispatchEvent(new CustomEvent(INTAKE_CHANGED));
+    } catch (e) {
+      calError = e instanceof Error ? e.message : "달력 등록 실패";
+    } finally {
+      calBusy = false;
+    }
+  }
+  async function undoCalendar() {
+    if (!it || busy) return;
+    const ok = await confirmDialog({
+      title: "달력 등록 되돌리기",
+      message: `이 올림으로 달력에 넣은 일정 ${it.event_ids.length}건을 지우고 게시 전으로 되돌릴까요? 달력에서 고친 내용도 함께 지워집니다.`,
+      confirmText: "되돌리기",
+      cancelText: "취소",
+      tone: "danger",
+    });
+    if (!ok) return;
+    busy = true;
+    error = null;
+    try {
+      it = (await intakeApi.undoCalendar(it.id)).intake;
+      shown = it;
+      resetCalendar(it);
+      mode = "calendar";
+      writing = true;
+      window.dispatchEvent(new CustomEvent(INTAKE_CHANGED));
+    } catch (e) {
+      error = e instanceof Error ? e.message : "되돌리기 실패";
+    } finally {
+      busy = false;
+    }
+  }
+  const sameFile = $derived(it?.same_file ?? []);
+  const similar = $derived(it?.similar_events ?? []);
+  const fmtRange = (a: string, b?: string | null) => (b && b !== a ? `${a} ~ ${b}` : a);
+  /** 비슷한 일정 링크 — 글에서 온 일정은 그 글, 아니면 달력의 그날 */
+  const evHref = (e: { id: string; start_date: string; source_post_id: string | null; source_board: string | null; source_category: string | null; is_annual: number }, near: string) =>
+    e.source_post_id && e.source_board ? postHref(e.source_board, e.source_post_id, e.source_category) : calendarHref(e.is_annual ? `${near.slice(0, 4)}${e.start_date.slice(4)}` : e.start_date, e.id);
   const checks = $derived((it?.warnings ?? []).filter((w) => w.level !== "info"));
   const infos = $derived((it?.warnings ?? []).filter((w) => w.level === "info"));
 
@@ -185,7 +262,22 @@
           </div>
         {/if}
 
-        {#if it.status === "published"}
+        {#if it.status === "published" && !it.post_id && it.event_ids.length}
+          <div class="done">
+            <p>{it.handled_by?.name ?? ""} 님이 소식 글 없이 달력에만 등록했습니다 — 만든 일정:</p>
+            <ul class="made">
+              {#each it.events ?? [] as e (e.id)}
+                <li>
+                  <a href={calendarHref(e.start_date, e.id)}>{e.title}</a>
+                  <small>{fmtRange(e.start_date, e.end_date)}{e.is_public ? "" : " · 편집진만"}</small>
+                </li>
+              {:else}
+                <li><small>(달력에서 지워짐)</small></li>
+              {/each}
+            </ul>
+            <button type="button" class="btn btn-ghost danger" disabled={busy} onclick={undoCalendar}>달력 등록 되돌리기</button>
+          </div>
+        {:else if it.status === "published"}
           <p class="done">
             {it.handled_by?.name ?? ""} 님이 글로 옮겼습니다:
             {#if it.post}<a href={postHref(it.post.board, it.post.id)}>{it.post.title}</a>{:else}(글이 지워짐){/if}
@@ -262,7 +354,69 @@
               <p class="by">AI 초안({it.model ?? "AI"})입니다. 원본과 대조해 고친 뒤 게시해 주세요.</p>
             </div>
           {/if}
-          {#if boards.length > 1}
+          {#if sameFile.length}
+            <div class="aibox dupe" role="note">
+              <h3>이미 올린 것입니다</h3>
+              <ul>
+                {#each sameFile as d (d.id)}
+                  <li>
+                    <a href={`${INBOX_PATH}${d.id}/`}>{fmtWhen(d.created_at)} {d.user.name ?? ""} 님이 올린 건</a>
+                    <small>({STATUS_LABEL[d.status]})</small>
+                    {#if d.post}— 만든 글: <a href={postHref(d.post.board, d.post.id)}>{d.post.title}</a>
+                    {:else if d.event_count}— 달력 일정 {d.event_count}건{/if}
+                  </li>
+                {/each}
+              </ul>
+              <small>같은 파일입니다. 필요 없으면 이 건을 버려 주세요.</small>
+            </div>
+          {/if}
+          {#if similar.length}
+            <div class="aibox dupe" role="note">
+              <h3>달력에 비슷한 일정이 있습니다</h3>
+              <ul>
+                {#each similar as g}
+                  {#each g.matches as e (e.id)}
+                    <li>
+                      <a href={evHref(e, g.start)}>{e.title}</a>
+                      <small>{e.is_annual ? `매년 ${e.start_date.slice(5)}` : fmtRange(e.start_date, e.end_date)}{e.source_post_id ? " · 글의 일정" : ""}{e.is_public ? "" : " · 편집진만"}</small>
+                      {#if similar.length > 1 || g.label !== (shown ?? it).title}<small> ← 초안 '{g.label}' {g.start}</small>{/if}
+                    </li>
+                  {/each}
+                {/each}
+              </ul>
+              <small>같은 행사를 두 번 올리지 않았는지 확인해 주세요(날짜 ±1일, 이름 글자 겹침으로 찾음).</small>
+            </div>
+          {/if}
+          <div class="mode" role="radiogroup" aria-label="게시 방식">
+            <span>게시 방식</span>
+            <label class:on={mode === "post"}><input type="radio" bind:group={mode} value="post" /> 소식 글 + 달력</label>
+            <label class:on={mode === "calendar"}><input type="radio" bind:group={mode} value="calendar" /> 달력만</label>
+          </div>
+          {#if mode === "calendar"}
+            <div class="cal">
+              <p class="cal-help">소식 글을 만들지 않고 아래 일정만 달력에 넣습니다. 메모(시간·장소)도 달력 일정에 함께 들어갑니다.</p>
+              {#each calRows as r, i}
+                <fieldset class="cal-row" class:off={!r.on}>
+                  <legend>
+                    <label><input type="checkbox" bind:checked={r.on} /> 일정 {i + 1}</label>
+                  </legend>
+                  <label class="f wide"><span>이름</span><input type="text" bind:value={r.label} maxlength="200" disabled={!r.on} /></label>
+                  <label class="f"><span>날짜</span><input type="date" bind:value={r.start} disabled={!r.on} /></label>
+                  <label class="f"><span>끝나는 날 <small>(선택)</small></span><input type="date" bind:value={r.end} min={r.start || undefined} disabled={!r.on} /></label>
+                  <label class="f wide"><span>메모 <small>(시간·장소 등)</small></span><textarea rows="3" bind:value={r.memo} maxlength="2000" disabled={!r.on}></textarea></label>
+                </fieldset>
+              {/each}
+              <button type="button" class="btn btn-ghost" onclick={() => (calRows = [...calRows, { on: true, label: (shown ?? it).title ?? "", start: "", end: "", memo: "" }])}>+ 일정 추가</button>
+              <label class="cal-priv"><input type="checkbox" bind:checked={calPrivate} /> 편집진만 보기 (사이트 달력에 공개하지 않음)</label>
+              {#if calError}<p class="cal-err" role="alert">{calError}</p>{/if}
+              <div class="cal-go">
+                <button type="button" class="btn btn-primary" disabled={calBusy || !calOn.length} onclick={publishCalendar}>
+                  {calBusy ? "등록 중…" : `달력에 등록 (${calOn.length}건)`}
+                </button>
+                <small>카테고리 '일정'{calPrivate ? " · 편집진만" : " · 공개"}</small>
+              </div>
+            </div>
+          {:else if boards.length > 1}
             <label class="bsel">
               <span>게시판</span>
               <select bind:value={board}>
@@ -270,15 +424,17 @@
               </select>
             </label>
           {/if}
-          {#key `${board}:${editorKey}`}
-            <PostEditor
-              {board}
-              intakeId={it.id}
-              startBlocks={intakeStartBlocks(shown ?? it)}
-              startTitle={(shown ?? it).title ?? ""}
-              backHref={`${INBOX_PATH}${it.id}/`}
-            />
-          {/key}
+          {#if mode === "post"}
+            {#key `${board}:${editorKey}`}
+              <PostEditor
+                {board}
+                intakeId={it.id}
+                startBlocks={intakeStartBlocks(shown ?? it)}
+                startTitle={(shown ?? it).title ?? ""}
+                backHref={`${INBOX_PATH}${it.id}/`}
+              />
+            {/key}
+          {/if}
         </section>
       {/if}
     </div>
@@ -547,6 +703,124 @@
   .danger {
     color: var(--color-primary);
   }
+  .aibox.dupe {
+    border: 2px solid var(--color-primary-soft);
+    background: var(--color-primary-bg);
+  }
+  .aibox.dupe h3 {
+    margin: 0 0 6px;
+    font-size: 0.95rem;
+    color: var(--color-primary);
+  }
+  .aibox.dupe li {
+    margin: 3px 0;
+    word-break: break-word;
+  }
+  .mode {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 14px;
+    font-size: 0.9rem;
+  }
+  .mode > span {
+    font-weight: 600;
+    margin-right: 4px;
+  }
+  .mode label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border: 1px solid var(--color-rule);
+    border-radius: 999px;
+    cursor: pointer;
+    background: var(--color-surface);
+  }
+  .mode label.on {
+    border-color: var(--color-primary);
+    color: var(--color-primary);
+    font-weight: 600;
+  }
+  .cal {
+    display: grid;
+    gap: 12px;
+  }
+  .cal-help {
+    margin: 0;
+    color: var(--color-muted);
+    font-size: 0.9rem;
+  }
+  .cal-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin: 0;
+    padding: 10px 14px 14px;
+    border: 1px solid var(--color-rule);
+    border-radius: 10px;
+    background: var(--color-surface);
+  }
+  .cal-row.off {
+    opacity: 0.55;
+  }
+  .cal-row legend {
+    font-weight: 600;
+    font-size: 0.9rem;
+    padding: 0 4px;
+  }
+  .cal-row .f {
+    display: grid;
+    gap: 4px;
+    font-size: 0.85rem;
+    min-width: 0;
+  }
+  .cal-row .f.wide {
+    grid-column: 1 / -1;
+  }
+  .cal-row input[type="text"],
+  .cal-row input[type="date"],
+  .cal-row textarea {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 8px 10px;
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-md);
+    background: var(--color-bg, #fff);
+    font: inherit;
+  }
+  .cal-priv {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.9rem;
+  }
+  .cal-err {
+    margin: 0;
+    color: var(--color-primary);
+    font-weight: 600;
+  }
+  .cal-go {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+  }
+  .cal-go small {
+    color: var(--color-muted);
+  }
+  .done p {
+    margin: 0 0 6px;
+  }
+  .made {
+    margin: 0 0 10px;
+    padding-left: 20px;
+  }
+  .made small {
+    color: var(--color-muted);
+    margin-left: 6px;
+  }
   .bsel {
     display: flex;
     align-items: center;
@@ -564,6 +838,11 @@
   }
   .draft :global(.editor h1) {
     font-size: 1.3rem;
+  }
+  @media (max-width: 560px) {
+    .cal-row {
+      grid-template-columns: minmax(0, 1fr);
+    }
   }
   @media (max-width: 960px) {
     .cols {
