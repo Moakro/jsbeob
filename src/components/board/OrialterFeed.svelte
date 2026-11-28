@@ -15,13 +15,14 @@
     type PostSummary,
   } from "../../lib/api";
   import { uploadImage } from "../../lib/blocks";
-  import { MAX_PHOTOS, ORIALTER_BOARD, orialterBlocks, splitYouTube } from "../../lib/orialter";
+  import { MAX_PHOTOS, ORIALTER_BOARD, splitYouTube } from "../../lib/orialter";
   import { confirmDialog } from "../../lib/confirm";
   import { shareLink } from "../../lib/share";
   import { BRANCHES } from "../../data/branches";
   import ModalFrame from "../ModalFrame.svelte";
   import ShareIcon from "../ShareIcon.svelte";
   import PublishToggle from "./PublishToggle.svelte";
+  import OrialterComposer from "./OrialterComposer.svelte";
 
   let { limit = 10, openId = null }: { limit?: number; openId?: string | null } = $props();
 
@@ -61,11 +62,6 @@
           : "교인 등급부터 글을 쓸 수 있습니다",
   );
 
-  // 글쓰기
-  let text = $state("");
-  let files = $state<{ file: File; url: string }[]>([]);
-  let posting = $state(false);
-  let fileInput = $state<HTMLInputElement | undefined>(undefined);
   // 수정
   let edit = $state<{
     id: string;
@@ -379,39 +375,8 @@
     openPost(id);
   };
 
-  function pickFiles(e: Event) {
-    const input = e.target as HTMLInputElement;
-    const picked = [...(input.files ?? [])];
-    const room = MAX_PHOTOS - files.length;
-    files = [...files, ...picked.slice(0, room).map((file) => ({ file, url: URL.createObjectURL(file) }))];
-    input.value = "";
-  }
-
-  function dropFile(i: number) {
-    URL.revokeObjectURL(files[i].url);
-    files = files.filter((_, j) => j !== i);
-  }
 
   const blockId = () => Math.random().toString(36).slice(2, 10) + "fd";
-
-  async function submit() {
-    if (posting || (!text.trim() && !files.length)) return;
-    posting = true;
-    try {
-      const keys: string[] = [];
-      for (const f of files) keys.push((await uploadImage(f.file)).key);
-      await api.createPost({ board: BOARD, title: "", blocks: orialterBlocks({ text, keys }) });
-      files.forEach((f) => URL.revokeObjectURL(f.url));
-      text = "";
-      files = [];
-      await load();
-    } catch (e) {
-      // 오류 안내(사진 형식 등)는 읽을 시간을 넉넉히
-      flash(e instanceof Error ? e.message : "올리지 못했습니다", 7000);
-    } finally {
-      posting = false;
-    }
-  }
 
   async function remove(p: PostSummary) {
     menuFor = null;
@@ -606,62 +571,7 @@
   {/if}
 
   {#if !filter.author && !filter.q?.length}
-    <form
-      class="card composer"
-      class:locked={!canPost}
-      onsubmit={(e) => {
-        e.preventDefault();
-        if (canPost) submit();
-      }}
-    >
-      <textarea rows="3" placeholder={composerHint} aria-label="글" disabled={!canPost} bind:value={text}></textarea>
-      {#if videoCount(text)}
-        <p class="yt-note">
-          ▶ 유튜브 영상 {videoCount(text)}개가 글과 함께 올라갑니다(주소는 글에서 빠집니다)
-        </p>
-      {/if}
-      {#if files.length}
-        <ul class="picks">
-          {#each files as f, i}
-            <li>
-              <img src={f.url} alt="" />
-              <button type="button" class="x" aria-label="사진 빼기" onclick={() => dropFile(i)}>×</button>
-            </li>
-          {/each}
-        </ul>
-      {/if}
-      <div class="composer-bar">
-        <button
-          type="button"
-          class="tool"
-          disabled={!canPost || files.length >= MAX_PHOTOS}
-          onclick={() => fileInput?.click()}
-        >
-          <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"
-            ><path
-              d="M4 7h3l2-2h6l2 2h3v12H4z"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.8"
-              stroke-linejoin="round"
-            ></path><circle cx="12" cy="13" r="3.5" fill="none" stroke="currentColor" stroke-width="1.8"
-            ></circle></svg
-          >
-          사진 {files.length ? `${files.length}/${MAX_PHOTOS}` : ""}</button
-        >
-        <input
-          type="file"
-          accept="image/jpeg,image/png,image/webp"
-          multiple
-          hidden
-          bind:this={fileInput}
-          onchange={pickFiles}
-        />
-        <button class="btn btn-primary go" disabled={!canPost || posting || (!text.trim() && !files.length)}
-          >{posting ? "올리는 중…" : "올리기"}</button
-        >
-      </div>
-    </form>
+    <OrialterComposer {canPost} hint={composerHint} onposted={() => load()} onerror={(m) => flash(m, 7000)} />
   {/if}
 
   {#if loading && !posts.length}
@@ -1125,15 +1035,6 @@
     font: inherit;
     color: var(--color-fg);
     outline: none;
-  }
-  .composer.locked textarea {
-    resize: none;
-    cursor: not-allowed;
-  }
-  .composer.locked .tool:disabled,
-  .composer.locked .go:disabled {
-    cursor: not-allowed;
-    opacity: 0.5;
   }
   .picks {
     list-style: none;
