@@ -103,6 +103,7 @@ export default {
       });
       if (reportRes) return reportRes;
       const libRes = await handleLibrary(req, env, path, {
+        viewerUser: (r) => viewerOf(r, env),
         adminUser: async (r) => {
           const uid = await currentUserId(r, env);
           if (!uid) return null;
@@ -150,12 +151,13 @@ export default {
       if (path === "/api/posts" && req.method === "GET") return listPosts(req, env);
       if (path === "/api/posts" && req.method === "POST") return createPost(req, env);
       if (path === "/api/posts/authors" && req.method === "GET") return listPostAuthors(req, env);
-      const pm = path.match(/^\/api\/posts\/([^/]+)(?:\/(pin|private))?$/);
+      const pm = path.match(/^\/api\/posts\/([^/]+)(?:\/(pin|private|status))?$/);
       if (pm) {
         const id = pm[1];
         const sub = pm[2];
         if (sub === "pin" && req.method === "POST") return pinPost(req, env, id);
         if (sub === "private" && req.method === "POST") return setPostPrivate(req, env, id);
+        if (sub === "status" && req.method === "POST") return setPostStatus(req, env, id);
         if (req.method === "GET") return getPost(req, env, id);
         if (req.method === "PATCH") return updatePost(req, env, id);
         if (req.method === "DELETE") return deletePost(req, env, id);
@@ -1671,6 +1673,8 @@ async function listEvents(req, env) {
   const conds = [];
   const binds = [];
   if (!admin) conds.push("ev.is_public = 1");
+  // 숨긴(비공개) 글의 일정은 달력에 안 보인다 — 글을 공개하면 다시 보임 (2026-11-28)
+  if (!admin) conds.push("(ev.source_post_id IS NULL OR sp.status = 'published')");
   if (category) {
     conds.push("ev.category = ?");
     binds.push(category);
@@ -2613,6 +2617,8 @@ async function getPost(req, env, id) {
   const counted = await countPostView(req, env, id, r.author_uid, viewer, viewHeaders);
   const shaped = maskOfficialAuthor(shapePost(r, true), rb, viewer);
   if (counted) shaped.view_count += 1;
+  // 신고로 숨긴 글 — 글쓴이는 스스로 공개하지 못한다(글 보기의 공개 버튼을 관리자에게만)
+  if (r.status === "hidden" && (await reportHidden(env, id))) shaped.report_hidden = true;
   shaped.series_id = r.series_id ?? null;
   const stored = parseStoredBlocks(r.body_blocks);
   if (stored) {
@@ -2775,6 +2781,39 @@ async function setPostPrivate(req, env, id) {
   }
   await env.DB.prepare("UPDATE posts SET is_private=?, updated_at=datetime('now') WHERE id=?").bind(body.private ? 1 : 0, id).run();
   return json({ ok: true, is_private: body.private });
+}
+/** 신고 처리로 숨긴 글인가 — reports 기록(resolution='hidden')으로 판단 */
+async function reportHidden(env, id) {
+  return !!(await env.DB.prepare("SELECT 1 FROM reports WHERE target_type='post' AND target_id=? AND resolution='hidden' LIMIT 1").bind(id).first());
+}
+/**
+ * 공개·비공개(숨김) 전환(글 보기 제목 줄 아래 버튼, 2026-11-28) — body {status: 'published'|'hidden'}.
+ * 관리자 또는 글쓴이. 신고로 숨긴 글은 관리자만 공개로 되돌린다(그때 신고 기록도 '되살림'으로 — 신고 처리 화면과 같게).
+ * 숨김은 상태만 바꾼다: 달력 일정(events)은 그대로 두고 목록·달력이 글 상태로 거른다. updated_at 은 건드리지 않는다.
+ */
+async function setPostStatus(req, env, id) {
+  const uid = await currentUserId(req, env);
+  if (!uid) return json({ error: "not authenticated" }, 401);
+  const u = await loadUser(env, uid);
+  const post = await env.DB.prepare("SELECT author_id, status FROM posts WHERE id=?").bind(id).first();
+  if (!post || (post.status !== "published" && post.status !== "hidden")) return json({ error: "not found" }, 404);
+  const body = await req.json().catch(() => ({}));
+  if (body.status !== "published" && body.status !== "hidden") return json({ error: "status 는 published·hidden 중 하나여야 합니다" }, 400);
+  const admin = (u?.level ?? 0) >= LEVEL.ADMIN;
+  if (!admin && post.author_id !== uid) return json({ error: "공개 여부를 바꿀 권한이 없습니다" }, 403);
+  if (body.status === post.status) return json({ ok: true, status: post.status });
+  const byReport = post.status === "hidden" && (await reportHidden(env, id));
+  if (byReport && !admin) return json({ error: "신고로 숨긴 글은 관리자만 공개할 수 있습니다" }, 403);
+  await env.DB.batch([
+    env.DB.prepare("UPDATE posts SET status=? WHERE id=?").bind(body.status, id),
+    ...byReport
+      ? [env.DB.prepare(
+          `UPDATE reports SET status='resolved', resolution='restored', resolved_by=?, resolved_at=datetime('now')
+            WHERE target_type='post' AND target_id=?`
+        ).bind(uid, id)]
+      : []
+  ]);
+  return json({ ok: true, status: body.status });
 }
 async function pinPost(req, env, id) {
   const uid = await currentUserId(req, env);

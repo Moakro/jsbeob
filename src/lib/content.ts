@@ -205,7 +205,8 @@ export const listLibraryPosts = async (
   ).catch(() => null)) ?? { items: [], next: null };
 
 export const getLibraryPostMeta = async (request: Request, id: string) =>
-  (await contentGet(`/api/library/posts/${encodeURIComponent(id)}/meta`, request))?.post ?? null;
+  // 쿠키를 넘긴다 — 숨긴(비공개) 글은 글쓴이·관리자에게만 열린다 (2026-11-28)
+  (await contentGet(`/api/library/posts/${encodeURIComponent(id)}/meta`, request, { viewer: true }))?.post ?? null;
 
 export const getSeriesToc = async (request: Request, id: string) =>
   await contentGet(`/api/library/series/${encodeURIComponent(id)}`, request).catch(() => null);

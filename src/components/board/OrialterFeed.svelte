@@ -21,6 +21,7 @@
   import { BRANCHES } from "../../data/branches";
   import ModalFrame from "../ModalFrame.svelte";
   import ShareIcon from "../ShareIcon.svelte";
+  import PublishToggle from "./PublishToggle.svelte";
 
   let { limit = 10, openId = null }: { limit?: number; openId?: string | null } = $props();
 
@@ -885,6 +886,15 @@
           {#if post.is_hidden}
             <p class="hidden-note">관리자가 숨긴 글입니다. 글쓴이와 관리자만 볼 수 있습니다.</p>
           {/if}
+          <PublishToggle
+            {post}
+            {me}
+            style="margin: 12px 16px 0"
+            onchange={(h) => {
+              posts = posts.map((x) => (x.id === post.id ? { ...x, is_hidden: h } : x));
+              if (open?.post?.id === post.id) open = { ...open, post: { ...open.post, is_hidden: h } };
+            }}
+          />
           <div class="om-body">
             {@html post.body_html}
             <!-- 블록 본문이 아니면(예전 글) 첨부 사진을 따로 -->
@@ -903,11 +913,6 @@
             {/if}
             {#if canReport(post.author_id)}
               <button type="button" class="om-edit" onclick={() => openReport("post", post.id)}>신고</button>
-            {/if}
-            {#if isAdmin}
-              <button type="button" class="om-edit" onclick={() => moderate(post, post.is_hidden ? "restore" : "hide")}
-                >{post.is_hidden ? "되살리기" : "숨기기"}</button
-              >
             {/if}
           </div>
           <div class="actions">
