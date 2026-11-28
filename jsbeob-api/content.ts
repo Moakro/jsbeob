@@ -140,6 +140,8 @@ async function routeContent(req, env, path, ctx) {
     if (path === "/api/admin/content/books/order" && m === "PUT") return adminOrderBooks(req, env);
     r = path.match(/^\/api\/admin\/content\/articles\/([^/]+)\/chapters\/order$/);
     if (r && m === "PUT") return adminOrderChapters(req, env, r[1]);
+    r = path.match(/^\/api\/admin\/content\/articles\/([^/]+)\/status$/);
+    if (r && m === "PUT") return adminSetArticleStatus(req, env, dec(r[1]), admin.id);
     r = path.match(/^\/api\/admin\/content\/(articles|places)(?:\/([^/]+))?(?:\/(revisions))?$/);
     if (r) {
       const type = TYPE_MAP[r[1]];
@@ -1211,6 +1213,37 @@ async function adminOrderBooks(req, env) {
     ...others.map((id) => st("UPDATE articles SET bjg=0 WHERE id=? AND parent_id IS NULL", id))
   ]);
   return json({ ok: true });
+}
+/**
+ * 자료실 목록의 '공개하기 / 비공개로' (2026-11-28) — { status: 'published' | 'draft' }
+ * 상태만 바꾼다. 편집기 저장(adminSave)과 같은 부수 효과: 수정 이력 한 줄, 처음 공개 때 published_at 채우기,
+ * 책이면 장 status 도 함께. 장(parent_id 있음)은 책을 따르므로 따로 못 바꾼다.
+ * 검색·sitemap 은 요청 때 status 로 거르므로 따로 갱신할 것이 없고, 비회원 페이지 캐시는 5분 뒤 저절로 바뀐다.
+ */
+async function adminSetArticleStatus(req, env, id, uid) {
+  const body = await req.json().catch(() => null);
+  const status = body?.status;
+  if (status !== "published" && status !== "draft") return json({ error: "잘못된 요청입니다" }, 400);
+  const existing = await loadFull(env, "article", id);
+  if (!existing) return json({ error: "not found" }, 404);
+  if ((existing as any).parent_id) return json({ error: "장은 책의 공개 상태를 따릅니다. 책에서 바꿔 주세요" }, 409);
+  const now = nowIso();
+  const st = (sql, ...a) => env.DB.prepare(sql).bind(...a);
+  const pub = `published_at=CASE WHEN ?='published' THEN COALESCE(published_at, ?) ELSE published_at END`;
+  const rs = await env.DB.batch([
+    st(
+      "INSERT INTO content_revisions (owner_type, owner_id, action, snapshot, edited_by) VALUES ('article', ?, 'update', ?, ?)",
+      id,
+      JSON.stringify(existing),
+      uid
+    ),
+    st(`UPDATE articles SET status=?, ${pub}, updated_by=?, updated_at=datetime('now') WHERE id=? AND parent_id IS NULL`, status, status, now, uid, id),
+    st(`UPDATE articles SET status=?, ${pub}, updated_at=datetime('now') WHERE parent_id=? AND status<>?`, status, status, now, id, status)
+  ]);
+  const row = await env.DB.prepare(
+    "SELECT status, published_at, (SELECT COUNT(*) FROM articles c WHERE c.parent_id=a.id) AS chapter_count FROM articles a WHERE id=?"
+  ).bind(id).first();
+  return json({ ok: true, status: row?.status, published_at: row?.published_at, chapters: row?.chapter_count ?? 0, chapters_changed: rs[2]?.meta?.changes ?? 0 });
 }
 async function adminListRevisions(env, type, id) {
   const rs = await env.DB.prepare(

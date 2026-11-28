@@ -5,6 +5,7 @@
   import { library, articleHref, SCRIPTURE_CATEGORY } from "../../lib/library";
   import { PLACE_KINDS, ABOUT_KINDS } from "../../lib/content-types";
   import BookOrder from "./BookOrder.svelte";
+  import StatusToggle from "./StatusToggle.svelte";
 
   let { type, section = "about" }: { type: "article" | "place"; section?: "about" | "library" } = $props();
 
@@ -92,7 +93,7 @@
         <!-- 도서: 법종교 간행·관련 묶음 순서 + 켜기/끄기 (2026-11-28) -->
         <BookOrder kind={g.kind} items={g.items} statusLabel={STATUS} />
       {:else}
-      <ul>
+      <ul class:lib={type === "article" && section === "library"}>
         {#each g.items as it (it.id)}
           {@const isBranches = type === "article" && it.kind === "branches"}
           <!-- 지부·분원 글은 목록이 지부·분원 탭(branches 표)에서 관리된다 — 이름을 누르면 그 탭으로, 소개 문구는 '소개 글 편집'으로 (2026-11-06) -->
@@ -108,6 +109,10 @@
             {#if isBranches}<a class="view" href={`#${type}/${it.id}`}>소개 글 편집</a>{/if}
             {#if it.chapters}<span class="meta">{it.chapters}장</span>{/if}
             <span class={`badge ${it.status}`}>{STATUS[it.status] ?? it.status}</span>
+            {#if type === "article" && section === "library"}
+              <!-- 자료실 글: 공개/비공개 바로 바꾸기 (2026-11-28) -->
+              <StatusToggle item={it} onchange={(v) => (it.status = v)} />
+            {/if}
             <span class="meta">순서 {it.sort}</span>
             <span class="meta">{it.updated}</span>
             <a
@@ -229,6 +234,14 @@
   @media (max-width: 640px) {
     .meta {
       display: none;
+    }
+    /* 자료실 폰: 제목은 한 줄 전체, 상태·공개 버튼·보기는 그 아래 (2026-11-28) */
+    ul.lib li {
+      flex-wrap: wrap;
+      gap: 6px 8px;
+    }
+    ul.lib .main {
+      flex: 1 1 100%;
     }
   }
 </style>
