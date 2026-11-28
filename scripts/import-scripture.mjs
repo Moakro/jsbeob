@@ -3,10 +3,13 @@
 //
 // 쓰는 법 (로컬 API 기준, 관리자 쿠키 필요 — pnpm dev:login 이 찍어 주는 jb_session 값):
 //   JB_SESSION=… node scripts/import-scripture.mjs <폴더> --book <책slug> [--kind book] [--api http://127.0.0.1:<API 포트, 기본 8788>]
-//                [--status published] [--dry]
+//                [--status published|draft|keep] [--no-book] [--dry]
+//   --status keep : 이미 있는 글은 지금 공개 상태를 그대로 두고(새 글만 draft), 본문만 바꾼다
+//   --no-book     : 책 글(부모)은 건드리지 않고 이미 있는 책 아래 장만 수정한다(책 slug 로 찾음)
 //
 // 입력 폴더: 00_서문.md, 01_제1장.md … 99_부록.md (파일 이름 순서 = 장 순서)
 //   프론트매터: scripture, scripture_hanja, 편자, 편자_한자, 장, 장_이름, section(preface|appendix)
+//              선택: slug(장 글 slug 직접 지정), 제목(장 제목 직접 지정), meta(한 줄 JSON — 장 글 meta)
 //   본문: "# 제목"(무시) / "## N절" → 절 블록 / 빈 줄로 나뉜 문단 = 문장 한 줄, 끝의 "^1-1-3" = 문장 위치
 //   서문·부록처럼 절 머리가 없으면 문단마다 preface-N / appendix-N 위치를 붙인 절 블록(이름 없음)
 //   [[대상|별칭]] 위키링크는 그대로 둔다(화면에는 별칭 글자, 나중 관련링크 작업의 출발점)
@@ -28,6 +31,7 @@ const PORTS = loadDevPorts();
 const API = opt("api", `http://127.0.0.1:${PORTS.api}`);
 const STATUS = opt("status", "published");
 const DRY = args.includes("--dry");
+const NO_BOOK = args.includes("--no-book");
 const COOKIE = process.env.JB_SESSION ? `jb_session=${process.env.JB_SESSION}` : "";
 if (!dir || !BOOK) {
   console.error("사용: JB_SESSION=… node scripts/import-scripture.mjs <폴더> --book <책slug> [--kind book] [--dry]");
@@ -46,7 +50,8 @@ function parseFront(src) {
       const kv = line.match(/^([^:]+):\s*(.*)$/);
       if (!kv) continue;
       const v = kv[2].trim();
-      data[kv[1].trim()] = /^\d+$/.test(v) ? Number(v) : v;
+      const k = kv[1].trim();
+      data[k] = k === "meta" && v.startsWith("{") ? JSON.parse(v) : /^\d+$/.test(v) ? Number(v) : v;
     }
   }
   return { data, body: m ? src.slice(m[0].length) : src };
@@ -133,7 +138,16 @@ for (const f of files) {
   const title = sec === "preface" ? "서문" : sec === "appendix" ? "부록" : `제${data.장}장${data.장_이름 ? ` ${data.장_이름}` : ""}`;
   const { blocks, noAnchor } = toBlocks(body, sec ? sec : null);
   const sentences = blocks.filter((b) => b.type === "verse").reduce((n, b) => n + b.lines.length, 0);
-  chapters.push({ key, title, slug: `${BOOK}-${key}`, blocks, sentences, noAnchor, file: f });
+  chapters.push({
+    key,
+    title: data.제목 ?? title,
+    slug: data.slug ?? `${BOOK}-${key}`,
+    meta: data.meta ?? null,
+    blocks,
+    sentences,
+    noAnchor,
+    file: f,
+  });
 }
 
 console.log(`책 ${bookMeta.scripture} (${BOOK}) — 장 ${chapters.length}개`);
@@ -161,11 +175,19 @@ const bookInput = {
   blocks: editorLine ? [{ type: "text", text: editorLine }] : [],
 };
 const existingBook = bySlug.get(BOOK);
-const book = existingBook
-  ? await api("PUT", `/api/admin/content/articles/${existingBook.id}`, bookInput)
-  : await api("POST", "/api/admin/content/articles", bookInput);
-const bookId = (book.item ?? book).id;
-console.log(`책 ${existingBook ? "수정" : "생성"}: ${bookId}`);
+let bookId;
+if (NO_BOOK) {
+  if (!existingBook) throw new Error(`--no-book: 책 slug ${BOOK} 이 없습니다`);
+  bookId = existingBook.id;
+  console.log(`책은 그대로 둠: ${bookId}`);
+} else {
+  if (STATUS === "keep") bookInput.status = existingBook?.status ?? "draft";
+  const book = existingBook
+    ? await api("PUT", `/api/admin/content/articles/${existingBook.id}`, bookInput)
+    : await api("POST", "/api/admin/content/articles", bookInput);
+  bookId = (book.item ?? book).id;
+  console.log(`책 ${existingBook ? "수정" : "생성"}: ${bookId}`);
+}
 
 const ids = [];
 for (const [i, c] of chapters.entries()) {
@@ -180,8 +202,11 @@ for (const [i, c] of chapters.entries()) {
     sort_order: i,
     parent_id: bookId,
     blocks: c.blocks,
+    ...(c.meta ? { meta: c.meta } : {}),
   };
   const ex = bySlug.get(c.slug);
+  if (STATUS === "keep") input.status = ex?.status ?? "draft";
+  if (ex && ex.sort_order != null) input.sort_order = ex.sort_order;
   const r = ex
     ? await api("PUT", `/api/admin/content/articles/${ex.id}`, input)
     : await api("POST", "/api/admin/content/articles", input);
@@ -189,5 +214,9 @@ for (const [i, c] of chapters.entries()) {
   ids.push(id);
   console.log(`  장 ${ex ? "수정" : "생성"}: ${c.slug} → ${id}`);
 }
-await api("PUT", `/api/admin/content/articles/${bookId}/chapters/order`, { ids });
-console.log("장 순서 저장 완료");
+if (NO_BOOK) {
+  console.log("장 순서는 그대로 둠(--no-book)");
+} else {
+  await api("PUT", `/api/admin/content/articles/${bookId}/chapters/order`, { ids });
+  console.log("장 순서 저장 완료");
+}
