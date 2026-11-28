@@ -13,6 +13,7 @@
   import BlockEditor from "../BlockEditor.svelte";
   import MediaLibrary from "../MediaLibrary.svelte";
   import SelectMenu from "../SelectMenu.svelte";
+  import OrderList from "./OrderList.svelte";
 
   let {
     type,
@@ -62,24 +63,28 @@
     parentId = it.parent_id ?? null;
     book = it.book ?? null;
     chapters = Array.isArray(it.chapters) ? it.chapters : [];
+    savedChapterOrder = chapterSig();
   }
 
-  async function moveChapter(i: number, d: number) {
-    const j = i + d;
-    if (!currentId || ordering || j < 0 || j >= chapters.length) return;
-    const before = chapters;
-    const next = [...chapters];
-    [next[i], next[j]] = [next[j], next[i]];
-    chapters = next;
+  /** 마지막으로 저장된 장 순서 — 끌기·▲▼ 뒤 '장 순서 저장' 한 번으로 보낸다 (2026-11-28). sort_order 만 바뀐다 */
+  let savedChapterOrder = $state("");
+  const chapterSig = () => chapters.map((c) => c.id).join(",");
+  const chaptersDirty = $derived(chapterSig() !== savedChapterOrder);
+  let chapterMsg = $state<{ tone: "ok" | "err"; text: string } | null>(null);
+
+  async function saveChapterOrder() {
+    if (!currentId || ordering) return;
     ordering = true;
+    chapterMsg = null;
     try {
       await adminApi.orderChapters(
         currentId,
-        next.map((c) => c.id),
+        chapters.map((c) => c.id),
       );
+      savedChapterOrder = chapterSig();
+      chapterMsg = { tone: "ok", text: "장 순서를 저장했습니다." };
     } catch (e) {
-      chapters = before;
-      msg = { tone: "err", text: e instanceof Error ? e.message : "순서 저장 실패" };
+      chapterMsg = { tone: "err", text: e instanceof Error ? e.message : "순서 저장 실패" };
     } finally {
       ordering = false;
     }
@@ -504,28 +509,31 @@
             >
           </div>
           {#if chapters.length}
-            <ol class="toc">
-              {#each chapters as c, i (c.id)}
-                <li>
-                  <span class="no">{i + 1}</span>
-                  <a href={`#article/${c.id}`}>{c.title}</a>
-                  <button
-                    type="button"
-                    class="mv"
-                    aria-label="위로"
-                    disabled={i === 0 || ordering}
-                    onclick={() => moveChapter(i, -1)}>↑</button
-                  >
-                  <button
-                    type="button"
-                    class="mv"
-                    aria-label="아래로"
-                    disabled={i === chapters.length - 1 || ordering}
-                    onclick={() => moveChapter(i, 1)}>↓</button
-                  >
-                </li>
-              {/each}
-            </ol>
+            <div class="toc">
+              <OrderList items={chapters} onchange={(n) => ((chapters = n), (chapterMsg = null))} disabled={ordering} label="장">
+                {#snippet row(c)}
+                  <a class="toc-t" href={`#article/${c.id}`}>{c.title}</a>
+                {/snippet}
+              </OrderList>
+            </div>
+            <div class="toc-bar">
+              {#if chapterMsg}<span class={chapterMsg.tone}>{chapterMsg.text}</span>{:else if chaptersDirty}<span class="dim"
+                  >바뀐 순서가 아직 저장되지 않았습니다.</span
+                >{:else}<span class="dim">끌거나 ▲▼로 순서를 바꾼 뒤 저장합니다.</span>{/if}
+              <button
+                type="button"
+                class="btn btn-ghost sm"
+                disabled={!chaptersDirty || ordering}
+                onclick={() => {
+                  const ids = savedChapterOrder.split(",");
+                  chapters = [...chapters].sort((x, y) => ids.indexOf(x.id) - ids.indexOf(y.id));
+                  chapterMsg = null;
+                }}>되돌리기</button
+              >
+              <button type="button" class="btn btn-primary sm" disabled={!chaptersDirty || ordering} onclick={saveChapterOrder}
+                >{ordering ? "저장 중…" : "장 순서 저장"}</button
+              >
+            </div>
           {:else}
             <p class="dim">아직 장이 없습니다.</p>
           {/if}
@@ -1024,32 +1032,13 @@
     color: #fff;
   }
   .toc {
-    list-style: none;
-    margin: 0;
-    padding: 0;
     min-width: 0;
+    font-size: 0.9rem;
   }
   .box:has(.toc) {
     grid-template-columns: minmax(0, 1fr);
   }
-  .toc li {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 7px 0;
-    border-top: 1px solid var(--color-rule);
-    font-size: 0.9rem;
-  }
-  .toc li:first-child {
-    border-top: 0;
-  }
-  .toc .no {
-    min-width: 1.8em;
-    color: var(--color-muted);
-    font-size: 0.8rem;
-    text-align: right;
-  }
-  .toc a {
+  .toc-t {
     flex: 1;
     min-width: 0;
     overflow: hidden;
@@ -1057,18 +1046,18 @@
     white-space: nowrap;
     color: var(--color-fg);
   }
-  .mv {
-    width: 28px;
-    height: 28px;
-    border: 1px solid var(--color-rule);
-    border-radius: var(--radius-sm);
-    background: #fff;
-    color: var(--color-fg);
-    cursor: pointer;
-    flex: none;
+  .toc-bar {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 8px;
+    font-size: 0.82rem;
   }
-  .mv:disabled {
-    opacity: 0.35;
-    cursor: default;
+  .toc-bar > span {
+    margin-right: auto;
+  }
+  .toc-bar .ok {
+    color: var(--color-secondary);
   }
 </style>

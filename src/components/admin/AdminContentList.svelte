@@ -2,8 +2,9 @@
   // 관리자 — 문서(소개·자료실 글) / 전각 목록. 종류별로 묶어 보인다.
   // 복원(2026-11-01): 배포본 _astro/AdminApp.*.js 에 함께 묶인 컴포넌트. 파일 이름은 추정.
   import { adminApi, fmtKst } from "../../lib/blocks";
-  import { library, articleHref } from "../../lib/library";
+  import { library, articleHref, SCRIPTURE_CATEGORY } from "../../lib/library";
   import { PLACE_KINDS, ABOUT_KINDS } from "../../lib/content-types";
+  import BookOrder from "./BookOrder.svelte";
 
   let { type, section = "about" }: { type: "article" | "place"; section?: "about" | "library" } = $props();
 
@@ -57,6 +58,7 @@
           thumb: x.thumb?.url,
           href: publicHref(x),
           chapters: x.chapter_count ?? 0,
+          bjg: !!x.bjg,
         }));
       })
       .catch((e: any) => (error = e instanceof Error ? e.message : "불러오기 실패"))
@@ -86,6 +88,10 @@
   {#each groups as g (g.kind)}
     <section>
       <h3>{g.label} <small>{g.items.length}</small></h3>
+      {#if type === "article" && section === "library" && g.kind === SCRIPTURE_CATEGORY}
+        <!-- 도서: 법종교 간행·관련 묶음 순서 + 켜기/끄기 (2026-11-28) -->
+        <BookOrder kind={g.kind} items={g.items} statusLabel={STATUS} />
+      {:else}
       <ul>
         {#each g.items as it (it.id)}
           {@const isBranches = type === "article" && it.kind === "branches"}
@@ -113,6 +119,7 @@
           </li>
         {/each}
       </ul>
+      {/if}
     </section>
   {/each}
 {:else}

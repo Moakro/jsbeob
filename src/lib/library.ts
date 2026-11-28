@@ -47,7 +47,7 @@ export const scriptureHref = (book: string, chap?: string) =>
 const ko = new Intl.Collator("ko");
 
 /** 카테고리 목록 정렬 방식(list_order)대로 행을 정렬한다. */
-export function sortForCategory<T extends { order: number; title: string; date?: string | null; pinned?: boolean }>(
+export function sortForCategory<T extends { order: number; title: string; date?: string | null; pinned?: boolean; bjg?: boolean }>(
   listOrder: string,
   rows: T[],
 ): T[] {
@@ -74,6 +74,9 @@ export const library = {
   createCategory: (input: Partial<LibraryCategory>) => req("/api/library/categories", jsonBody("POST", input)),
   updateCategory: (key: string, input: Partial<LibraryCategory>) =>
     req(`/api/library/categories/${encodeURIComponent(key)}`, jsonBody("PUT", input)),
+  /** 책 순서·'법종교 간행' 표시 저장 (2026-11-28) — 그 분류의 최상위 책 전부. status 는 안 바뀐다 */
+  orderBooks: (kind: string, bjg: string[], others: string[]) =>
+    req("/api/admin/content/books/order", jsonBody("PUT", { kind, bjg, others })),
   orderCategories: (keys: string[]) => req("/api/library/categories/order", jsonBody("PUT", { keys })),
   deleteCategory: (key: string) => req(`/api/library/categories/${encodeURIComponent(key)}`, { method: "DELETE" }),
   series: () => req("/api/library/series"),
