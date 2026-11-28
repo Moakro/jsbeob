@@ -248,7 +248,7 @@
         </div>
       {/if}
     </header>
-    <PublishToggle {post} {me} onchange={(h) => post && (post = { ...post, is_hidden: h })} />
+    <PublishToggle {post} {me} onchange={(h) => post && (post = { ...post, is_hidden: h, is_pending: false })} />
 
     {#if series && series.items.length}
       <SeriesBox title={series.title} items={series.items} />

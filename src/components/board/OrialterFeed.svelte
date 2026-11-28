@@ -706,7 +706,7 @@
             href={postHref(BOARD, p.id)}
             title={fullTime(p.created_at)}
             onclick={(e) => openFromLink(e, p.id)}>{snsTime(p.created_at)}</a
-          >{#if p.is_hidden}<span class="hidden-tag" title="관리자가 숨긴 글 — 글쓴이와 관리자만 봅니다">숨겨짐</span>{/if}
+          >{#if p.is_pending}<span class="hidden-tag">대기</span>{:else if p.is_hidden}<span class="hidden-tag" title="관리자가 숨긴 글 — 글쓴이와 관리자만 봅니다">숨겨짐</span>{/if}
         </div>
         {#if me}
           <div class="menu">
@@ -729,7 +729,7 @@
                 {#if canReport(p.author_id)}
                   <button role="menuitem" type="button" onclick={() => openReport("post", p.id)}>신고</button>
                 {/if}
-                {#if isAdmin}
+                {#if isAdmin && !p.is_pending}
                   {#if p.is_hidden}
                     <button role="menuitem" type="button" onclick={() => moderate(p, "restore")}>되살리기</button>
                   {:else}
@@ -880,10 +880,10 @@
                   >{/if}</strong
               >
               <span class="time" title={fullTime(post.created_at)}>{snsTime(post.created_at)}</span
-              >{#if post.is_hidden}<span class="hidden-tag">숨겨짐</span>{/if}
+              >{#if post.is_hidden}<span class="hidden-tag">{post.is_pending ? "대기" : "숨겨짐"}</span>{/if}
             </div>
           </header>
-          {#if post.is_hidden}
+          {#if post.is_hidden && !post.is_pending}
             <p class="hidden-note">관리자가 숨긴 글입니다. 글쓴이와 관리자만 볼 수 있습니다.</p>
           {/if}
           <PublishToggle
@@ -891,8 +891,8 @@
             {me}
             style="margin: 12px 16px 0"
             onchange={(h) => {
-              posts = posts.map((x) => (x.id === post.id ? { ...x, is_hidden: h } : x));
-              if (open?.post?.id === post.id) open = { ...open, post: { ...open.post, is_hidden: h } };
+              posts = posts.map((x) => (x.id === post.id ? { ...x, is_hidden: h, is_pending: false } : x));
+              if (open?.post?.id === post.id) open = { ...open, post: { ...open.post, is_hidden: h, is_pending: false } };
             }}
           />
           <div class="om-body">

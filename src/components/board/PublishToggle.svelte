@@ -1,6 +1,7 @@
 <script lang="ts">
   // 글 보기 제목 줄 아래 공개·비공개 버튼 — 관리자·글쓴이에게만 (2026-11-28 오너 결정)
   // 비공개 = 글 상태 'hidden'(신고 숨김과 같은 상태). 신고로 숨긴 글은 관리자만 공개한다.
+  // 대기(pending) 글도 is_hidden 으로 와서 '공개하기' 하나만 보인다.
   import { LEVEL } from "../../data/levels";
   import { api, type MeUser, type PostDetail } from "../../lib/api";
 

@@ -147,10 +147,10 @@ async function postMeta(db, id, viewer) {
   const r = await db.prepare(
     `SELECT p.id, p.board, p.category, p.title, p.series_id, p.status, p.author_id, s.title AS series_title
        FROM posts p LEFT JOIN series s ON s.id = p.series_id
-       WHERE p.id = ? AND p.status IN ('published','hidden')`
+       WHERE p.id = ? AND p.status IN ('published','hidden','pending')`
   ).bind(id).first();
-  // 숨긴(비공개) 글은 글쓴이·관리자만 (2026-11-28)
-  if (!r || (r.status === "hidden" && !(viewer && (viewer.level >= LEVEL.ADMIN || viewer.id === r.author_id)))) return bad("not found", 404);
+  // 숨긴(비공개)·대기 글은 글쓴이·관리자만 (2026-11-28)
+  if (!r || (r.status !== "published" && !(viewer && (viewer.level >= LEVEL.ADMIN || viewer.id === r.author_id)))) return bad("not found", 404);
   return json({
     post: {
       id: r.id,

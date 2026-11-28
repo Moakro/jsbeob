@@ -59,6 +59,8 @@ export interface PostSummary {
   locked?: boolean;
   /** 관리자가 숨긴 글(신고 처리) — 글쓴이·관리자에게만 온다 (2026-11-28) */
   is_hidden?: boolean;
+  /** 대기(공개 심사 중) 글 — is_hidden 과 함께 온다. 표시만 '대기' (2026-11-28) */
+  is_pending?: boolean;
   /** 목록용 본문 앞부분(오리알터 피드 카드) */
   excerpt?: string;
   /** 본문 첫 블록이 소제목이면 그 글 — 오리알터 카드에서 제목으로 굵게 (2026-11-28) */
@@ -92,7 +94,7 @@ export interface ListPostsParams {
   limit?: number;
   author?: string;
   page?: number;
-  /** 글쓴이·관리자에게 숨긴(hidden) 글도 — 목록형 게시판 '전체 보기' 목록용 */
+  /** 글쓴이·관리자에게 대기(pending) 글도 — 목록형 게시판 '전체 보기' 목록용. 비공개(hidden)는 목록에 안 나온다 */
   with_hidden?: boolean;
 }
 
@@ -197,6 +199,9 @@ export const api = {
     if (params.with_hidden) sp.set("with_hidden", "1");
     return req<ListPostsResult>(`/api/posts?${sp.toString()}`);
   },
+  /** 게시판의 대기(공개 심사 중) 글 수 — 관리자는 전부, 회원은 본인 글만, 비회원 0 */
+  pendingCount: (board: string) =>
+    req<{ pending: number }>(`/api/posts?board=${encodeURIComponent(board)}&pending_count=1`),
   /** count=false: 조회수를 올리지 않는다(수정 창·저장 뒤 다시 읽기) */
   getPost: (id: string, count = true) => req<{ post: PostDetail }>(`/api/posts/${id}${count ? "" : "?count=0"}`),
   /** 글 보기 — 볼 수 없는 비공개 글이면 locked 로 등록일시만 돌려준다 (2026-11-21) */

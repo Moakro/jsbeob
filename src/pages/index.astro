@@ -9,6 +9,7 @@ import HomeMiniMap from "../components/home/HomeMiniMap.svelte";
 import FeedRows from "../components/home/FeedRows.astro";
 import NewsModal from "../components/board/NewsModal.svelte";
 import NewsRows from "../components/board/NewsRows.astro";
+import NewsPendingBadge from "../components/board/NewsPendingBadge.astro";
 import { SHOW_AI_CHAT } from "../data/site-nav";
 import {
   getHomeHero,
@@ -197,7 +198,7 @@ const posterSm = heroPhoto ? `url(${JSON.stringify(heroPhoto.url)})` : `url(/her
               {" "}
               <h3>공지·일정·소식</h3>{" "}
               <a href="/community/#news" data-news-all>
-                전체 보기 →
+                전체 보기 →<NewsPendingBadge />
               </a>{" "}
             </div>{" "}
             <NewsRows news={news} />{" "}

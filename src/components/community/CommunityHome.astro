@@ -10,6 +10,7 @@ import AlbumGrid from "../board/AlbumGrid.svelte";
 import CommunityModals from "../board/CommunityModals.svelte";
 import NewsModal from "../board/NewsModal.svelte";
 import NewsRows from "../board/NewsRows.astro";
+import NewsPendingBadge from "../board/NewsPendingBadge.astro";
 import HelpBox from "../board/HelpBox.svelte";
 import { listRecentNews, listRecentPhotos } from "../../lib/content";
 const {
@@ -59,7 +60,7 @@ const MTABS = [
           공지·일정·소식
         </button>{" "}
         <button type="button" class="more" data-news-all>
-          전체 보기 ›
+          전체 보기 ›<NewsPendingBadge />
         </button>
       </h2>
       {news.length ? <NewsRows news={news} /> : <p class="empty">아직 올라온 소식이 없습니다.</p>}

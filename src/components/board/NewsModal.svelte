@@ -164,7 +164,7 @@
                 >{deleting ? "삭제 중…" : "삭제"}</button
               >{/if}
           </p>
-          <PublishToggle {post} {me} onchange={(h) => post && (post = { ...post, is_hidden: h })} />
+          <PublishToggle {post} {me} onchange={(h) => post && (post = { ...post, is_hidden: h, is_pending: false })} />
           <div class="body" class:plain-one={plainOne}>{@html post.body_html}</div>
         </article>
       {/if}
