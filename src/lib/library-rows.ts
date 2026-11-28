@@ -12,6 +12,8 @@ export interface LibRow {
   meta?: string | null;
   pinned?: boolean;
   featured?: boolean;
+  /** 법종교 간행·관련 도서 (2026-11-28) */
+  bjg?: boolean;
   order?: number;
   date?: string | null;
   thumb?: any;
@@ -34,6 +36,7 @@ const fromArticle = (a: any, extra: Partial<LibRow> = {}): LibRow => ({
   summary: a.summary ?? null,
   byline: a.meta?.byline ?? null,
   pinned: !!a.pinned,
+  bjg: !!a.bjg,
   featured: !!a.featured,
   order: a.sort_order ?? 0,
   date: a.published_at ?? a.updated_at,

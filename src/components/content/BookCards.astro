@@ -1,11 +1,24 @@
 ---
 // 자료실 책 카드 (2026-11-21, jsbooks 서재 참고) — 장이 있는 책을 표지 카드로: 제목·한자, 표지 한 줄, 소개, 장 수
+// 법종교 간행·관련(bjg) 책이 있으면 위 묶음(관리 화면 순서) → 아래 '교계 참고 도서'(가나다순) 두 묶음으로 (2026-11-28)
 import DraftBadge from "./DraftBadge.astro";
+import { BJG_LABEL, BJG_OTHERS_LABEL } from "../../lib/content-types";
 const { rows } = Astro.props;
+const mine = rows.filter((r) => r.bjg);
+const rest = rows.filter((r) => !r.bjg);
+const groups = mine.length
+  ? [
+      { label: BJG_LABEL, rows: mine },
+      ...(rest.length ? [{ label: BJG_OTHERS_LABEL, rows: rest }] : []),
+    ]
+  : [{ label: null, rows }];
 ---
 
+{groups.map((g) => (
+<section class="grp">
+{g.label && <h2 class="gh">{g.label} <span class="gn">{g.rows.length}</span></h2>}
 <ul class="books">
-  {rows.map((r) => (
+  {g.rows.map((r) => (
     <li>
       <a href={r.href}>
         <span class="t">
@@ -20,8 +33,27 @@ const { rows } = Astro.props;
     </li>
   ))}
 </ul>
+</section>
+))}
 
 <style>
+  .grp + .grp {
+    margin-top: 22px;
+  }
+  .gh {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    margin: 0 0 10px;
+    color: var(--color-muted);
+    font-size: 0.86rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+  }
+  .gn {
+    font-weight: 500;
+    font-size: 0.8rem;
+  }
   .books {
     list-style: none;
     margin: 0;

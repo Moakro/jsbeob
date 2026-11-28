@@ -137,6 +137,7 @@ async function routeContent(req, env, path, ctx) {
     if (r && m === "DELETE") return adminDeleteMedia(env, r[1]);
     r = path.match(/^\/api\/admin\/revisions\/(\d+)$/);
     if (r && m === "GET") return adminGetRevision(env, Number(r[1]));
+    if (path === "/api/admin/content/books/order" && m === "PUT") return adminOrderBooks(req, env);
     r = path.match(/^\/api\/admin\/content\/articles\/([^/]+)\/chapters\/order$/);
     if (r && m === "PUT") return adminOrderChapters(req, env, r[1]);
     r = path.match(/^\/api\/admin\/content\/(articles|places)(?:\/([^/]+))?(?:\/(revisions))?$/);
@@ -265,6 +266,8 @@ function shapeArticle(r, media) {
     sort_order: r.sort_order,
     pinned: !!r.pinned,
     featured: !!r.featured,
+    bjg: !!r.bjg,
+    // 법종교 간행·관련 도서 (2026-11-28)
     status: r.status,
     published_at: r.published_at,
     updated_at: r.updated_at,
@@ -1181,6 +1184,32 @@ async function adminOrderChapters(req, env, bookId) {
   await env.DB.batch(
     ids.map((cid, i) => env.DB.prepare("UPDATE articles SET sort_order=? WHERE id=? AND parent_id=?").bind(i + 1, cid, bookId))
   );
+  return json({ ok: true });
+}
+/**
+ * 자료실 책 순서·'법종교 간행' 표시 저장 (2026-11-28) — { kind, bjg: [법종교 묶음 id, 순서대로], others: [나머지 id] }
+ * 그 분류의 최상위 책 전체를 보내야 한다. 법종교 묶음은 sort_order=1..n, 나머지는 bjg=0 만 바꾼다(가나다순이라 순서 안 씀).
+ * status·내용·장은 건드리지 않는다(편집기 저장의 장 status 일괄 변경과 별개).
+ */
+async function adminOrderBooks(req, env) {
+  const body = await req.json().catch(() => null);
+  const kind = typeof body?.kind === "string" ? body.kind : "";
+  const ids = (v) => Array.isArray(v) && v.length <= 500 && v.every((x) => typeof x === "string") ? v : null;
+  const bjg = ids(body?.bjg);
+  const others = ids(body?.others);
+  if (!kind || !bjg || !others) return json({ error: "잘못된 요청입니다" }, 400);
+  if (!await validArticleKind(env, "library", kind)) return json({ error: "invalid kind" }, 400);
+  const rs = await env.DB.prepare("SELECT id FROM articles WHERE section='library' AND kind=? AND parent_id IS NULL").bind(kind).all();
+  const have = new Set((rs.results ?? []).map((r) => r.id));
+  const all = [...bjg, ...others];
+  if (new Set(all).size !== all.length || all.length !== have.size || all.some((x) => !have.has(x))) {
+    return json({ error: "책 목록이 바뀌었습니다. 새로고침한 뒤 다시 해 주세요" }, 409);
+  }
+  const st = (sql, ...a) => env.DB.prepare(sql).bind(...a);
+  await env.DB.batch([
+    ...bjg.map((id, i) => st("UPDATE articles SET bjg=1, sort_order=? WHERE id=? AND parent_id IS NULL", i + 1, id)),
+    ...others.map((id) => st("UPDATE articles SET bjg=0 WHERE id=? AND parent_id IS NULL", id))
+  ]);
   return json({ ok: true });
 }
 async function adminListRevisions(env, type, id) {

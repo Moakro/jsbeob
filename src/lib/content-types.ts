@@ -53,11 +53,18 @@ export const PLACE_KINDS: Record<string, string> = {
 
 const koCollator = new Intl.Collator("ko");
 
-/** 자료 목록 기본 정렬: 고정(pinned) 먼저(고정끼리는 order), 나머지는 가나다순 */
-export const libraryOrder = (
-  a: { pinned?: boolean; order: number; title: string },
-  b: { pinned?: boolean; order: number; title: string },
-) =>
+/** 법종교 간행·관련 묶음 이름 (2026-11-28) — 도서 목록 위 묶음 소제목·배지 */
+export const BJG_LABEL = "법종교 간행·관련";
+export const BJG_OTHERS_LABEL = "교계 참고 도서";
+
+type OrderRow = { bjg?: boolean; pinned?: boolean; order: number; title: string };
+/**
+ * 자료 목록 기본 정렬: 법종교 간행·관련(bjg) 묶음 먼저(묶음 안은 order — 관리 화면에서 정함),
+ * 그 아래는 고정(pinned) 먼저(고정끼리는 order), 나머지는 가나다순
+ */
+export const libraryOrder = (a: OrderRow, b: OrderRow) =>
+  Number(!!b.bjg) - Number(!!a.bjg) ||
+  (a.bjg ? a.order - b.order : 0) ||
   Number(!!b.pinned) - Number(!!a.pinned) ||
   (a.pinned ? a.order - b.order : 0) ||
   koCollator.compare(a.title, b.title);

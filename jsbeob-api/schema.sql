@@ -182,7 +182,7 @@ CREATE TABLE articles (
   created_by    TEXT REFERENCES users(id),
   updated_by    TEXT REFERENCES users(id),
   created_at    TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at    TEXT NOT NULL DEFAULT (datetime('now')), body_blocks TEXT, thumb_media_id TEXT REFERENCES media(id), thumb_crop TEXT, pinned INTEGER NOT NULL DEFAULT 0, featured INTEGER NOT NULL DEFAULT 0, parent_id TEXT REFERENCES articles(id),
+  updated_at    TEXT NOT NULL DEFAULT (datetime('now')), body_blocks TEXT, thumb_media_id TEXT REFERENCES media(id), thumb_crop TEXT, pinned INTEGER NOT NULL DEFAULT 0, featured INTEGER NOT NULL DEFAULT 0, parent_id TEXT REFERENCES articles(id), bjg INTEGER NOT NULL DEFAULT 0,
   UNIQUE (section, slug)
 );
 CREATE TABLE places (
