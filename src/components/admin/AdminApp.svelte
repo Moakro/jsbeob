@@ -7,7 +7,7 @@
   // 저장하지 않은 변경(window.__jbAdminDirty)이 있으면 이동 전에 묻는다.
   // 복원(2026-11-01): 배포본 _astro/AdminApp.*.js 를 근거로 다시 썼다. 하위 컴포넌트 파일 이름은 추정.
   import { onMount } from "svelte";
-  import { api } from "../../lib/api";
+  import { api, REPORTS_CHANGED } from "../../lib/api";
   import { confirmDialog } from "../../lib/confirm";
   import { HEADER_NAV } from "../../data/site-nav";
   import MediaLibrary from "../MediaLibrary.svelte";
@@ -172,7 +172,12 @@
     {:else if route.tab === "boards"}
       <BoardsAdmin />
     {:else if route.tab === "reports"}
-      <ReportsAdmin onchange={(n) => (reportsOpen = n)} />
+      <ReportsAdmin
+        onchange={(n) => {
+          reportsOpen = n;
+          window.dispatchEvent(new CustomEvent(REPORTS_CHANGED, { detail: { open: n } }));
+        }}
+      />
     {:else if route.tab === "members"}
       <MembersAdmin meId={me.id} />
     {:else if route.tab === "photos"}

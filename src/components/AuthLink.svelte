@@ -3,7 +3,7 @@
   // 헤더 계정 버튼 — 로그인 시 프로필 이미지 + 메뉴(내 정보·사이트 관리·로그아웃), 아니면 로그인 링크.
   // 복원(2026-11-01): 배포본 클라이언트(_astro/AuthLink.*.js) 기준.
   import { onMount } from "svelte";
-  import { api, type MeUser } from "../lib/api";
+  import { api, REPORTS_CHANGED, type MeUser } from "../lib/api";
   import { confirmDialog } from "../lib/confirm";
   import { SHOW_OLD_BADGE } from "../data/site-nav";
 
@@ -33,9 +33,15 @@
         buttonEl?.focus();
       }
     };
+    // 관리 화면에서 신고를 처리하면 배지 숫자를 바로 맞춘다 (2026-11-28)
+    const onReports = (e: Event) => {
+      if (user) user = { ...user, reports_open: (e as CustomEvent).detail?.open ?? 0 };
+    };
     document.addEventListener("click", onDocClick);
     document.addEventListener("keydown", onKey);
+    window.addEventListener(REPORTS_CHANGED, onReports);
     return () => {
+      window.removeEventListener(REPORTS_CHANGED, onReports);
       document.removeEventListener("click", onDocClick);
       document.removeEventListener("keydown", onKey);
     };

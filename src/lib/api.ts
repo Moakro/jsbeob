@@ -276,6 +276,8 @@ export interface ReportGroup {
 
 /** ＋ 버튼으로 오리알터에 올린 뒤 알리는 window 이벤트 — 피드가 받으면 detail.handled=true (2026-11-28) */
 export const ORIALTER_POSTED = "jb:orialter-posted";
+/** 관리자가 신고를 처리한 뒤 처리 전 수를 알리는 window 이벤트 — detail {open} (계정 메뉴 배지) */
+export const REPORTS_CHANGED = "jb:reports-changed";
 
 /** 보드 메타 — 라벨·설명·권한. */
 /** 게시판 설정 (DB boards 표 — jsbeob-api/boards.ts shapeBoard). 등급 값은 src/data/levels.ts, -1 = 비회원 */
