@@ -35,6 +35,8 @@ enabled = true
 #     (2026-11 현재 뒤의 세 개는 일반 변수로 등록돼 있음 → 시크릿 전환 권장)
 #     INTAKE_WORKER_TOKEN — 올림함 AI 감시 서비스(미니PC tools/intake-watcher) 전용 열쇠, 32자 이상.
 #       없으면 /api/intake-worker/* 는 404 (AI 초안 없이 0단계처럼 동작). 감시 서비스의 열쇠 파일과 같은 값.
+#     LIBRARY_SYNC_TOKEN — 공용 자료실 동기화 도구(미니PC scripts/library-sync.mjs) 전용 열쇠, 32자 이상.
+#       없으면 /api/library-sync/* 는 404. 미니PC 열쇠 파일 ~/.config/jsbeob-library-sync/token(600)과 같은 값.
 # 로컬 개발 값은 .dev.vars (.dev.vars.example 참고, git 제외).
 
 # 편집진 올림함(intake/) 원본 1년 뒤 자동 삭제 — 하루 1번, 한국 03:00 (2026-11-27, intake.ts purgeExpiredIntakes)

@@ -162,7 +162,7 @@ CREATE TABLE media (
   status       TEXT NOT NULL DEFAULT 'active', -- active|deleted
   created_at   TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
-);
+, library_id TEXT, library_sha256 TEXT, license_code TEXT);           -- 공용 자료실 가져오기(2026-11-28-media-library.sql)
 CREATE TABLE articles (
   id            TEXT PRIMARY KEY,
   section       TEXT NOT NULL,       -- about | library
@@ -348,6 +348,7 @@ CREATE INDEX idx_sessions_user ON sessions(user_id);
 CREATE INDEX idx_sessions_expires ON sessions(expires_at);
 CREATE INDEX idx_member_profiles_branch ON member_profiles(branch);
 CREATE INDEX idx_media_status ON media(status, created_at DESC);
+CREATE INDEX idx_media_library ON media(library_id);
 CREATE INDEX idx_articles_list ON articles(section, kind, status, sort_order);
 CREATE INDEX idx_places_list ON places(kind, status, sort_order);
 CREATE INDEX idx_media_links_media ON media_links(media_id);

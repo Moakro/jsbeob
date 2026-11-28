@@ -11,7 +11,13 @@ const { image, alt = "" } = Astro.props;
       width={image.width || void 0}
       height={image.height || void 0}
     />
-    {image.caption && <figcaption>{image.caption}</figcaption>}
+    {(image.caption || (image.license_code && image.credit)) && (
+      <figcaption>
+        {image.caption}
+        {/* 공용 자료실 사진은 출처·라이선스 표기를 그림 바로 아래에 (2026-11-28) */}
+        {image.license_code && image.credit && <span class="credit">{image.credit}</span>}
+      </figcaption>
+    )}
   </figure>
 )}
 
@@ -32,6 +38,11 @@ const { image, alt = "" } = Astro.props;
     margin-top: 6px;
     font-size: 0.85rem;
     color: var(--color-muted);
+  }
+  .credit {
+    display: block;
+    font-size: 0.92em;
+    opacity: 0.85;
   }
   @media (max-width: 760px) {
     .lead img {

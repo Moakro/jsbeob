@@ -383,8 +383,9 @@ export async function loadRenderCtx(db, blocks, urlFor) {
   const all = [...blocks, ...extra];
   const mediaIds = allMediaIds(all);
   if (mediaIds.length) {
-    const rs = await db.prepare(`SELECT id, r2_key, width, height, alt, caption FROM media WHERE status='active' AND id IN (${mediaIds.map(() => "?").join(",")})`).bind(...mediaIds).all();
-    for (const r of rs.results ?? []) ctx.media.set(r.id, { url: urlFor(r.r2_key), width: r.width, height: r.height, alt: r.alt, caption: r.caption });
+    const rs = await db.prepare(`SELECT id, r2_key, width, height, alt, caption, credit, license_code FROM media WHERE status='active' AND id IN (${mediaIds.map(() => "?").join(",")})`).bind(...mediaIds).all();
+    // 공용 자료실에서 온 사진(license_code 있음)은 표기(credit)를 그림 바로 아래에 보인다 — CC-BY-SA·공공누리 등 (2026-11-28)
+    for (const r of rs.results ?? []) ctx.media.set(r.id, { url: urlFor(r.r2_key), width: r.width, height: r.height, alt: r.alt, caption: r.caption, credit: r.license_code ? r.credit : null });
   }
   const keys = allKeys(all);
   if (keys.length) {
@@ -501,12 +502,14 @@ export function renderBlocks(blocks, ctx) {
       }).filter(Boolean);
       if (!shown.length) return "";
       const img = (x, alt) => `<img src="${esc(x.m.url)}" alt="${esc(x.m.alt ?? alt)}"${x.m.width && x.m.height ? ` width="${x.m.width}" height="${x.m.height}"` : ""} loading="lazy">`;
+      // 설명 + (자료실 사진이면) 표기 한 줄 — 표기는 그림마다 바로 아래에 둔다
+      const figcap = (cap, credit) => cap || credit ? `<figcaption>${cap ? esc(cap) : ""}${credit ? `<span class="credit">${esc(credit)}</span>` : ""}</figcaption>` : "";
       if (shown.length === 1) {
         const cap = b.caption ?? shown[0].cap;
-        return `<figure class="blk blk-image"${idAttr}>${img(shown[0], cap)}${cap ? `<figcaption>${esc(cap)}</figcaption>` : ""}</figure>`;
+        return `<figure class="blk blk-image"${idAttr}>${img(shown[0], cap)}${figcap(cap, shown[0].m.credit)}</figure>`;
       }
       const cells = shown.map(
-        (x) => `<figure class="g-item"><a href="${esc(x.m.url)}" target="_blank" rel="noopener">${img(x, x.cap)}</a>${x.cap ? `<figcaption>${esc(x.cap)}</figcaption>` : ""}</figure>`
+        (x) => `<figure class="g-item"><a href="${esc(x.m.url)}" target="_blank" rel="noopener">${img(x, x.cap)}</a>${figcap(x.cap, x.m.credit)}</figure>`
       ).join("");
       return `<figure class="blk blk-image blk-gallery"${idAttr}><div class="blk-grid">${cells}</div>${b.caption ? `<figcaption>${esc(b.caption)}</figcaption>` : ""}</figure>`;
     }

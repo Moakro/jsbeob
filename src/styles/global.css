@@ -439,6 +439,12 @@ mark.q-hit {
   margin-top: 4px;
   font-size: 0.8rem;
 }
+/* 공용 자료실 사진 표기(출처·라이선스) — 그림 바로 아래, 설명 다음 줄 (2026-11-28) */
+.blk-image figcaption .credit {
+  display: block;
+  font-size: 0.92em;
+  opacity: 0.85;
+}
 .blk-quote a.ref-drawer {
   color: var(--color-secondary);
   text-decoration: underline dotted;

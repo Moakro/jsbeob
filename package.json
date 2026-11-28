@@ -12,6 +12,8 @@
     "dev:api": "node scripts/dev.mjs api",
     "dev:login": "node scripts/dev-login.mjs",
     "test:intake": "node scripts/test-intake.mjs",
+    "library:sync": "node scripts/library-sync.mjs",
+    "test:library-sync": "node scripts/test-library-sync.mjs",
     "setup:worktree": "bash scripts/worktree-setup.sh",
     "db:local:init": "cd jsbeob-api && wrangler d1 execute jsbeob-db --local -c wrangler.toml --file=schema.sql",
     "build": "astro build",
@@ -35,6 +37,7 @@
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260426.1",
     "pagefind": "^1.5.2",
+    "sharp": "0.34.5",
     "wrangler": "^4.88.0"
   },
   "overrides": {
