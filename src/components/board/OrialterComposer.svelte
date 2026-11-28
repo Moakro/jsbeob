@@ -12,12 +12,15 @@
     onposted,
     onerror,
     onbusy,
+    bare = false,
   }: {
     canPost?: boolean;
     hint?: string;
     onposted: (id: string) => void | Promise<void>;
     onerror: (msg: string) => void;
     onbusy?: (busy: boolean) => void;
+    /** 창(ModalFrame) 안 — 카드 테두리·배경 없이 창 본문을 그대로 채운다 */
+    bare?: boolean;
   } = $props();
 
   let text = $state("");
@@ -27,6 +30,15 @@
   let camInput = $state<HTMLInputElement | undefined>(undefined);
 
   const videos = $derived(splitYouTube(text).videos.length);
+
+  /** 글이 길어지면 칸이 따라 늘어난다(CSS max-height 까지, 그 뒤로는 칸 안 스크롤). 올린 뒤 비울 때도 다시 맞춘다 */
+  function autosize(node: HTMLTextAreaElement) {
+    $effect(() => {
+      void text;
+      node.style.height = "auto";
+      node.style.height = node.scrollHeight + 2 + "px";
+    });
+  }
 
   function pickFiles(e: Event) {
     const input = e.target as HTMLInputElement;
@@ -64,13 +76,14 @@
 
 <form
   class="card composer"
+  class:bare
   class:locked={!canPost}
   onsubmit={(e) => {
     e.preventDefault();
     if (canPost) submit();
   }}
 >
-  <textarea rows="3" placeholder={hint} aria-label="글" disabled={!canPost} bind:value={text}></textarea>
+  <textarea rows="6" placeholder={hint} aria-label="글" disabled={!canPost} bind:value={text} use:autosize></textarea>
   {#if videos}
     <p class="yt-note">
       ▶ 유튜브 영상 {videos}개가 글과 함께 올라갑니다(주소는 글에서 빠집니다)
@@ -102,7 +115,7 @@
       >
       <button
         type="button"
-        class="tool"
+        class="tool cam"
         disabled={!canPost || files.length >= MAX_PHOTOS}
         onclick={() => camInput?.click()}
       >
@@ -142,19 +155,29 @@
     min-width: 0;
   }
   .composer {
-    padding: 12px 14px;
+    padding: 12px 14px 10px;
+  }
+  /* 창 안: 창 본문이 곧 폼 — 카드 테두리·배경·둥근 모서리를 빼고 창 제목 줄과 같은 좌우 여백만 둔다 */
+  .composer.bare {
+    border: 0;
+    border-radius: 0 0 var(--radius-md) var(--radius-md);
+    background: none;
+    padding: 12px 20px 12px;
   }
   .composer textarea {
+    display: block;
     width: 100%;
+    max-height: 55vh;
+    padding: 0;
     border: 0;
     background: none;
-    resize: vertical;
+    resize: none;
+    line-height: 1.6;
     font: inherit;
     color: var(--color-fg);
     outline: none;
   }
   .composer.locked textarea {
-    resize: none;
     cursor: not-allowed;
   }
   .composer.locked .tool:disabled,
@@ -210,6 +233,8 @@
   .tools {
     display: inline-flex;
     gap: 2px;
+    /* 버튼 안쪽 여백만큼 당겨 아이콘을 글 칸 왼쪽 끝에 맞춘다 */
+    margin-left: -8px;
   }
   .tool {
     display: inline-flex;
@@ -230,5 +255,11 @@
   }
   .go {
     padding: 7px 16px;
+  }
+  /* PC(마우스·넓은 화면)에는 카메라가 없거나 쓰지 않으므로 숨긴다 — 휴대폰·태블릿(터치)에서만 보임 */
+  @media (hover: hover) and (pointer: fine) {
+    .cam {
+      display: none;
+    }
   }
 </style>

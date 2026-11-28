@@ -22,24 +22,14 @@
 
 <ModalFrame {open} onclose={() => !busy && onclose()} label="오리알터에 올리기" title="오리알터에 올리기">
   <div class="os">
-    <OrialterComposer onposted={posted} onerror={(m) => (error = m)} onbusy={(b) => (busy = b, b && (error = null))} />
+    <OrialterComposer bare onposted={posted} onerror={(m) => (error = m)} onbusy={(b) => (busy = b, b && (error = null))} />
     {#if error}<p class="err" role="alert">{error}</p>{/if}
   </div>
 </ModalFrame>
 
 <style>
-  .os {
-    display: grid;
-    gap: 14px;
-    padding: 4px 20px 20px;
-  }
-  @media (max-width: 560px) {
-    .os {
-      padding: 4px 14px 16px;
-    }
-  }
   .err {
-    margin: 0;
+    margin: 0 20px 14px;
     color: var(--color-primary);
     background: var(--color-primary-bg);
     padding: 8px 12px;
