@@ -18,6 +18,7 @@
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { loadDevPorts } from "./dev-ports.mjs";
+import { parseFront, toBlocks } from "./scripture/jsbooks-md.mjs";
 
 const args = process.argv.slice(2);
 const opt = (name, def) => {
@@ -40,80 +41,6 @@ if (!dir || !BOOK) {
 if (!DRY && !COOKIE) {
   console.error("JB_SESSION(관리자 쿠키 값)이 필요합니다. pnpm dev:login 출력의 jb_session= 뒤 값을 넣으세요.");
   process.exit(1);
-}
-
-function parseFront(src) {
-  const m = src.match(/^---\n([\s\S]*?)\n---\n?/);
-  const data = {};
-  if (m) {
-    for (const line of m[1].split("\n")) {
-      const kv = line.match(/^([^:]+):\s*(.*)$/);
-      if (!kv) continue;
-      const v = kv[2].trim();
-      const k = kv[1].trim();
-      data[k] = k === "meta" && v.startsWith("{") ? JSON.parse(v) : /^\d+$/.test(v) ? Number(v) : v;
-    }
-  }
-  return { data, body: m ? src.slice(m[0].length) : src };
-}
-
-/** 본문 → 블록. 절 머리가 없으면 문단마다 `${fallback}-N` 위치 */
-function toBlocks(body, fallback) {
-  const lines = body.replace(/\r\n/g, "\n").replace(/^#\s.*$/m, "").split("\n");
-  const blocks = [];
-  let cur = null;
-  let buf = [];
-  let seq = 0;
-  let noAnchor = 0;
-  const flush = () => {
-    const joined = buf.join(" ").trim();
-    buf = [];
-    if (!joined) return;
-    const m = joined.match(/\s*\^([\w-]+)\s*$/);
-    let a = m ? m[1] : "";
-    const t = m ? joined.slice(0, m.index).trim() : joined;
-    if (!a && fallback) a = `${fallback}-${++seq}`;
-    if (!a) noAnchor++;
-    if (!cur) {
-      cur = { type: "verse", lines: [] };
-      blocks.push(cur);
-    }
-    cur.lines.push({ a, t });
-  };
-  for (const raw of lines) {
-    const line = raw.trimEnd();
-    const head = line.match(/^(#{2,6})\s+(.+?)\s*$/);
-    if (head) {
-      flush();
-      const label = head[2].replace(/\s*\^[\w-]+\s*$/, "").trim();
-      if (head[1] === "##" && !fallback) {
-        cur = { type: "verse", label, lines: [] };
-        blocks.push(cur);
-      } else {
-        blocks.push({ type: "heading", text: label });
-        cur = null;
-      }
-      continue;
-    }
-    if (line.trim() === "") {
-      flush();
-      continue;
-    }
-    buf.push(line.trim());
-  }
-  flush();
-  // 절 블록 id 는 첫 문장 위치로 고정(관련링크·이미지 참조가 블록 id 를 가리킬 때 안정적)
-  const used = new Set();
-  for (const b of blocks) {
-    if (b.type !== "verse" || !b.lines[0]?.a) continue;
-    let id = `v-${b.lines[0].a}`.replace(/[^A-Za-z0-9_-]/g, "-").slice(0, 22);
-    if (id.length < 6) id = id.padEnd(6, "0");
-    if (!used.has(id)) {
-      b.id = id;
-      used.add(id);
-    }
-  }
-  return { blocks: blocks.filter((b) => b.type !== "verse" || b.lines.length), noAnchor };
 }
 
 async function api(method, p, body) {

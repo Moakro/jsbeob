@@ -14,6 +14,7 @@
     "test:intake": "node scripts/test-intake.mjs",
     "library:sync": "node scripts/library-sync.mjs",
     "test:library-sync": "node scripts/test-library-sync.mjs",
+    "library:export-scripture": "node scripts/library-export-scripture.mjs",
     "setup:worktree": "bash scripts/worktree-setup.sh",
     "db:local:init": "cd jsbeob-api && wrangler d1 execute jsbeob-db --local -c wrangler.toml --file=schema.sql",
     "build": "astro build",
