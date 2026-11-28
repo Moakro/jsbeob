@@ -93,7 +93,10 @@
     display: flex;
     justify-content: center;
     align-items: flex-start;
-    padding: 32px 16px;
+    /* 위 여백은 스크롤 틀 padding 이 아니라 .mf 의 margin-top 으로 준다 — padding 이면 스티키 제목 바가
+       그만큼 아래에 붙어, 그 위 틈으로 스크롤되는 본문이 비쳐 보였다 (2026-11-28) */
+    --mf-top: 32px;
+    padding: 0 16px 32px;
     overflow-y: auto;
     background: var(--color-overlay);
     overscroll-behavior: contain;
@@ -106,6 +109,7 @@
   .mf {
     position: relative;
     width: min(640px, 100%);
+    margin-top: var(--mf-top);
     margin-bottom: 32px;
     background: var(--color-surface);
     border-radius: var(--radius-md);
@@ -128,7 +132,8 @@
   }
   .mf-head.bare {
     position: sticky;
-    top: 0;
+    /* 제목 없는 닫기 단추는 예전처럼 위 여백만큼 아래에 머문다 */
+    top: var(--mf-top);
     height: 0;
     min-height: 0;
     padding: 0;
@@ -175,7 +180,8 @@
     .mf-back {
       /* 모달 양옆 여백 — 안의 내용이 화면 끝까지 나갈 때(오리알터 영상) 이 값을 쓴다 */
       --mf-side: 24px;
-      padding: 28px var(--mf-side) 12px;
+      --mf-top: 28px;
+      padding: 0 var(--mf-side) 12px;
       align-items: flex-start;
     }
     .mf {
