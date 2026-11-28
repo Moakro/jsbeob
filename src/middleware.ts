@@ -4,7 +4,8 @@ import { defineMiddleware } from "astro:middleware";
 
 declare const __BUILD_ID__: string;
 import { oldUrlTarget } from "./lib/old-urls";
-import { isCacheable, isStorable, ttlFor, withCacheHeaders } from "./lib/page-cache";
+import { env } from "cloudflare:workers";
+import { contentVersion, isCacheable, isStorable, ttlFor, withCacheHeaders } from "./lib/page-cache";
 import { failedRenders } from "./lib/content";
 
 export const onRequest = defineMiddleware(async (ctx, next) => {
@@ -31,6 +32,12 @@ export const onRequest = defineMiddleware(async (ctx, next) => {
   // 캐시 키에 빌드 번호를 붙인다 — 배포가 바뀌면 예전 저장본(사라진 CSS·JS 를 가리키는 HTML)을 쓰지 않는다
   const keyUrl = new URL(reqUrl);
   keyUrl.searchParams.set("__build", __BUILD_ID__);
+  // 콘텐츠 버전 — 글이 바뀌면 올라가 예전 저장본을 안 쓴다. 옛 글 보관함(/legacy/)은 바뀌지 않아 버전 없이 하루 그대로
+  if (!reqUrl.pathname.startsWith("/legacy/")) {
+    const ver = await contentVersion((env as any).SESSION);
+    if (ver === null) return next();
+    keyUrl.searchParams.set("__v", ver);
+  }
   const key = new Request(keyUrl.toString(), { method: "GET" });
   const hit = await edge.match(key).catch(() => undefined);
   if (hit) return withCacheHeaders(hit, "HIT");

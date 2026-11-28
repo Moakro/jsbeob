@@ -147,14 +147,14 @@
               disabled={busy || i === rows.length - 1}
               onclick={() => move(i, 1)}>↓</button
             ></td
-          ><td><input bind:value={c._label} maxlength="40" aria-label="분류 이름" /></td><td
+          ><td class="name"><input bind:value={c._label} maxlength="40" aria-label="분류 이름" /></td><td class="url"
             ><a href={catHref(c.key)} target="_blank" rel="noopener">/archive/{c.key}/</a></td
-          ><td>{TYPES[c.type]}</td><td
+          ><td class="kind">{TYPES[c.type]}</td><td class="order" data-label="정렬"
             ><select bind:value={c._order} aria-label="정렬 방식"
               >{#each ORDERS as o}<option value={o.v}>{o.l}</option>{/each}</select
             ></td
-          ><td class="chk"><input type="checkbox" bind:checked={c._book} aria-label="한 권으로 보기" /></td
-          ><td
+          ><td class="chk book" data-label="한 권으로 보기"><input type="checkbox" bind:checked={c._book} aria-label="한 권으로 보기" /></td
+          ><td class="place" data-label="첫 화면 자리"
             ><select bind:value={c._place} aria-label="첫 화면 자리"
               >{#each PLACES as o}<option value={o.v}>{o.l}</option>{/each}</select
             ></td
@@ -338,5 +338,92 @@
     display: flex;
     align-items: center;
     gap: 6px;
+  }
+  /* 좁은 화면: 표 줄마다 칸을 몇 줄로 나눠 놓는다(넓은 화면 모양은 그대로) */
+  @media (max-width: 720px) {
+    thead {
+      display: none;
+    }
+    tbody tr:not(.intro-row) {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      grid-template-areas:
+        "ord name name name"
+        "url url url kind"
+        "order order place place"
+        "book book act act";
+      gap: 6px 8px;
+      align-items: center;
+      padding: 8px 0;
+      border-bottom: 1px solid var(--color-rule);
+    }
+    tbody tr:has(+ .intro-row) {
+      border-bottom: 0;
+      padding-bottom: 0;
+    }
+    td {
+      padding: 0;
+      border-bottom: 0;
+    }
+    .ord {
+      grid-area: ord;
+      white-space: nowrap;
+    }
+    .name {
+      grid-area: name;
+    }
+    .url {
+      grid-area: url;
+      overflow-wrap: anywhere;
+    }
+    .kind {
+      grid-area: kind;
+      text-align: right;
+    }
+    .order {
+      grid-area: order;
+    }
+    .place {
+      grid-area: place;
+    }
+    .book {
+      grid-area: book;
+    }
+    .act {
+      grid-area: act;
+      text-align: right;
+    }
+    td[data-label] {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    td[data-label]::before {
+      content: attr(data-label);
+      flex: none;
+      color: var(--color-muted);
+      font-size: 0.8rem;
+    }
+    td.order,
+    td.place {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 3px;
+    }
+    .order select,
+    .place select {
+      align-self: stretch;
+    }
+    .intro-row {
+      display: block;
+      padding: 6px 0 8px;
+      border-bottom: 1px solid var(--color-rule);
+    }
+    .intro-row td {
+      display: block;
+    }
+    .intro-row td:first-child {
+      display: none;
+    }
   }
 </style>
