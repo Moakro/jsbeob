@@ -9,7 +9,8 @@ import { loadRows, paragraphs, Out, writeChapter, brokenGlyphs, summary, ws } fr
 
 const BOOK_ID = "f352bf05-87d6-4825-9df9-71e3b5ccf91d";
 const MARK = "jsbooks-md 2026-11-28";
-const [, , rowsPath, outDir] = process.argv;
+const DROP_NOTES = process.argv.includes("--drop-notes"); // 글1 등록자 덧붙임 줄을 본문에서 뺀다
+const [, , rowsPath, outDir] = process.argv.filter((a) => a !== "--drop-notes");
 if (!rowsPath || !outDir) throw new Error("사용: node …/sangjenim-yuseo.mjs rows.json <출력폴더>");
 const { chapters } = loadRows(rowsPath, BOOK_ID);
 const HAN = /[一-鿿]/;
@@ -62,8 +63,11 @@ for (const [ci, row] of chapters.entries()) {
     }
     for (const l of ls) {
       if (n === 1) {
-        out.line(l, `note-${++note}`);
-        report.notes.push({ row: row.slug, anchor: `note-${note}`, text: l });
+        if (DROP_NOTES) {
+          out.drop(l, "등록자 글 — 오너 결정(2026-11-28)으로 뺌, 원본 백업에는 그대로", report.dropped);
+          report.dropped.at(-1).where = row.slug;
+        } else out.line(l, `note-${++note}`);
+        report.notes.push({ row: row.slug, anchor: DROP_NOTES ? null : `note-${note}`, text: l, removed: DROP_NOTES });
       } else {
         out.line(l, `notice-${notice++}`);
         report.notes.push({ row: row.slug, anchor: `notice-${notice - 1}`, text: l.slice(0, 80) });
@@ -81,7 +85,7 @@ for (const [ci, row] of chapters.entries()) {
       ...meta,
       structure: MARK,
       verse_numbering: "site(구 단위 — 한글 한 줄 ^글-N, 한문 한 줄 ^글-N-2. 원문 번호 없음, 사이트 임의 구분)",
-      notes: n === 1 ? "note-N: 등록자 덧붙임(사설 후보)" : "notice-N: 종무원 오자 수정 공표문, img-N: 옛 글 사진 자리",
+      notes: n === 1 ? (DROP_NOTES ? "등록자 덧붙임 3줄 뺌(원본 백업에 있음)" : "note-N: 등록자 덧붙임(사설 후보)") : "notice-N: 종무원 오자 수정 공표문, img-N: 옛 글 사진 자리",
     },
   };
   const file = `${String(n).padStart(2, "0")}_${row.slug}.md`;

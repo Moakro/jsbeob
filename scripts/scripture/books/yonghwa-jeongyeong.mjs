@@ -16,7 +16,8 @@ import { loadRows, lines as splitLines, Out, writeChapter, brokenGlyphs, summary
 
 const BOOK_ID = "3c8105dc-a2d3-4177-ae2e-bc9e46f60330";
 const MARK = "jsbooks-md 2026-11-28";
-const [, , rowsPath, legacyPath, outDir] = process.argv;
+const DROP_NOTES = process.argv.includes("--drop-notes"); // 등록자 줄("도강님께서 주신 자료 입니다.")을 본문에서 뺀다
+const [, , rowsPath, legacyPath, outDir] = process.argv.filter((a) => a !== "--drop-notes");
 if (!rowsPath || !legacyPath || !outDir) throw new Error("사용: node …/yonghwa-jeongyeong.mjs rows.json legacy.json <출력폴더>");
 const { chapters } = loadRows(rowsPath, BOOK_ID);
 let lraw = readFileSync(legacyPath, "utf8");
@@ -65,8 +66,11 @@ for (const [ci, row] of chapters.entries()) {
   for (let i = 0; i < ls.length; i++) {
     const l = ls[i];
     if (/^도강님(이|께서) 주신 ?자료 입니다\.$/.test(l)) {
-      out.line(l, `note-${++note}`);
-      report.notes.push({ row: row.slug, anchor: `note-${note}`, text: l, why: "등록자 글(자료 출처 알림)" });
+      if (DROP_NOTES) {
+        out.drop(l, "등록자 글 — 오너 결정(2026-11-28)으로 뺌, 원본 백업에는 그대로", report.dropped);
+        report.dropped.at(-1).where = row.slug;
+      } else out.line(l, `note-${++note}`);
+      report.notes.push({ row: row.slug, anchor: DROP_NOTES ? null : `note-${note}`, text: l, why: "등록자 글(자료 출처 알림)", removed: DROP_NOTES });
       continue;
     }
     if (l === "Top") {
@@ -156,7 +160,7 @@ for (const [ci, row] of chapters.entries()) {
       ...meta,
       structure: MARK,
       verse_numbering: NUMBERLESS.has(C) || isPreface ? "site(번호 없는 글 — 줄마다 사이트 임의 구분)" : "original(원문 장마다 이어지는 번호 → ^장-번호)",
-      sub_lines: "site(^장-번호-k 이어진 줄, ^장-s절-K 절 안 번호 없는 문단, ^장-toc 절 목차, ^note-N 등록자 글 — 사이트 임의 구분)",
+      sub_lines: `site(^장-번호-k 이어진 줄, ^장-s절-K 절 안 번호 없는 문단, ^장-toc 절 목차${DROP_NOTES ? "" : ", ^note-N 등록자 글"} — 사이트 임의 구분)`,
     },
   };
   const file = `${String(ci).padStart(2, "0")}_${row.slug}.md`;
