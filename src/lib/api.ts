@@ -15,6 +15,8 @@ export interface MeUser {
   level: number;
   needs_nickname?: boolean;
   member?: MemberInfo | null;
+  /** 처리 전 신고(대상 수) — 관리자에게만 온다 (2026-11-28) */
+  reports_open?: number;
 }
 
 export interface PostAuthor {
@@ -55,8 +57,12 @@ export interface PostSummary {
   is_private?: boolean;
   /** 볼 수 없는 비공개 글 — 제목·글쓴이·본문이 비어 있고 등록일시만 온다 */
   locked?: boolean;
+  /** 관리자가 숨긴 글(신고 처리) — 글쓴이·관리자에게만 온다 (2026-11-28) */
+  is_hidden?: boolean;
   /** 목록용 본문 앞부분(오리알터 피드 카드) */
   excerpt?: string;
+  /** 본문 첫 블록이 소제목이면 그 글 — 오리알터 카드에서 제목으로 굵게 (2026-11-28) */
+  lead_heading?: string;
   period: Period | null;
   /** 최근 댓글 한 건(오리알터 피드 카드 아래 미리보기) */
   last_comment?: { body: string; author: string; created_at: string };
@@ -226,7 +232,52 @@ export const api = {
       body: JSON.stringify(input),
     }),
   deletePost: (id: string) => req<{ ok: boolean }>(`/api/posts/${id}`, { method: "DELETE" }),
+  /** 신고 — 로그인 회원, 이유는 선택. 같은 대상을 다시 신고하면 already=true (2026-11-28) */
+  report: (type: "post" | "comment", id: string, reason = "") =>
+    req<{ ok: boolean; already: boolean }>(`/api/${type === "post" ? "posts" : "comments"}/${encodeURIComponent(id)}/report`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reason }),
+    }),
+  /** 신고 목록(관리자) — 대상별로 묶음 */
+  adminReports: (all = false) => req<{ reports: ReportGroup[]; open: number }>(`/api/admin/reports${all ? "?status=all" : ""}`),
+  /** 숨김·되살리기·문제없음(관리자) — 신고가 없어도 숨김·되살리기는 된다 */
+  moderate: (type: "post" | "comment", id: string, action: "hide" | "restore" | "keep") =>
+    req<{ ok: boolean; status: string; open: number }>(`/api/admin/reports/${type}/${encodeURIComponent(id)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action }),
+    }),
 };
+
+/** 신고 목록 한 줄(관리자) — jsbeob-api/reports.ts adminList */
+export interface ReportGroup {
+  type: "post" | "comment";
+  id: string;
+  count: number;
+  open: number;
+  last_at: string;
+  resolution: "hidden" | "restored" | "kept" | null;
+  resolved_at: string | null;
+  target: {
+    id: string;
+    status: "published" | "hidden" | "deleted";
+    title?: string;
+    board?: string;
+    excerpt: string;
+    cover_image?: string | null;
+    post_title?: string | null;
+    author: { id: string; name: string | null };
+    created_at: string;
+    href: string | null;
+  } | null;
+  items: { reason: string; reporter: string; open: boolean; created_at: string }[];
+}
+
+/** ＋ 버튼으로 오리알터에 올린 뒤 알리는 window 이벤트 — 피드가 받으면 detail.handled=true (2026-11-28) */
+export const ORIALTER_POSTED = "jb:orialter-posted";
+/** 관리자가 신고를 처리한 뒤 처리 전 수를 알리는 window 이벤트 — detail {open} (계정 메뉴 배지) */
+export const REPORTS_CHANGED = "jb:reports-changed";
 
 /** 보드 메타 — 라벨·설명·권한. */
 /** 게시판 설정 (DB boards 표 — jsbeob-api/boards.ts shapeBoard). 등급 값은 src/data/levels.ts, -1 = 비회원 */

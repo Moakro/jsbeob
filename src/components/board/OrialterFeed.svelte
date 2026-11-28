@@ -7,13 +7,15 @@
   import {
     api,
     ORIALTER_FILTER_EVENT,
+    ORIALTER_POSTED,
     postHref,
     fullTime,
     snsTime,
     type MeUser,
     type PostSummary,
   } from "../../lib/api";
-  import { uploadImage, parseYouTube } from "../../lib/blocks";
+  import { uploadImage } from "../../lib/blocks";
+  import { MAX_PHOTOS, ORIALTER_BOARD, orialterBlocks, splitYouTube } from "../../lib/orialter";
   import { confirmDialog } from "../../lib/confirm";
   import { shareLink } from "../../lib/share";
   import { BRANCHES } from "../../data/branches";
@@ -22,8 +24,7 @@
 
   let { limit = 10, openId = null }: { limit?: number; openId?: string | null } = $props();
 
-  const BOARD = "orialter";
-  const MAX_PHOTOS = 6;
+  const BOARD = ORIALTER_BOARD;
   const branchName = (code: string | null | undefined) => BRANCHES.find((b) => b.code === code)?.name ?? null;
 
   let me = $state<MeUser | null>(null);
@@ -115,30 +116,61 @@
     ...photosOf(p).map((a) => ({ url: a.url!, video: false })),
   ];
 
-  /** 글에서 유튜브 주소를 뽑아 영상 블록으로(주소만 있는 줄은 지운다) */
-  function splitYouTube(src: string) {
-    const videos: string[] = [];
-    const lines: string[] = [];
-    for (const line of src.split("\n")) {
-      let hit = false;
-      const rest = line.replace(/https?:\/\/[^\s<>"']+/g, (u) => {
-        const id = parseYouTube(u.replace(/[)\].,!?]+$/, ""));
-        if (!id) return u;
-        hit = true;
-        if (!videos.includes(id)) videos.push(id);
-        return "";
-      });
-      if (hit && !rest.trim()) continue;
-      lines.push(hit ? rest.replace(/[ \t]{2,}/g, " ").trimEnd() : line);
-    }
-    const text = lines
-      .join("\n")
-      .replace(/\n{3,}/g, "\n\n")
-      .trim();
-    return { text, videos };
-  }
   const videoCount = (src: string) => splitYouTube(src).videos.length;
   const canEdit = (p: { author_id: string }) => !!me && (me.id === p.author_id || (me.level ?? 0) >= LEVEL.ADMIN);
+  const isAdmin = $derived((me?.level ?? 0) >= LEVEL.ADMIN);
+  /** 신고 — 로그인 회원이 남의 글·댓글에 (2026-11-28). 관리자는 신고 대신 바로 숨긴다 */
+  const canReport = (authorId: string | null | undefined) =>
+    !!me && !!authorId && me.id !== authorId && (me.level ?? 0) < LEVEL.ADMIN;
+
+  // 신고 창
+  const REPORT_REASONS = ["스팸·광고", "욕설·혐오", "개인정보 노출", "교단과 관계없는 글"];
+  let reportFor = $state<{ type: "post" | "comment"; id: string } | null>(null);
+  let reportReason = $state("");
+  let reporting = $state(false);
+  function openReport(type: "post" | "comment", id: string) {
+    menuFor = null;
+    reportReason = "";
+    reportFor = { type, id };
+  }
+  async function sendReport() {
+    if (!reportFor || reporting) return;
+    reporting = true;
+    try {
+      const r = await api.report(reportFor.type, reportFor.id, reportReason.trim());
+      const what = reportFor.type === "post" ? "글" : "댓글";
+      reportFor = null;
+      flash(r.already ? `이미 신고한 ${what}입니다.` : "신고했습니다. 관리자가 확인합니다.", 3500);
+    } catch (e) {
+      flash(e instanceof Error ? e.message : "신고하지 못했습니다");
+    } finally {
+      reporting = false;
+    }
+  }
+
+  /** 숨기기·되살리기(관리자) — 신고 목록을 거치지 않고 바로 */
+  async function moderate(p: { id: string }, action: "hide" | "restore") {
+    menuFor = null;
+    if (
+      action === "hide" &&
+      !(await confirmDialog({
+        title: "글 숨기기",
+        message: "이 글을 숨길까요? 글쓴이와 관리자만 볼 수 있게 됩니다(언제든 되살릴 수 있음).",
+        confirmText: "숨기기",
+        tone: "danger",
+      }))
+    )
+      return;
+    try {
+      await api.moderate("post", p.id, action);
+      const hidden = action === "hide";
+      posts = posts.map((x) => (x.id === p.id ? { ...x, is_hidden: hidden } : x));
+      if (open?.post?.id === p.id) open = { ...open, post: { ...open.post, is_hidden: hidden } };
+      flash(hidden ? "숨겼습니다" : "되살렸습니다");
+    } catch (e) {
+      flash(e instanceof Error ? e.message : "바꾸지 못했습니다");
+    }
+  }
 
   /** 공유 링크로 들어온 글이 첫 쪽에 없으면 그 글부터 */
   let fromOlder = $state(false);
@@ -222,13 +254,27 @@
       const id = (e as CustomEvent).detail?.id;
       if (id) openPost(id);
     };
+    // ＋ 버튼 시트로 올린 글 — 필터를 풀고 처음부터 다시 읽어 맨 위에 보이게 (2026-11-28)
+    const onPosted = async (e: Event) => {
+      const d = (e as CustomEvent).detail;
+      if (d) d.handled = true;
+      if (filter.q?.length || filter.author) {
+        filter = {};
+        syncUrl();
+      }
+      await load();
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      flash("오리알터에 올렸습니다");
+    };
     document.addEventListener("click", closeMenu);
+    window.addEventListener(ORIALTER_POSTED, onPosted);
     window.addEventListener("jb:orialter-open", onOpen);
     window.addEventListener(ORIALTER_FILTER_EVENT, onFilter);
     return () => {
       document.removeEventListener("click", closeMenu);
       window.removeEventListener(ORIALTER_FILTER_EVENT, onFilter);
       window.removeEventListener("jb:orialter-open", onOpen);
+      window.removeEventListener(ORIALTER_POSTED, onPosted);
     };
   });
 
@@ -353,12 +399,7 @@
     try {
       const keys: string[] = [];
       for (const f of files) keys.push((await uploadImage(f.file)).key);
-      const blocks: any[] = [];
-      const s = splitYouTube(text);
-      if (s.text) blocks.push({ id: blockId(), type: "text", text: s.text });
-      for (const v of s.videos) blocks.push({ id: blockId(), type: "video", video_id: v });
-      if (keys.length) blocks.push({ id: blockId(), type: "image", items: keys.map((key) => ({ key })) });
-      await api.createPost({ board: BOARD, title: "", blocks });
+      await api.createPost({ board: BOARD, title: "", blocks: orialterBlocks({ text, keys }) });
       files.forEach((f) => URL.revokeObjectURL(f.url));
       text = "";
       files = [];
@@ -453,13 +494,14 @@
     try {
       const keys: string[] = [];
       for (const f of ed.files) keys.push((await uploadImage(f.file)).key);
-      const blocks: any[] = [];
+      // 제목(소제목 블록, ＋ 버튼 시트에서 붙임)은 맨 앞에 그대로
+      const blocks: any[] = ed.extra.filter((b) => b.type === "heading");
       const s = splitYouTube(ed.text);
       if (s.text) blocks.push({ id: blockId(), type: "text", text: s.text });
       for (const v of s.videos) blocks.push({ id: blockId(), type: "video", video_id: v });
       const items = [...ed.keep.map((k) => ({ key: k.key })), ...keys.map((key) => ({ key }))];
       if (items.length) blocks.push({ id: blockId(), type: "image", items });
-      blocks.push(...ed.extra);
+      blocks.push(...ed.extra.filter((b) => b.type !== "heading"));
       await api.updatePost(ed.id, { title: "", blocks });
       const { post } = await api.getPost(ed.id, false);
       posts = posts.map((p) =>
@@ -645,7 +687,7 @@
       (p.excerpt?.length ?? 0) >= 1200 ||
       (p.excerpt?.split("\n").length ?? 0) > 6 ||
       (p.excerpt?.length ?? 0) > 280}
-    <article class="card post" data-post={p.id}>
+    <article class="card post" class:is-hidden={p.is_hidden} data-post={p.id}>
       <header class="head">
         {#if p.author.avatar_url}
           <img class="avatar" src={p.author.avatar_url} alt="" />
@@ -663,9 +705,9 @@
             href={postHref(BOARD, p.id)}
             title={fullTime(p.created_at)}
             onclick={(e) => openFromLink(e, p.id)}>{snsTime(p.created_at)}</a
-          >
+          >{#if p.is_hidden}<span class="hidden-tag" title="관리자가 숨긴 글 — 글쓴이와 관리자만 봅니다">숨겨짐</span>{/if}
         </div>
-        {#if canEdit(p)}
+        {#if me}
           <div class="menu">
             <button
               type="button"
@@ -679,15 +721,29 @@
             >
             {#if menuFor === p.id}
               <div class="menu-list" role="menu">
-                <button role="menuitem" type="button" onclick={() => startEdit(p.id)}>수정</button>
-                <button role="menuitem" type="button" onclick={() => remove(p)}>삭제</button>
+                {#if canEdit(p)}
+                  <button role="menuitem" type="button" onclick={() => startEdit(p.id)}>수정</button>
+                  <button role="menuitem" type="button" onclick={() => remove(p)}>삭제</button>
+                {/if}
+                {#if canReport(p.author_id)}
+                  <button role="menuitem" type="button" onclick={() => openReport("post", p.id)}>신고</button>
+                {/if}
+                {#if isAdmin}
+                  {#if p.is_hidden}
+                    <button role="menuitem" type="button" onclick={() => moderate(p, "restore")}>되살리기</button>
+                  {:else}
+                    <button role="menuitem" type="button" onclick={() => moderate(p, "hide")}>숨기기</button>
+                  {/if}
+                {/if}
               </div>
             {/if}
           </div>
         {/if}
       </header>
       {#if p.excerpt}
-        <div class="text" class:clamp={long && !expanded[p.id]}>{p.excerpt}</div>
+        {@const head = p.lead_heading && p.excerpt.startsWith(p.lead_heading) ? p.lead_heading : null}
+        <div class="text" class:clamp={long && !expanded[p.id]}>{#if head}<strong class="lead">{head}</strong
+            >{p.excerpt.slice(head.length).replace(/^\n+/, "")}{:else}{p.excerpt}{/if}</div>
         {#if long && !expanded[p.id]}
           <button type="button" class="more-text" onclick={() => (expanded[p.id] = true)}>더보기</button>
         {:else if (p.excerpt?.length ?? 0) >= 1200}
@@ -754,6 +810,7 @@
                     <strong>{c.author?.display_name ?? "회원"}</strong>
                     <div class="c-body">{@html c.body_html}</div>
                     <small title={fullTime(c.created_at)}>{snsTime(c.created_at)}</small>
+                    {#if canReport(c.author_id)}<button type="button" class="c-report" onclick={() => openReport("comment", c.id)}>신고</button>{/if}
                   </div>
                 </li>
               {/each}
@@ -821,9 +878,13 @@
                     >{branchName(post.author.branch)}</span
                   >{/if}</strong
               >
-              <span class="time" title={fullTime(post.created_at)}>{snsTime(post.created_at)}</span>
+              <span class="time" title={fullTime(post.created_at)}>{snsTime(post.created_at)}</span
+              >{#if post.is_hidden}<span class="hidden-tag">숨겨짐</span>{/if}
             </div>
           </header>
+          {#if post.is_hidden}
+            <p class="hidden-note">관리자가 숨긴 글입니다. 글쓴이와 관리자만 볼 수 있습니다.</p>
+          {/if}
           <div class="om-body">
             {@html post.body_html}
             <!-- 블록 본문이 아니면(예전 글) 첨부 사진을 따로 -->
@@ -839,6 +900,14 @@
             <span>조회 {post.view_count}</span>
             {#if canEdit(post)}
               <button type="button" class="om-edit" onclick={() => startEdit(post.id)}>수정</button>
+            {/if}
+            {#if canReport(post.author_id)}
+              <button type="button" class="om-edit" onclick={() => openReport("post", post.id)}>신고</button>
+            {/if}
+            {#if isAdmin}
+              <button type="button" class="om-edit" onclick={() => moderate(post, post.is_hidden ? "restore" : "hide")}
+                >{post.is_hidden ? "되살리기" : "숨기기"}</button
+              >
             {/if}
           </div>
           <div class="actions">
@@ -877,6 +946,7 @@
                   <strong>{c.author?.display_name ?? "회원"}</strong>
                   <div class="c-body">{@html c.body_html}</div>
                   <small>{snsTime(c.created_at)}</small>
+                  {#if canReport(c.author_id)}<button type="button" class="c-report" onclick={() => openReport("comment", c.id)}>신고</button>{/if}
                 </div>
               </li>
             {/each}
@@ -986,6 +1056,30 @@
           </div>
         </form>
       {/if}
+    {/if}
+  </ModalFrame>
+
+  <ModalFrame open={!!reportFor} onclose={() => !reporting && (reportFor = null)} label="신고" title={reportFor?.type === "comment" ? "댓글 신고" : "글 신고"}>
+    {#if reportFor}
+      <form
+        class="report-form"
+        onsubmit={(e) => {
+          e.preventDefault();
+          sendReport();
+        }}
+      >
+        <p class="report-lead">관리자에게 알립니다. 이유는 고르거나 적지 않아도 됩니다.</p>
+        <div class="report-chips">
+          {#each REPORT_REASONS as r}
+            <button type="button" class:on={reportReason === r} aria-pressed={reportReason === r} onclick={() => (reportReason = reportReason === r ? "" : r)}>{r}</button>
+          {/each}
+        </div>
+        <textarea rows="3" maxlength="500" placeholder="이유 (선택)" aria-label="신고 이유" bind:value={reportReason}></textarea>
+        <div class="report-btns">
+          <button type="button" class="btn btn-ghost" disabled={reporting} onclick={() => (reportFor = null)}>취소</button>
+          <button class="btn btn-primary" disabled={reporting}>{reporting ? "보내는 중…" : "신고"}</button>
+        </div>
+      </form>
     {/if}
   </ModalFrame>
 
@@ -1654,5 +1748,102 @@
     .filterbar {
       padding-inline: var(--gutter);
     }
+  }
+  /* 숨긴 글·신고 (2026-11-28) */
+  .om-foot {
+    gap: 6px;
+  }
+  .om-foot > span:first-child {
+    margin-right: auto;
+  }
+  .post.is-hidden {
+    opacity: 0.72;
+    outline: 2px dashed var(--color-rule);
+    outline-offset: -2px;
+  }
+  .hidden-tag {
+    display: inline-block;
+    justify-self: start;
+    align-self: flex-start;
+    width: max-content;
+    margin: 3px 0 0;
+    padding: 0 7px;
+    border-radius: 999px;
+    background: var(--color-ink);
+    color: #fff;
+    font-size: 0.72rem;
+    font-weight: 700;
+    line-height: 18px;
+    vertical-align: 1px;
+  }
+  .hidden-note {
+    margin: 12px 16px 0;
+    padding: 8px 12px;
+    border-radius: var(--radius-md);
+    background: var(--color-surface-2);
+    color: var(--color-muted);
+    font-size: 0.85rem;
+  }
+  .c-report {
+    margin-left: 8px;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--color-muted);
+    font: inherit;
+    font-size: 0.75rem;
+    cursor: pointer;
+  }
+  .c-report:hover {
+    color: var(--color-primary);
+    text-decoration: underline;
+  }
+  .report-form {
+    display: grid;
+    gap: 12px;
+    padding: 4px 20px 20px;
+  }
+  .report-lead {
+    margin: 0;
+    color: var(--color-muted);
+    font-size: 0.88rem;
+  }
+  .report-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .report-chips button {
+    padding: 6px 12px;
+    border: 1px solid var(--color-rule);
+    border-radius: 999px;
+    background: var(--color-surface);
+    font: inherit;
+    font-size: 0.86rem;
+    cursor: pointer;
+  }
+  .report-chips button.on {
+    border-color: var(--color-primary);
+    background: var(--color-primary);
+    color: #fff;
+  }
+  .report-form textarea {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-md);
+    background: var(--color-surface);
+    font: inherit;
+    font-size: 16px;
+  }
+  .report-btns {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+  .text .lead {
+    display: block;
+    font-size: 1.05em;
+    margin-bottom: 2px;
   }
 </style>
