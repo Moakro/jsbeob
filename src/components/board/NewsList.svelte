@@ -70,7 +70,7 @@
             {#if n.is_pinned}<span class="tag notice">공지</span>{/if}
             {#if n.period}<span class="tag sched">일정</span>{/if}
             {#if !n.is_pinned && !n.period}<span class="tag">소식</span>{/if}
-            {#if n.is_hidden}<span class="hidden-tag">숨겨짐</span>{/if}
+            {#if n.is_hidden}<span class="hidden-tag">{n.is_pending ? "대기" : "숨겨짐"}</span>{/if}
             <span class="t">{n.title}</span>
             {#if n.period}
               <small class="period">{fmtPeriodFull(n.period)}</small>

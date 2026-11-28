@@ -976,7 +976,7 @@ async function listComments(req, env) {
   if (tp) {
     const cv = await viewerOf(req, env);
     if (!(await canSeePost(env, tp.board, tp.author_id, cv))) return json({ error: "not found" }, 404);
-    if (tp.status === "hidden" && !canSeePrivatePost(tp.author_id, cv)) return json({ error: "not found" }, 404);
+    if ((tp.status === "hidden" || tp.status === "pending") && !canSeePrivatePost(tp.author_id, cv)) return json({ error: "not found" }, 404);
     // 비공개 글의 답변은 글쓴이·관리자만
     if (tp.is_private === 1 && !canSeePrivatePost(tp.author_id, cv)) return json({ error: "비공개 글입니다", private: true }, 403);
   }
@@ -1067,7 +1067,7 @@ async function createComment(req, env) {
     const tb = await getBoard(env.DB, tp.board);
     const cu = { id: uid, level: u.level ?? 0 };
     if (!canSeePostIn(tb, tp.author_id, cu)) return json({ error: "not found" }, 404);
-    if (tp.status === "hidden" && !canSeePrivatePost(tp.author_id, cu)) return json({ error: "not found" }, 404);
+    if ((tp.status === "hidden" || tp.status === "pending") && !canSeePrivatePost(tp.author_id, cu)) return json({ error: "not found" }, 404);
     if (tp.is_private === 1 && !canSeePrivatePost(tp.author_id, cu)) return json({ error: "비공개 글입니다", private: true }, 403);
     if (!canCommentIn(tb, cu)) return json({ error: "이 게시판에는 댓글을 쓸 수 없습니다" }, 403);
   }
@@ -2269,7 +2269,9 @@ function shapePost(r, includeBody) {
     is_pinned: r.is_pinned === 1,
     is_private: r.is_private === 1,
     // 관리자가 숨긴 글(신고 처리, 2026-11-28) — 글쓴이·관리자에게만 온다
-    ...r.status === "hidden" ? { is_hidden: true } : {},
+    // 대기(pending, 공개 심사 중) 글도 방문자에게 안 보이므로 is_hidden 에 is_pending 을 더해 보낸다
+    ...r.status === "hidden" || r.status === "pending" ? { is_hidden: true } : {},
+    ...r.status === "pending" ? { is_pending: true } : {},
     // 목록용 본문 앞부분(오리알터 피드 카드) — 목록에서만 채운다
     ...r.excerpt != null ? { excerpt: r.excerpt } : {},
     // 본문 첫 블록이 소제목이면 그 글(오리알터 카드에서 굵게 — ＋ 버튼 시트의 '제목', 2026-11-28)
@@ -2317,13 +2319,23 @@ async function listPosts(req, env) {
     keys = asked.filter((k) => keys.includes(k));
   }
   if (keys.length === 0) return json({ posts: [], next: null, has_more: false });
-  // 숨긴 글(비공개·신고 처리)은 글쓴이·관리자에게 '숨겨짐' 표시로 보인다 (2026-11-28)
+  // pending_count=1: 대기(공개 심사 중) 글 수만 — 소식 상자 '전체 보기' 옆 배지용(관리자 전부, 글쓴이 본인) (2026-11-28)
+  if (url.searchParams.get("pending_count") === "1") {
+    if (!viewer) return json({ pending: 0 });
+    const admin = viewer.level >= LEVEL.ADMIN;
+    const r = await env.DB.prepare(
+      `SELECT COUNT(*) AS n FROM posts p WHERE p.status='pending' AND p.board IN (${keys.map(() => "?").join(",")})${admin ? "" : " AND p.author_id = ?"}`
+    ).bind(...keys, ...(admin ? [] : [viewer.id])).first();
+    return json({ pending: Number(r?.n ?? 0) });
+  }
+  // 목록에는 공개 글과 대기 글(pending, 공개 심사 중)까지만 — 대기 글은 관리자(전부)·글쓴이(본인)에게 '대기' 표시로 (2026-11-28 오너)
+  // 비공개(hidden: 영구 비공개·신고 숨김)는 관리자에게도 목록에 안 나온다 — 글 주소로만(관리자·글쓴이), 신고 숨김은 관리 '신고' 탭에서.
   // 피드(view=feed) 게시판은 늘, 목록형은 '전체 보기' 목록이 with_hidden=1 을 줄 때만(첫 화면 소식 상자는 빼고)
   const feedOnly = keys.every((k) => cfg.get(k)?.view === "feed");
   const withHidden = feedOnly || url.searchParams.get("with_hidden") === "1";
-  if (withHidden && viewer && viewer.level >= LEVEL.ADMIN) where.push("p.status IN ('published','hidden')");
+  if (withHidden && viewer && viewer.level >= LEVEL.ADMIN) where.push("p.status IN ('published','pending')");
   else if (withHidden && viewer) {
-    where.push("(p.status='published' OR (p.status='hidden' AND p.author_id = ?))");
+    where.push("(p.status='published' OR (p.status='pending' AND p.author_id = ?))");
     binds.push(viewer.id);
   } else where.push("p.status='published'");
   where.push(`p.board IN (${keys.map(() => "?").join(",")})`);
@@ -2598,12 +2610,12 @@ async function getPost(req, env, id) {
             ${POST_COMMENT_COUNT_SQL} AS comment_count
      FROM posts p JOIN users u ON u.id = p.author_id
      LEFT JOIN member_profiles mp ON mp.user_id = u.id
-     WHERE p.id=? AND p.status IN ('published','hidden')`
+     WHERE p.id=? AND p.status IN ('published','hidden','pending')`
   ).bind(id).first();
   if (!r) return json({ error: "not found" }, 404);
   const viewer = await viewerOf(req, env);
   // 숨긴 글(신고 처리) — 글쓴이·관리자만 본다. 그 밖에는(공유 미리보기를 만드는 서버 요청 포함) 없는 글
-  if (r.status === "hidden" && !canSeePrivatePost(r.author_uid, viewer)) return json({ error: "not found" }, 404);
+  if (r.status !== "published" && !canSeePrivatePost(r.author_uid, viewer)) return json({ error: "not found" }, 404);
   const rb = await getBoard(env.DB, r.board);
   if (!canSeePostIn(rb, r.author_uid, viewer)) {
     return json({ error: "not found" }, 404);
@@ -2790,6 +2802,7 @@ async function reportHidden(env, id) {
 }
 /**
  * 공개·비공개(숨김) 전환(글 보기 제목 줄 아래 버튼, 2026-11-28) — body {status: 'published'|'hidden'}.
+ * 대기(pending) 글도 같은 길로 공개한다 — 일정(events)은 글 저장 때 이미 만들어져 있고 달력이 글 상태로 거르므로 따로 할 일 없음.
  * 관리자 또는 글쓴이. 신고로 숨긴 글은 관리자만 공개로 되돌린다(그때 신고 기록도 '되살림'으로 — 신고 처리 화면과 같게).
  * 숨김은 상태만 바꾼다: 달력 일정(events)은 그대로 두고 목록·달력이 글 상태로 거른다. updated_at 은 건드리지 않는다.
  */
@@ -2798,7 +2811,7 @@ async function setPostStatus(req, env, id) {
   if (!uid) return json({ error: "not authenticated" }, 401);
   const u = await loadUser(env, uid);
   const post = await env.DB.prepare("SELECT author_id, status FROM posts WHERE id=?").bind(id).first();
-  if (!post || (post.status !== "published" && post.status !== "hidden")) return json({ error: "not found" }, 404);
+  if (!post || !["published", "hidden", "pending"].includes(post.status)) return json({ error: "not found" }, 404);
   const body = await req.json().catch(() => ({}));
   if (body.status !== "published" && body.status !== "hidden") return json({ error: "status 는 published·hidden 중 하나여야 합니다" }, 400);
   const admin = (u?.level ?? 0) >= LEVEL.ADMIN;

@@ -178,7 +178,7 @@
             <span class="title">
               {#if p.is_pinned}<span class="pin">공지</span>{/if}
               {#if p.is_private}<span class="lock">🔒 비공개</span>{/if}
-              {#if p.is_hidden}<span class="hidden-tag">숨겨짐</span>{/if}
+              {#if p.is_hidden}<span class="hidden-tag">{p.is_pending ? "대기" : "숨겨짐"}</span>{/if}
               {p.title}
               {#if p.comment_count > 0}<span class="cc">[{p.comment_count}]</span>{/if}
             </span>
